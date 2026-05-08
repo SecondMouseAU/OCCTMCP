@@ -155,11 +155,16 @@ public enum RenderPreviewTool {
             return .init("No renderable bodies.", isError: true)
         }
 
-        // v0.5: overlay sidecar annotations as additional ViewportBodies.
+        // v0.5+: overlay sidecar primitives as additional ViewportBodies.
+        // v0.9+: dimensions go through OffscreenRenderOptions.measurements
+        // instead, so OffscreenRenderer can render leader/arrow/label
+        // in a 2D overlay pass with proper text.
+        var measurements: [ViewportMeasurement] = []
         if options.renderAnnotations {
             let sidecar = AnnotationsStore(outputDir: outputDir).read()
             let overlays = AnnotationsRenderer.bodies(from: sidecar)
             bodies.append(contentsOf: overlays)
+            measurements = AnnotationsRenderer.measurements(from: sidecar)
         }
 
         guard let renderer = OffscreenRenderer() else {
@@ -173,6 +178,7 @@ public enum RenderPreviewTool {
             backgroundColor: options.background.color
         )
         renderOptions.cameraState = makeCameraState(options: options, bodies: bodies)
+        renderOptions.measurements = measurements
 
         let url = URL(fileURLWithPath: outputPath)
         try? FileManager.default.createDirectory(

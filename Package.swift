@@ -22,26 +22,31 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        // Floor 0.168.0 matches OCCTSwiftTools' minimum (ImportProgress + the
-        // GPU edge/vertex pick fields). When OCCT 8.0.0 GA tags, bump to
-        // OCCTSwift 1.0.0.
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "0.168.0"),
+        // OCCTSwift 0.170.1 — kernel ShapeMeasurements; bridge cleanups
+        // (issue #99 redistributions). When OCCT 8.0.0 GA tags, bump
+        // to 1.0.0 on GA day.
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "0.170.1"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "0.1.0"),
-        // ScriptHarness + DrawingComposer for shared types and the
-        // generate_drawing pipeline.
-        // NOTE: branch("main") rather than from: "0.9.0" because the
-        // post-Tools-split fix (5533b89) hasn't been tagged yet. Bump to
-        // a real tag once v0.9.0 ships.
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", branch: "main"),
+        // ScriptHarness + DrawingComposer. v0.9.0 is the first
+        // post-Tools-split tag — drops the v0.4–v0.8 branch("main")
+        // workaround and is the first SPI-eligible state.
+        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "0.9.0"),
         // Tools is the Shape ↔ ViewportBody bridge (split out of
-        // OCCTSwiftViewport in v0.55.0). render_preview also pulls in
-        // OCCTSwiftViewport directly for the OffscreenRenderer.
-        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "0.4.1"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "0.55.0"),
+        // OCCTSwiftViewport in v0.55.0). v0.6.0 split file I/O into
+        // a sibling OCCTSwiftIO package; we still consume CADFileLoader
+        // / BodyUtilities from Tools so consumers don't need to import
+        // OCCTSwiftIO directly.
+        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "0.6.0"),
+        // v0.55.2 ships the headless measurement overlay
+        // (OCCTSwiftViewport#26) — closes the dimension-text-overlay
+        // item we deferred from v0.5. The new surface is
+        // OffscreenRenderOptions.measurements: [ViewportMeasurement],
+        // mapping directly onto AnnotationsSidecar.dimensions.
+        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "0.55.2"),
         // OCCTSwiftAIS: high-level scene mgmt — selection-from-topology,
         // history-based selection remap, dimensions, standard scene
         // objects. Powers the v0.4 net-new tools.
-        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "0.6.0"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "0.7.2"),
     ],
     targets: [
         .target(

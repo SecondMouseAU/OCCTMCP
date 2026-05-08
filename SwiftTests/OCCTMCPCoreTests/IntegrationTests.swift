@@ -198,6 +198,108 @@ struct IntegrationTests {
         }
     }
 
+    @Test("render_preview overlays a linear dimension on the rendered PNG")
+    func dimensionOverlayRenders() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-dimoverlay-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Cylinder fixture — same shape as historyRemapPreservesAcrossTransform.
+        guard let cyl = Shape.cylinder(radius: 10, height: 25) else {
+            Issue.record("Failed to synthesise cylinder fixture")
+            return
+        }
+        try Exporter.writeBREP(shape: cyl, to: URL(fileURLWithPath: "\(scene)/cyl.brep"))
+        let manifest = ScriptManifest(
+            description: "Dimension overlay test scene",
+            bodies: [BodyDescriptor(id: "cyl", file: "cyl.brep", color: [0.8, 0.7, 0.3, 1])]
+        )
+        let store = ManifestStore(path: "\(scene)/manifest.json")
+        try store.write(manifest)
+
+        let harness = try Harness(
+            binary: binary,
+            extraEnv: ["OCCTMCP_OUTPUT_DIR": scene]
+        )
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // Pick two vertices on the cylinder so we have known anchor
+        // points for a linear dimension.
+        try harness.send(.init(
+            id: 40, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("cyl"),
+                    "kind": .string("vertex"),
+                    "limit": .int(2),
+                ]),
+            ])
+        ))
+        let selectResp = try harness.recv(timeout: 10)
+        guard case .object(let result)? = selectResp["result"],
+              case .array(let content)? = result["content"],
+              case .object(let firstContent)? = content.first,
+              let text = firstContent["text"]?.stringValue,
+              let selData = text.data(using: .utf8),
+              let parsed = try JSONSerialization.jsonObject(with: selData) as? [String: Any],
+              let selections = parsed["selections"] as? [[String: Any]],
+              selections.count >= 2,
+              let id1 = selections[0]["selectionId"] as? String,
+              let id2 = selections[1]["selectionId"] as? String else {
+            Issue.record("select_topology(vertex, limit=2) didn't return two picks")
+            return
+        }
+
+        // Add a linear dimension between them.
+        try harness.send(.init(
+            id: 41, method: "tools/call",
+            params: .object([
+                "name": .string("add_dimension"),
+                "arguments": .object([
+                    "kind": .string("linear"),
+                    "id": .string("test_height"),
+                    "anchors": .object([
+                        "from": .string(id1),
+                        "to": .string(id2),
+                    ]),
+                ]),
+            ])
+        ))
+        let dimResp = try harness.recv(timeout: 5)
+        #expect(dimResp["error"] == nil)
+
+        // Render and assert the PNG was produced + non-trivial.
+        let pngPath = "\(scene)/render.png"
+        try harness.send(.init(
+            id: 42, method: "tools/call",
+            params: .object([
+                "name": .string("render_preview"),
+                "arguments": .object([
+                    "outputPath": .string(pngPath),
+                    "options": .object([
+                        "width": .int(400),
+                        "height": .int(300),
+                        "renderAnnotations": .bool(true),
+                    ]),
+                ]),
+            ])
+        ))
+        let renderResp = try harness.recv(timeout: 30)
+        #expect(renderResp["error"] == nil)
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: pngPath)
+        let size = (attrs[.size] as? Int) ?? 0
+        // PNG with a body + dimension overlay should comfortably exceed
+        // ~2 KB. A blank 400×300 RGBA PNG is ~700 bytes.
+        #expect(size > 2_000, "rendered PNG was \(size) bytes — overlay may not have been drawn")
+    }
+
     @Test("annotation tools round-trip via the sidecar")
     func annotationsRoundTrip() async throws {
         guard let binary = Self.binaryURL else {
