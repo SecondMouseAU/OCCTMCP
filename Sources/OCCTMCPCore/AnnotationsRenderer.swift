@@ -1,6 +1,6 @@
 // AnnotationsRenderer — turn the AnnotationsSidecar's primitives and
 // dimensions into ViewportBody geometry that OffscreenRenderer can
-// draw. As of v0.6 the supported set is:
+// draw. As of v0.9 the supported set is:
 //
 //   trihedron     — 3 cylinders + 3 spheres at the tips
 //   workPlane     — thin box at origin, oriented to the supplied normal
@@ -10,11 +10,15 @@
 //   pointCloud    — N small spheres (capped at maxPointCloudPoints to
 //                   avoid blowing up Metal vertex counts; over the cap
 //                   the cloud is silently truncated)
-//   dimension     — 3D leader lines + arrow caps for linear, angular,
-//                   and radial. No text label — the value is in the
-//                   add_dimension JSON response and the LLM already has
-//                   it. Text overlay belongs in OffscreenRenderer as a
-//                   2D pass; deferred until that surface exists.
+//   dimension     — emitted as ViewportMeasurement (.distance / .angle
+//                   / .radius) and overlaid by OffscreenRenderer's 2D
+//                   measurement pass (OCCTSwiftViewport#26, v0.55.2+).
+//                   Includes value labels, arrow tips, leader lines —
+//                   no in-Swift cylinder synthesis needed any more.
+//                   The v0.6 3D-leader fallback is retained for legacy
+//                   sidecars whose annotation entries don't carry
+//                   anchorPoints (older add_dimension responses pre-
+//                   dating circleCenter capture).
 
 import Foundation
 import simd
@@ -54,10 +58,60 @@ public enum AnnotationsRenderer {
                 continue   // future kinds — silently skip
             }
         }
-        for dim in sidecar.dimensions {
-            if let body = dimension(dim) { out.append(body) }
-        }
+        // Dimensions are no longer synthesised as 3D leader cylinders —
+        // they're overlaid as ViewportMeasurements via the v0.55.2
+        // OffscreenRenderer surface (see `measurements(from:)`).
         return out
+    }
+
+    /// v0.9: translate sidecar dimensions into ViewportMeasurement
+    /// values that OffscreenRenderer's headless overlay pass renders
+    /// as proper 2D leader lines + arrow tips + value labels. Mapping
+    /// is direct:
+    ///   linear  → .distance(start, end)
+    ///   angular → .angle(pointA, vertex, pointB)
+    ///   radial  → .radius(center, edgePoint)
+    /// Returns an empty array if the sidecar has no dimensions or all
+    /// are missing anchor points (very old sidecars).
+    public static func measurements(from sidecar: AnnotationsSidecar) -> [ViewportMeasurement] {
+        return sidecar.dimensions.compactMap { dim in
+            guard let pts = dim.anchorPoints else { return nil }
+            switch dim.kind {
+            case "linear":
+                guard pts.count >= 2 else { return nil }
+                return .distance(.init(
+                    id: dim.id,
+                    start: simd3f(pts[0]),
+                    end: simd3f(pts[1]),
+                    label: dim.label
+                ))
+            case "angular":
+                guard pts.count >= 3 else { return nil }
+                return .angle(.init(
+                    id: dim.id,
+                    pointA: simd3f(pts[0]),
+                    vertex: simd3f(pts[1]),
+                    pointB: simd3f(pts[2]),
+                    label: dim.label
+                ))
+            case "radial":
+                guard pts.count >= 2 else { return nil }
+                return .radius(.init(
+                    id: dim.id,
+                    center: simd3f(pts[0]),
+                    edgePoint: simd3f(pts[1]),
+                    showDiameter: false,   // already encoded in `value`
+                    label: dim.label
+                ))
+            default:
+                return nil
+            }
+        }
+    }
+
+    private static func simd3f(_ pts: [Double]) -> SIMD3<Float> {
+        guard pts.count >= 3 else { return SIMD3<Float>(0, 0, 0) }
+        return SIMD3(Float(pts[0]), Float(pts[1]), Float(pts[2]))
     }
 
     // MARK: - Per-kind synthesis
