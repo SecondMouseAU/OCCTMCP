@@ -5,6 +5,8 @@
 
 MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with [OpenCASCADE](https://www.opencascade.com/) via the [OCCTSwift](https://github.com/gsdali/OCCTSwift) family.
 
+Part of the [OCCTSwift ecosystem](https://github.com/gsdali/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
+
 The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 49 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, and dimension overlays.
 
 ## How It Works
