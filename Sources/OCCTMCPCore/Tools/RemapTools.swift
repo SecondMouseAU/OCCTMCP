@@ -87,7 +87,7 @@ public enum RemapTools {
 
             // v0.6: prefer the recorded TopologyGraph history over the
             // centroid heuristic when a mutating tool opted in.
-            let recordedEntry = await historyRegistry.entry(for: bodyId)
+            let recordedGraph = await historyRegistry.graph(for: bodyId)
 
             for id in ids {
                 guard let anchor = await registry.anchor(for: id) else {
@@ -99,12 +99,11 @@ public enum RemapTools {
                     ))
                     continue
                 }
-                if let recorded = recordedEntry,
+                if let graph = recordedGraph,
                    let entry = remapViaHistory(
                        originalId: id,
                        anchor: anchor,
-                       graph: recorded.graph,
-                       isIdentityPreserving: recorded.isIdentityPreserving,
+                       graph: graph,
                        bodyId: bodyId
                    ) {
                     // Refresh the registry so the new selectionId
@@ -136,22 +135,16 @@ public enum RemapTools {
     }
 
     /// History-based remap path. Mirrors the AIS InteractiveContext.remap
-    /// algorithm: TopologyGraph.findDerived(of:) walks history records.
-    /// Returns nil if the anchor isn't a face/edge/vertex (body always
-    /// rebinds; whole-body picks aren't routed here).
-    ///
-    /// `isIdentityPreserving` flags ops like transform_body / heal_shape
-    /// where the topology graph is index-stable across the mutation —
-    /// every pre-mutation node maps 1:1 to the same index post-mutation.
-    /// OCCT's `findDerived` only walks recorded modifications, so an
-    /// untouched node returns an empty derivative list. For
-    /// identity-preserving ops we treat that as "preserved at the same
-    /// index" rather than falling back to the heuristic.
+    /// algorithm: TopologyGraph.findDerivedOrSelf(of:) returns either
+    /// the modification chain (touched nodes), [self] (untouched —
+    /// either no record or implicit identity), or [] (explicitly
+    /// recorded as deleted). Returns nil if the anchor isn't a
+    /// face/edge/vertex (body always rebinds; whole-body picks aren't
+    /// routed here).
     static func remapViaHistory(
         originalId: String,
         anchor: TopologyAnchor,
         graph: TopologyGraph,
-        isIdentityPreserving: Bool,
         bodyId: String
     ) -> RemapEntry? {
         let kind: TopologyGraph.NodeKind
@@ -178,27 +171,15 @@ public enum RemapTools {
         case .vertex:  kindCount = graph.vertexCount
         default:       kindCount = 0
         }
-        let derived = graph.findDerived(of: .init(kind: kind, index: originalIndex))
+        let derived = graph.findDerivedOrSelf(of: .init(kind: kind, index: originalIndex))
         if derived.isEmpty {
-            // Identity-preserving op + valid index → preserved at same
-            // index. Otherwise we can't tell (deleted vs untouched);
-            // hand off to the heuristic.
-            if isIdentityPreserving && originalIndex < kindCount {
-                let sameId: String
-                switch kind {
-                case .face:   sameId = TopologyAnchor.face(bodyId: bodyId, index: originalIndex).selectionId
-                case .edge:   sameId = TopologyAnchor.edge(bodyId: bodyId, index: originalIndex).selectionId
-                case .vertex: sameId = TopologyAnchor.vertex(bodyId: bodyId, index: originalIndex).selectionId
-                default:      return nil
-                }
-                return RemapEntry(
-                    originalSelectionId: originalId,
-                    newSelectionIds: [sameId],
-                    fate: "preserved",
-                    confidenceMm: 0
-                )
-            }
-            return nil
+            // Explicitly recorded as deleted — definitive.
+            return RemapEntry(
+                originalSelectionId: originalId,
+                newSelectionIds: [],
+                fate: "lost",
+                confidenceMm: 0
+            )
         }
         // Filter to same-kind derivatives and clamp to the live graph.
         let validIndices = derived
