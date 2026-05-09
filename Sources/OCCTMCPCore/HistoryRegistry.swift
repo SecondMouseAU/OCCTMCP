@@ -107,6 +107,35 @@ extension HistoryRegistry {
         graphs[bBodyId] = postGraph
     }
 
+    /// Translate a single-input `ShapeHistoryRef` (gsdali/OCCTSwift#165
+    /// Tier 2 / Tier 3 — fillet / chamfer / shell / defeature, plus
+    /// `FeatureReconstructor.BuildResult.histories[id]`) into
+    /// `TopologyGraph.recordHistory` entries on the post-mutation graph.
+    /// Same per-kind matching logic as `recordBooleanHistory`'s
+    /// per-side path, just without a second input shape.
+    public func recordSingleInputHistory(
+        bodyId: String,
+        inputShape: Shape,
+        output: Shape,
+        ref: ShapeHistoryRef,
+        operationName: String
+    ) {
+        guard let postGraph = TopologyGraph(shape: output) else { return }
+        let postFaces = output.subShapes(ofType: .face)
+        let postEdges = output.subShapes(ofType: .edge)
+        let postVertices = output.subShapes(ofType: .vertex)
+        let faceCentres: [SIMD3<Double>] = postFaces.map { $0.centerOfMass ?? .zero }
+        let edgeCentres: [SIMD3<Double>] = postEdges.map { $0.centerOfMass ?? .zero }
+        let vertexCentres: [SIMD3<Double>] = postVertices.map { $0.centerOfMass ?? .zero }
+
+        recordSide(
+            inputShape: inputShape, postGraph: postGraph,
+            faceCentres: faceCentres, edgeCentres: edgeCentres, vertexCentres: vertexCentres,
+            ref: ref, operationName: operationName
+        )
+        graphs[bodyId] = postGraph
+    }
+
     private func recordSide(
         inputShape: Shape,
         postGraph: TopologyGraph,

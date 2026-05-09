@@ -24,10 +24,12 @@ let package = Package(
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
         // OCCT 8.0.0 GA shipped 2026-05-09. The whole OCCT-Swift
         // family tagged v1.0 alongside it; this cohort is what we pin
-        // against now. OCCTSwift 1.0.2 ships per-input boolean history
-        // (gsdali/OCCTSwift#165 Tier 1) — drives boolean_op's
-        // history-based remap_selection in v0.10.
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.0.2"),
+        // against now. OCCTSwift 1.0.3 closes gsdali/OCCTSwift#165:
+        //   Tier 1 (v1.0.2): per-input boolean history → boolean_op
+        //   Tier 2 (v1.0.3): fillet/chamfer/shell/defeature history
+        //   Tier 3 (v1.0.3): FeatureReconstructor.BuildResult.histories
+        // → drives apply_feature's history-based remap_selection in v1.1.
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.0.3"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.0"),
         // OCCTSwiftTools 1.0.1 ships PointConverter
