@@ -74,7 +74,7 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
 
 ### Layered architecture (post-Tools / AIS split)
 
-OCCTSwift / OCCTSwiftViewport are kernel layers. `OCCTSwiftTools` is the bridge (Shape ↔ ViewportBody, plus Curve / Surface / Wire / **Point** converters). `OCCTSwiftAIS` is the interactive-services layer (selection, manipulators, dimensions). `render_preview` depends on **Tools + Viewport**, not Viewport alone — that's why we hold OCCTSwiftViewport at 0.55.x even though v1.0.0 is tagged: Tools / AIS / Scripts v1.0 still pin Viewport `from: 0.55.0` (`<1.0.0`). It bumps when those bump.
+OCCTSwift / OCCTSwiftViewport are kernel layers. `OCCTSwiftTools` is the bridge (Shape ↔ ViewportBody, plus Curve / Surface / Wire / **Point** converters). `OCCTSwiftAIS` is the interactive-services layer (selection, manipulators, dimensions). `render_preview` depends on **Tools + Viewport**. The whole cohort is now aligned at v1.0.x — Tools / AIS / Scripts v1.0 graduated their Viewport floors to 1.0.x, so the v0.10–v1.1 hold at Viewport 0.55.x is gone.
 
 ### History wiring (selectionId remap across mutations)
 
@@ -90,7 +90,7 @@ Per-tool opt-in status:
 | `transform_body` | identity history (topology preserved)     | every node maps 1:1 |
 | `heal_shape`     | identity history if pre/post counts match | falls back to heuristic if shape repair changed topology |
 | `boolean_op`     | per-input history via `recordBooleanHistory` | OCCTSwift `*WithFullHistory` variants; recorded under output + both inputs |
-| `apply_feature`  | per-feature history via `recordSingleInputHistory` | OCCTSwift v1.0.3 `FeatureReconstructor.BuildResult.histories[id]` — populated for boolean / hole / second-additive specs with non-nil ids; fillet/chamfer paths still hit the heuristic until `applyFillet` / `applyChamfer` go through `*WithFullHistory` upstream |
+| `apply_feature`  | per-feature history via `recordSingleInputHistory` | OCCTSwift v1.0.4 `FeatureReconstructor.BuildResult.histories[id]` — every spec kind (boolean / hole / second-additive / fillet / chamfer) populates a `ShapeHistoryRef` when the spec carries a non-nil id |
 | `mirror_or_pattern` | heuristic only                         | doesn't fit the contract — needs a `find_correspondences` tool |
 
 ### Data flow for `execute_script`
@@ -125,12 +125,12 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 1.0.3 — kernel wrapper around OpenCASCADE, ships `*WithFullHistory` for booleans + Tier 2 modifications + `FeatureReconstructor.BuildResult.histories`
+- **OCCTSwift** ≥ 1.0.4 — kernel wrapper around OpenCASCADE; full per-input history coverage for booleans + every `FeatureSpec` kind in `BuildResult.histories[id]`
 - **OCCTSwiftMesh** ≥ 1.0.0 — mesh-domain algorithms (QEM decimation today; smoothing / repair / remeshing in roadmap)
-- **OCCTSwiftScripts** ≥ 1.0.0 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process
-- **OCCTSwiftTools** ≥ 1.0.1 — Shape↔ViewportBody bridge, ships `PointConverter`
-- **OCCTSwiftViewport** ≥ 0.55.2 — Metal viewport + offscreen renderer. Held under 1.0 because Tools/AIS/Scripts v1.0 still pin Viewport `<1.0.0`
-- **OCCTSwiftAIS** ≥ 1.0.0 — selection, manipulators, dimensions
+- **OCCTSwiftScripts** ≥ 1.0.2 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process
+- **OCCTSwiftTools** ≥ 1.1.0 — Shape↔ViewportBody bridge; ships `PointConverter` and wires `pointRadius` / `vertexColors` through to `ViewportBody`
+- **OCCTSwiftViewport** ≥ 1.0.2 — Metal viewport + offscreen renderer; v1.0.2 added the point-sprite pipeline that makes `pointCloud` overlays actually render
+- **OCCTSwiftAIS** ≥ 1.0.1 — selection, manipulators, dimensions
 - **modelcontextprotocol/swift-sdk** ≥ 0.11.0 — MCP transport + types
 
 ### Node implementation
