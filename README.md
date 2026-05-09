@@ -1,21 +1,26 @@
 # OCCTMCP
 
-MCP server that gives LLMs the ability to create and iterate on 3D CAD models using [OpenCASCADE](https://www.opencascade.com/) via [OCCTSwift](https://github.com/gsdali/OCCTSwift).
+[![Swift 6.1](https://img.shields.io/badge/Swift-6.1-orange.svg)](https://swift.org)
+[![License: LGPL v2.1+](https://img.shields.io/badge/License-LGPL--2.1--or--later-blue.svg)](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html)
+
+MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with [OpenCASCADE](https://www.opencascade.com/) via the [OCCTSwift](https://github.com/gsdali/OCCTSwift) family.
+
+The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 49 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, and dimension overlays.
 
 ## How It Works
 
 ```
-LLM writes Swift CAD code via execute_script
-  → OCCTSwiftScripts compiles & runs it (~0.5s incremental)
-  → Outputs BREP/STEP files + manifest.json
-  → OCCTSwiftViewport auto-reloads the 3D model
+LLM picks a typed tool (boolean_op, transform_body, render_preview, …)
+  → OCCTMCP runs the OCCT operation directly via OCCTSwift / Tools / AIS / Mesh
+  → Writes BREP/STEP/PNG + manifest.json + annotations.json
+  → OCCTSwiftViewport (optional) auto-reloads the 3D model
 ```
 
-The LLM has full access to OCCTSwift's 900+ CAD operations: primitives, booleans, fillets, sweeps, lofts, patterns, healing, measurement, import/export, and more.
+For novel geometry the typed tools don't cover, the LLM falls back to `execute_script`: arbitrary Swift code with the full OCCTSwift API, compiled and run in-process.
 
 ## Tools
 
-36 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most LLM flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "export to STEP", and "draw this" without ever round-tripping through `execute_script` — that's reserved for novel geometry the typed tools don't cover.
+49 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
 
 ### Authoring
 
@@ -58,8 +63,8 @@ The LLM has full access to OCCTSwift's 900+ CAD operations: primitives, booleans
 | Tool | Purpose |
 |------|---------|
 | `apply_feature` | Drill / fillet / chamfer / extrude / revolve / thread / boolean (FeatureSpec) |
-| `transform_body` | Translate / rotate / uniform-scale (in place or new body) |
-| `boolean_op` | Union / subtract / intersect / split between two bodies |
+| `transform_body` | Translate / rotate / uniform-scale (records identity history for remap) |
+| `boolean_op` | Union / subtract / intersect / split (records per-input history for remap) |
 | `mirror_or_pattern` | Mirror / linear / circular pattern → N new bodies |
 
 ### Engineering analysis
@@ -69,6 +74,28 @@ The LLM has full access to OCCTSwift's 900+ CAD operations: primitives, booleans
 | `check_thickness` | Wall-thickness analysis with thin-region flags |
 | `analyze_clearance` | Pairwise interference / minimum clearance |
 | `heal_shape` | Heal imported / non-watertight geometry; before/after stats |
+
+### Selection & remap
+
+| Tool | Purpose |
+|------|---------|
+| `select_topology` | Pick faces / edges / vertices, get a stable `selectionId` |
+| `remap_selection` | Carry `selectionId`s across mutations (history-based for transform / heal / boolean; centroid heuristic fallback otherwise) |
+| `select_by_feature` | Bulk pick by feature kind (e.g. all hole edges) |
+| `list_selections` | Inspect the in-memory selection registry |
+| `clear_selections` | Wipe the registry |
+
+### Annotations & overlays
+
+| Tool | Purpose |
+|------|---------|
+| `add_dimension` | Add a linear / angular / radial dimension; renders in `render_preview` |
+| `add_scene_primitive` | Add trihedron / workPlane / axis / pointCloud / boundingBox / diffMarker |
+| `auto_dimension` | Heuristic dimension drop for the principal extents |
+| `show_bounding_box` | Add a body's AABB as an overlay |
+| `diff_overlay` | Visualize the diff between two snapshots |
+| `remove_scene_annotation` | Remove a dimension or primitive by id |
+| `list_annotations` | Inspect the annotations sidecar |
 
 ### I/O
 
@@ -85,7 +112,7 @@ The LLM has full access to OCCTSwift's 900+ CAD operations: primitives, booleans
 |------|---------|
 | `generate_mesh` | Tessellate to triangles + quality metrics |
 | `simplify_mesh` | QEM mesh decimation to .stl/.obj — wraps OCCTSwiftMesh's `Mesh.simplified` (vendored meshoptimizer) |
-| `render_preview` | One-shot PNG render |
+| `render_preview` | One-shot PNG render with measurement labels and primitive overlays |
 | `generate_drawing` | Multi-view ISO 128-30 DXF technical drawing |
 
 ### Topology graph (low-level)
@@ -98,22 +125,44 @@ The LLM has full access to OCCTSwift's 900+ CAD operations: primitives, booleans
 | `graph_ml` | Export topology + UV/edge samples as ML-friendly JSON |
 | `feature_recognize` | Pockets + holes (raw BREP path; `recognize_features` is the scene-aware wrapper) |
 
+## Implementations
+
+This repo ships two implementations side-by-side:
+
+- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 49 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
+- **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 36 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
+
+Both speak stdio MCP and read/write the same manifest format.
+
 ## Prerequisites
 
-- [OCCTSwift](https://github.com/gsdali/OCCTSwift) — Swift wrapper for OpenCASCADE
-- [OCCTSwiftScripts](https://github.com/gsdali/OCCTSwiftScripts) — Script runner (sibling directory)
-- [OCCTSwiftViewport](https://github.com/gsdali/OCCTSwiftViewport) — Metal viewport for live preview (optional)
-- Node.js 18+
-- Swift 6.0+ / Xcode 16+
+- macOS 15+ (for the Swift implementation)
+- Swift 6.1+ / Xcode 16+
+- For the Node implementation only: Node.js 18+, plus a sibling clone of [OCCTSwiftScripts](https://github.com/gsdali/OCCTSwiftScripts) so `occtkit` is on `$PATH` (or `make install` it)
 
 ## Setup
 
-Two implementations live in this repo, side-by-side:
+### Swift implementation (recommended)
 
-- **Node / TypeScript** (`src/`, `dist/`) — the production server. Shells out to the `occtkit` CLI for everything Swift-side. 36 tools, including `execute_script`.
-- **Swift** (`Sources/`, `Package.swift`) — an in-process port using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). Currently 32 of 36 tools, all running directly against OCCTSwift / OCCTSwiftMesh / DrawingComposer with no subprocess. `execute_script`, `set_assembly_metadata`, `render_preview`, `check_thickness`, and `graph_ml` are still pending.
+```bash
+git clone https://github.com/gsdali/OCCTMCP.git
+cd OCCTMCP
+swift build -c release
+```
 
-Pick whichever fits your platform: Node runs anywhere; the Swift binary is macOS-only (since OCCT.xcframework targets arm64 macOS 12+ / iOS 15+) but eliminates the cold-start of the SwiftPM workspace and the JSONL marshalling overhead.
+In Claude Code's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "occtmcp": {
+      "command": "/path/to/OCCTMCP/.build/release/occtmcp-server"
+    }
+  }
+}
+```
+
+The Swift package is published on the [Swift Package Index](https://swiftpackageindex.com/gsdali/OCCTMCP).
 
 ### Node implementation
 
@@ -124,7 +173,7 @@ npm install
 npm run build
 ```
 
-In Claude Code's `.mcp.json`:
+In `.mcp.json`:
 
 ```json
 {
@@ -137,29 +186,19 @@ In Claude Code's `.mcp.json`:
 }
 ```
 
-### Swift implementation
-
-```bash
-swift build -c release
-```
-
-In `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "occtmcp": {
-      "command": "/path/to/OCCTMCP/.build/release/occtmcp-server"
-    }
-  }
-}
-```
-
-The Swift package is intended for [Swift Package Index](https://swiftpackageindex.com) publication once `execute_script` lands and the integration test suite is in place. Track progress in [PR #11](https://github.com/gsdali/OCCTMCP/pull/11) and the follow-up Phase 5.4 work.
-
 ## Example
 
-Once configured, an LLM can create CAD models by writing Swift code:
+The LLM can author CAD models by composing typed tools — most everyday flows never touch `execute_script`:
+
+```text
+boolean_op(op: "subtract", aBodyId: "block", bBodyId: "hole", outputBodyId: "drilled")
+  → "drilled" body added to the scene
+select_topology(bodyId: "drilled", kind: "face", limit: 1)
+  → returns selectionId "sel:drilled#face[12]"
+add_dimension(kind: "linear", anchors: [...]) ; render_preview()
+```
+
+For novel geometry, drop into `execute_script` with the full OCCTSwift API:
 
 ```swift
 import OCCTSwift
@@ -168,7 +207,6 @@ import ScriptHarness
 let ctx = ScriptContext()
 let C = ScriptContext.Colors.self
 
-// Create a filleted box with a hole
 let box = Shape.box(width: 40, height: 30, depth: 20)!
 let hole = Shape.cylinder(radius: 5, height: 30)!
     .translated(by: SIMD3(20, -1, 10))!
@@ -193,6 +231,13 @@ The `get_api_reference` tool provides documentation for:
 - **surfaces** — plane, cylinder, cone, sphere, extrusion, revolution, plate
 - **analysis** — volume, area, distance, bounds, validation
 - **import_export** — STL, STEP, IGES, BREP, OBJ, PLY
+- **mcp_tools** — every MCP tool's JSON Schema (handy for LLM auto-discovery)
+
+## Versioning
+
+OCCTMCP follows [Semantic Versioning](https://semver.org/). The Swift port reached **v1.0.0** on 2026-05-09 — feature-complete against the original Node implementation, plus a layer of selection / remap / annotation tools that are Swift-only.
+
+Releases are tagged on GitHub. The `main` branch is what SPI tracks.
 
 ## License
 
