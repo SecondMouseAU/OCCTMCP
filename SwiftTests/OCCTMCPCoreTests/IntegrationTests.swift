@@ -523,6 +523,109 @@ struct IntegrationTests {
         }
     }
 
+    @Test("history-based remap survives apply_feature(fillet) post-OCCTSwift v1.0.4")
+    func historyRemapAcrossFilletFeature() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-fillet-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        guard let box = Shape.box(width: 30, height: 30, depth: 30) else {
+            Issue.record("Failed to synthesise box")
+            return
+        }
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(scene)/part.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "fillet history test",
+            bodies: [BodyDescriptor(id: "part", file: "part.brep", color: [1, 0, 0, 1])]
+        ))
+
+        let harness = try Harness(
+            binary: binary,
+            extraEnv: ["OCCTMCP_OUTPUT_DIR": scene]
+        )
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        try harness.send(.init(
+            id: 70, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = try JSONSerialization.jsonObject(with: d1) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        // Fillet spec with non-nil id — exercises OCCTSwift v1.0.4's
+        // applyFillet → filletedWithFullHistory wiring (closes #166).
+        // EdgeSelector defaults to .all in the JSON path.
+        try harness.send(.init(
+            id: 71, method: "tools/call",
+            params: .object([
+                "name": .string("apply_feature"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "feature": .object([
+                        "id": .string("f1"),
+                        "kind": .string("fillet"),
+                        "radius": .double(2.0),
+                    ]),
+                ]),
+            ])
+        ))
+        let applyResp = try harness.recv(timeout: 30)
+        #expect(applyResp["error"] == nil, "apply_feature(fillet) errored: \(applyResp)")
+
+        try harness.send(.init(
+            id: 72, method: "tools/call",
+            params: .object([
+                "name": .string("remap_selection"),
+                "arguments": .object([
+                    "selectionIds": .array([.string(selectionId)]),
+                ]),
+            ])
+        ))
+        let rmResp = try harness.recv(timeout: 5)
+        guard case .object(let r2)? = rmResp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let p2 = try JSONSerialization.jsonObject(with: d2) as? [String: Any],
+              let remapped = p2["remapped"] as? [[String: Any]],
+              let entry = remapped.first else {
+            Issue.record("remap_selection response shape unexpected")
+            return
+        }
+        let fate = entry["fate"] as? String ?? "<missing>"
+        #expect(
+            fate == "preserved" || fate == "split",
+            "fillet history should resolve to preserved or split (got \(fate))"
+        )
+        if let conf = entry["confidenceMm"] as? Double {
+            #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
+        }
+    }
+
     @Test("annotation tools round-trip via the sidecar")
     func annotationsRoundTrip() async throws {
         guard let binary = Self.binaryURL else {

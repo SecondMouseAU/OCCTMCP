@@ -22,23 +22,24 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        // OCCT 8.0.0 GA shipped 2026-05-09. The whole OCCT-Swift
-        // family tagged v1.0 alongside it; this cohort is what we pin
-        // against now. OCCTSwift 1.0.3 closes gsdali/OCCTSwift#165:
-        //   Tier 1 (v1.0.2): per-input boolean history → boolean_op
-        //   Tier 2 (v1.0.3): fillet/chamfer/shell/defeature history
-        //   Tier 3 (v1.0.3): FeatureReconstructor.BuildResult.histories
-        // → drives apply_feature's history-based remap_selection in v1.1.
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.0.3"),
+        // OCCT 8.0.0 GA cohort, fully aligned at v1.0.x.
+        //
+        // OCCTSwift 1.0.4 closes gsdali/OCCTSwift#166: applyFillet /
+        // applyChamfer in FeatureReconstructor go through
+        // *WithFullHistory and populate BuildResult.histories[id] for
+        // every spec kind. apply_feature picks this up transparently
+        // (no consumer code change since v1.1).
+        //
+        // OCCTSwiftViewport 1.0.2 closes #28: Metal point-sprite
+        // pipeline. Combined with OCCTSwiftTools 1.1.0 wiring
+        // pointRadius / vertexColors through to ViewportBody, the
+        // pointCloud annotation now actually renders.
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.0.4"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.1"),
-        // OCCTSwiftTools 1.0.2 graduates onto OCCTSwiftViewport 1.0.x and
-        // pulls the v1.0.3 history APIs from OCCTSwift.
-        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.0.2"),
-        // OCCTSwiftViewport v1.0.x — the rest of the cohort has graduated
-        // (Tools 1.0.2, Scripts 1.0.1) so the 0.55.x hold no longer applies.
-        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.0.1"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "1.0.0"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.2"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.0"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.0.2"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "1.0.1"),
     ],
     targets: [
         .target(
