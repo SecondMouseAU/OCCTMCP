@@ -91,6 +91,35 @@ public enum FeatureTools {
         }
 
         await history.snapshot(store: store)
+
+        // Tier 3 (gsdali/OCCTSwift#165) — record per-feature history
+        // against the body that took the mutation. Only one feature is
+        // submitted per `apply_feature` call (`features: [feature]`
+        // above), so at most one entry in `result.histories` is
+        // populated and we record it under the post-mutation body id.
+        // Multi-feature chaining lives in `execute_script`, not here.
+        let mutatedBodyId = (isInPlace || outputBodyId == nil) ? bodyId : outputBodyId!
+        for (_, ref) in result.histories {
+            await HistoryRegistry.shared.recordSingleInputHistory(
+                bodyId: mutatedBodyId,
+                inputShape: inputShape,
+                output: outputShape,
+                ref: ref,
+                operationName: "apply_feature"
+            )
+            // record under the source bodyId too when emitting a new
+            // body, so a selectionId taken on the source remaps cleanly
+            if mutatedBodyId != bodyId {
+                await HistoryRegistry.shared.recordSingleInputHistory(
+                    bodyId: bodyId,
+                    inputShape: inputShape,
+                    output: outputShape,
+                    ref: ref,
+                    operationName: "apply_feature"
+                )
+            }
+        }
+
         if !isInPlace, let newId = outputBodyId {
             let newFile = (outputPath as NSString).lastPathComponent
             var bodies = manifest.bodies

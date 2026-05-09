@@ -90,7 +90,7 @@ Per-tool opt-in status:
 | `transform_body` | identity history (topology preserved)     | every node maps 1:1 |
 | `heal_shape`     | identity history if pre/post counts match | falls back to heuristic if shape repair changed topology |
 | `boolean_op`     | per-input history via `recordBooleanHistory` | OCCTSwift `*WithFullHistory` variants; recorded under output + both inputs |
-| `apply_feature`  | heuristic only                            | needs OCCTSwift#165 Tier 2 (fillet/chamfer/shell) + Tier 3 (FeatureReconstructor) — not yet shipped |
+| `apply_feature`  | per-feature history via `recordSingleInputHistory` | OCCTSwift v1.0.3 `FeatureReconstructor.BuildResult.histories[id]` — populated for boolean / hole / second-additive specs with non-nil ids; fillet/chamfer paths still hit the heuristic until `applyFillet` / `applyChamfer` go through `*WithFullHistory` upstream |
 | `mirror_or_pattern` | heuristic only                         | doesn't fit the contract — needs a `find_correspondences` tool |
 
 ### Data flow for `execute_script`
@@ -125,7 +125,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 1.0.2 — kernel wrapper around OpenCASCADE, ships `*WithFullHistory` boolean variants
+- **OCCTSwift** ≥ 1.0.3 — kernel wrapper around OpenCASCADE, ships `*WithFullHistory` for booleans + Tier 2 modifications + `FeatureReconstructor.BuildResult.histories`
 - **OCCTSwiftMesh** ≥ 1.0.0 — mesh-domain algorithms (QEM decimation today; smoothing / repair / remeshing in roadmap)
 - **OCCTSwiftScripts** ≥ 1.0.0 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process
 - **OCCTSwiftTools** ≥ 1.0.1 — Shape↔ViewportBody bridge, ships `PointConverter`
