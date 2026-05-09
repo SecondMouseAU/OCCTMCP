@@ -22,31 +22,24 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        // OCCTSwift 0.170.1 — kernel ShapeMeasurements; bridge cleanups
-        // (issue #99 redistributions). When OCCT 8.0.0 GA tags, bump
-        // to 1.0.0 on GA day.
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "0.170.1"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "0.1.0"),
-        // ScriptHarness + DrawingComposer. v0.9.0 is the first
-        // post-Tools-split tag — drops the v0.4–v0.8 branch("main")
-        // workaround and is the first SPI-eligible state.
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "0.9.0"),
-        // Tools is the Shape ↔ ViewportBody bridge (split out of
-        // OCCTSwiftViewport in v0.55.0). v0.6.0 split file I/O into
-        // a sibling OCCTSwiftIO package; we still consume CADFileLoader
-        // / BodyUtilities from Tools so consumers don't need to import
-        // OCCTSwiftIO directly.
-        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "0.6.0"),
-        // v0.55.2 ships the headless measurement overlay
-        // (OCCTSwiftViewport#26) — closes the dimension-text-overlay
-        // item we deferred from v0.5. The new surface is
-        // OffscreenRenderOptions.measurements: [ViewportMeasurement],
-        // mapping directly onto AnnotationsSidecar.dimensions.
+        // OCCT 8.0.0 GA shipped 2026-05-09. The whole OCCT-Swift
+        // family tagged v1.0 alongside it; this cohort is what we pin
+        // against now. OCCTSwift 1.0.2 ships per-input boolean history
+        // (gsdali/OCCTSwift#165 Tier 1) — drives boolean_op's
+        // history-based remap_selection in v0.10.
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.0.2"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.0"),
+        // OCCTSwiftTools 1.0.1 ships PointConverter
+        // (gsdali/OCCTSwiftTools#18) — drives the pointCloud uncap in
+        // AnnotationsRenderer.
+        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.0.1"),
+        // OCCTSwiftViewport v1.0.0 is independently tagged but the
+        // rest of the v1.0 cohort (Tools / AIS / Scripts) still pins
+        // Viewport `from: 0.55.0` (<1.0.0), so we hold here too. Bump
+        // when those packages bump.
         .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "0.55.2"),
-        // OCCTSwiftAIS: high-level scene mgmt — selection-from-topology,
-        // history-based selection remap, dimensions, standard scene
-        // objects. Powers the v0.4 net-new tools.
-        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "0.7.2"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "1.0.0"),
     ],
     targets: [
         .target(
