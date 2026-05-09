@@ -1,15 +1,17 @@
 // AnnotationsRenderer — turn the AnnotationsSidecar's primitives and
 // dimensions into ViewportBody geometry that OffscreenRenderer can
-// draw. As of v0.9 the supported set is:
+// draw. As of v0.10 the supported set is:
 //
 //   trihedron     — 3 cylinders + 3 spheres at the tips
 //   workPlane     — thin box at origin, oriented to the supplied normal
 //   axis          — cylinder from→to, radius from params
 //   boundingBox   — 12 thin cylinders forming the wireframe of the bbox
 //   diffMarker    — thin transparent box at the affected body's bbox
-//   pointCloud    — N small spheres (capped at maxPointCloudPoints to
-//                   avoid blowing up Metal vertex counts; over the cap
-//                   the cloud is silently truncated)
+//   pointCloud    — point-only ViewportBody via OCCTSwiftTools'
+//                   PointConverter (gsdali/OCCTSwiftTools#18, v1.0.1+).
+//                   Renderer dispatches on body primitive kind so no
+//                   sphere synthesis happens — the 256-cap from v0.6
+//                   is gone.
 //   dimension     — emitted as ViewportMeasurement (.distance / .angle
 //                   / .radius) and overlaid by OffscreenRenderer's 2D
 //                   measurement pass (OCCTSwiftViewport#26, v0.55.2+).
@@ -29,11 +31,12 @@ import OCCTSwiftViewport
 @MainActor
 public enum AnnotationsRenderer {
 
-    /// Hard cap on per-cloud sphere count. Above this the cloud is
-    /// truncated so a stray million-point cloud doesn't take Metal
-    /// down. Future v0.7 can lift this with an upstream points
-    /// pipeline.
-    public static let maxPointCloudPoints = 256
+    /// Retained for back-compat (read by callers that probed the old
+    /// cap). v0.10 lifted the limit by routing through
+    /// OCCTSwiftTools.PointConverter, which produces a point-only
+    /// ViewportBody — no sphere synthesis, no cap.
+    @available(*, deprecated, message: "v0.10 removed the sphere-per-point fallback; PointConverter handles arbitrary cloud sizes.")
+    public static let maxPointCloudPoints = Int.max
 
     /// Synthesise ViewportBodies for every renderable primitive +
     /// dimension in the sidecar. Bodies are tagged with the
@@ -243,21 +246,48 @@ public enum AnnotationsRenderer {
         guard case .array(let pts)? = prim.params["points"] else { return nil }
         let radius = scalar(prim.params["pointRadius"]) ?? 0.5
         let defaultColor = vec4(prim.params["defaultColor"]) ?? SIMD4<Float>(1, 0.85, 0.2, 1)
-        // Truncate over the cap so a stray giant cloud doesn't OOM Metal.
-        let limited = pts.prefix(maxPointCloudPoints)
-        var spheres: [Shape] = []
-        for entry in limited {
+
+        // v0.10: route through OCCTSwiftTools' PointConverter
+        // (gsdali/OCCTSwiftTools#18). The 256-sphere cap from v0.6 is
+        // gone — PointConverter produces a point-only ViewportBody and
+        // the renderer dispatches on the body's primitive kind.
+        var positions: [SIMD3<Float>] = []
+        positions.reserveCapacity(pts.count)
+        for entry in pts {
             guard case .array(let coord) = entry, coord.count == 3,
                   case .number(let x) = coord[0],
                   case .number(let y) = coord[1],
                   case .number(let z) = coord[2] else { continue }
-            if let s = Shape.sphere(center: SIMD3(x, y, z), radius: radius) {
-                spheres.append(s)
-            }
+            positions.append(SIMD3(Float(x), Float(y), Float(z)))
         }
-        guard !spheres.isEmpty,
-              let compound = Shape.compound(spheres) else { return nil }
-        return makeViewportBody(compound, id: prim.id, color: defaultColor)
+        guard !positions.isEmpty else { return nil }
+
+        let perPointColors: [SIMD4<Float>]?
+        if case .array(let colorEntries)? = prim.params["colors"], colorEntries.count == positions.count {
+            var parsed: [SIMD4<Float>] = []
+            parsed.reserveCapacity(colorEntries.count)
+            for entry in colorEntries {
+                guard case .array(let rgb) = entry, rgb.count >= 3,
+                      case .number(let r) = rgb[0],
+                      case .number(let g) = rgb[1],
+                      case .number(let b) = rgb[2] else { return nil }
+                let a: Float = (rgb.count == 4) ? {
+                    if case .number(let v) = rgb[3] { return Float(v) } else { return 1 }
+                }() : 1
+                parsed.append(SIMD4(Float(r), Float(g), Float(b), a))
+            }
+            perPointColors = parsed
+        } else {
+            perPointColors = nil
+        }
+
+        return PointConverter.pointsToBody(
+            positions,
+            id: prim.id,
+            color: defaultColor,
+            pointRadius: Float(radius),
+            perPointColors: perPointColors
+        )
     }
 
     private static func dimension(_ dim: DimensionAnnotation) -> ViewportBody? {

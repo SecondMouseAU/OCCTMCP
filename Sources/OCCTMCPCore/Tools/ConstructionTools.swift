@@ -197,30 +197,55 @@ public enum ConstructionTools {
             return .init("Failed to load input BREP: \(error.localizedDescription)", isError: true)
         }
 
-        let result: Shape?
+        // v0.10: prefer the per-input-history variants (gsdali/OCCTSwift#165
+        // Tier 1) so remap_selection can resolve via TopologyGraph.findDerived
+        // instead of the centroid heuristic. Fall back to the no-history calls
+        // only if the WithFullHistory variant returned nil — same observable
+        // behaviour as v0.9 for the failure path.
+        let output: Shape
+        let historyRef: ShapeHistoryRef?
         switch op {
         case .union:
-            result = aShape.union(bShape)
+            if let r = aShape.unionWithFullHistory(bShape) {
+                output = r.result; historyRef = r.history
+            } else if let r = aShape.union(bShape) {
+                output = r; historyRef = nil
+            } else {
+                return .init("Boolean union failed.", isError: true)
+            }
         case .subtract:
-            result = aShape.subtracting(bShape)
+            if let r = aShape.subtractedWithFullHistory(bShape) {
+                output = r.result; historyRef = r.history
+            } else if let r = aShape.subtracting(bShape) {
+                output = r; historyRef = nil
+            } else {
+                return .init("Boolean subtract failed.", isError: true)
+            }
         case .intersect:
-            result = aShape.intersection(bShape)
+            if let r = aShape.intersectionWithFullHistory(bShape) {
+                output = r.result; historyRef = r.history
+            } else if let r = aShape.intersection(bShape) {
+                output = r; historyRef = nil
+            } else {
+                return .init("Boolean intersect failed.", isError: true)
+            }
         case .split:
-            // OCCTSwift's split(by:) returns [Shape]?; emit a Compound is
-            // not directly supported, so wrap the array in a parent shape
-            // via Shape.compound when available. For v1, fall back to the
-            // first shape and surface a warning if there are multiple.
-            guard let pieces = aShape.split(by: bShape), let first = pieces.first else {
+            // splitWithFullHistory returns [Shape] pieces + history;
+            // wrap multi-piece into a Compound so the manifest holds
+            // a single body, the same shape v0.9 produced.
+            if let r = aShape.splitWithFullHistory(by: bShape), let first = r.pieces.first {
+                output = (r.pieces.count > 1)
+                    ? (Shape.compound(r.pieces) ?? first)
+                    : first
+                historyRef = r.history
+            } else if let pieces = aShape.split(by: bShape), let first = pieces.first {
+                output = (pieces.count > 1)
+                    ? (Shape.compound(pieces) ?? first)
+                    : first
+                historyRef = nil
+            } else {
                 return .init("Boolean split failed.", isError: true)
             }
-            if pieces.count > 1 {
-                result = Shape.compound(pieces) ?? first
-            } else {
-                result = first
-            }
-        }
-        guard let output = result else {
-            return .init("Boolean \(op.rawValue) failed.", isError: true)
         }
 
         let outFile = "\(op.rawValue)-\(outId)-\(shortUUID()).brep"
@@ -232,6 +257,24 @@ public enum ConstructionTools {
         }
 
         await history.snapshot(store: store)
+
+        // v0.10: translate per-input ShapeHistoryRef into
+        // TopologyGraph.recordHistory entries on the post-mutation graph.
+        // remap_selection's history path then resolves selections on
+        // either input body via findDerived rather than the
+        // centroid-distance heuristic.
+        if let hist = historyRef {
+            await HistoryRegistry.shared.recordBooleanHistory(
+                bodyId: outId,
+                aBodyId: aBodyId,
+                bBodyId: bBodyId,
+                aShape: aShape,
+                bShape: bShape,
+                output: output,
+                ref: hist,
+                operationName: "boolean_\(op.rawValue)"
+            )
+        }
 
         var bodies = manifest.bodies
         bodies.append(BodyDescriptor(

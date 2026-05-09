@@ -300,6 +300,121 @@ struct IntegrationTests {
         #expect(size > 2_000, "rendered PNG was \(size) bytes — overlay may not have been drawn")
     }
 
+    @Test("history-based remap survives boolean_op via per-input history")
+    func historyRemapAcrossBooleanOp() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-bool-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Two non-overlapping boxes — union should produce one body
+        // whose faces include the unmodified faces of both inputs.
+        guard let box1 = Shape.box(width: 10, height: 10, depth: 10),
+              let box2Raw = Shape.box(width: 10, height: 10, depth: 10),
+              let box2 = box2Raw.translated(by: SIMD3(20, 0, 0)) else {
+            Issue.record("Failed to synthesise box fixtures")
+            return
+        }
+        try Exporter.writeBREP(shape: box1, to: URL(fileURLWithPath: "\(scene)/a.brep"))
+        try Exporter.writeBREP(shape: box2, to: URL(fileURLWithPath: "\(scene)/b.brep"))
+
+        let manifest = ScriptManifest(
+            description: "Boolean history test",
+            bodies: [
+                BodyDescriptor(id: "a", file: "a.brep", color: [1, 0, 0, 1]),
+                BodyDescriptor(id: "b", file: "b.brep", color: [0, 1, 0, 1]),
+            ]
+        )
+        let store = ManifestStore(path: "\(scene)/manifest.json")
+        try store.write(manifest)
+
+        let harness = try Harness(
+            binary: binary,
+            extraEnv: ["OCCTMCP_OUTPUT_DIR": scene]
+        )
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // Pick a face on `a` (any face will do — boxes have 6).
+        try harness.send(.init(
+            id: 50, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("a"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = try JSONSerialization.jsonObject(with: d1) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        // Union the two bodies — non-overlapping so faces survive
+        // unchanged on both sides.
+        try harness.send(.init(
+            id: 51, method: "tools/call",
+            params: .object([
+                "name": .string("boolean_op"),
+                "arguments": .object([
+                    "op": .string("union"),
+                    "aBodyId": .string("a"),
+                    "bBodyId": .string("b"),
+                    "outputBodyId": .string("merged"),
+                ]),
+            ])
+        ))
+        let boolResp = try harness.recv(timeout: 30)
+        #expect(boolResp["error"] == nil)
+
+        // remap_selection should resolve the prior face via history.
+        try harness.send(.init(
+            id: 52, method: "tools/call",
+            params: .object([
+                "name": .string("remap_selection"),
+                "arguments": .object([
+                    "selectionIds": .array([.string(selectionId)]),
+                ]),
+            ])
+        ))
+        let rmResp = try harness.recv(timeout: 5)
+        guard case .object(let r2)? = rmResp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let p2 = try JSONSerialization.jsonObject(with: d2) as? [String: Any],
+              let remapped = p2["remapped"] as? [[String: Any]],
+              let entry = remapped.first else {
+            Issue.record("remap_selection response shape unexpected")
+            return
+        }
+        let fate = entry["fate"] as? String ?? "<missing>"
+        #expect(
+            fate == "preserved" || fate == "split",
+            "boolean_op history should resolve to preserved or split (got \(fate))"
+        )
+        // confidenceMm: 0 means the history path returned the answer
+        // (centroid heuristic always returns a positive distance).
+        if let conf = entry["confidenceMm"] as? Double {
+            #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
+        }
+    }
+
     @Test("annotation tools round-trip via the sidecar")
     func annotationsRoundTrip() async throws {
         guard let binary = Self.binaryURL else {
