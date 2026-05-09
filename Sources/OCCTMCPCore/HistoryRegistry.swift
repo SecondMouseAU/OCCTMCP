@@ -25,30 +25,44 @@ import OCCTSwift
 public actor HistoryRegistry {
     public static let shared = HistoryRegistry()
 
-    /// `bodyId → TopologyGraph` — populated by tools that opt into
-    /// history capture. Eviction is automatic when the body is
-    /// re-mutated (the new graph replaces the old).
-    private var graphs: [String: TopologyGraph] = [:]
+    /// Per-body cached state. `isIdentityPreserving` is true when the
+    /// recorded mutation didn't change topology indices — every
+    /// pre-mutation node maps to the same index post-mutation. Used so
+    /// remap_selection can short-circuit `findDerived` (which OCCT
+    /// only populates for *changed* nodes — explicit
+    /// "original==replacement" identity records are no-ops in OCCT) and
+    /// just return the same index. Cleared/replaced when the body is
+    /// re-mutated.
+    public struct Entry: Sendable {
+        public let graph: TopologyGraph
+        public let isIdentityPreserving: Bool
+    }
+
+    private var entries: [String: Entry] = [:]
 
     public init() {}
 
     /// Record a post-mutation graph for `bodyId`. Replaces any prior
-    /// graph for the same body — older selectionIds remap against the
+    /// entry for the same body — older selectionIds remap against the
     /// most recent state only.
     public func record(bodyId: String, graph: TopologyGraph) {
-        graphs[bodyId] = graph
+        entries[bodyId] = Entry(graph: graph, isIdentityPreserving: false)
+    }
+
+    public func entry(for bodyId: String) -> Entry? {
+        return entries[bodyId]
     }
 
     public func graph(for bodyId: String) -> TopologyGraph? {
-        return graphs[bodyId]
+        return entries[bodyId]?.graph
     }
 
     public func clear() {
-        graphs.removeAll()
+        entries.removeAll()
     }
 
     public func count() -> Int {
-        return graphs.count
+        return entries.count
     }
 }
 
@@ -78,6 +92,7 @@ extension HistoryRegistry {
         operationName: String
     ) {
         guard let postGraph = TopologyGraph(shape: output) else { return }
+        postGraph.isHistoryEnabled = true
 
         // Pre-compute output sub-shape centroids so per-input lookup
         // is O(N+M) total rather than O(N*M).
@@ -102,9 +117,10 @@ extension HistoryRegistry {
         // Same graph under all three keys so remap_selection finds it
         // regardless of which input the selectionId was originally
         // recorded against.
-        graphs[outId] = postGraph
-        graphs[aBodyId] = postGraph
-        graphs[bBodyId] = postGraph
+        let entry = Entry(graph: postGraph, isIdentityPreserving: false)
+        entries[outId] = entry
+        entries[aBodyId] = entry
+        entries[bBodyId] = entry
     }
 
     /// Translate a single-input `ShapeHistoryRef` (gsdali/OCCTSwift#165
@@ -121,6 +137,7 @@ extension HistoryRegistry {
         operationName: String
     ) {
         guard let postGraph = TopologyGraph(shape: output) else { return }
+        postGraph.isHistoryEnabled = true
         let postFaces = output.subShapes(ofType: .face)
         let postEdges = output.subShapes(ofType: .edge)
         let postVertices = output.subShapes(ofType: .vertex)
@@ -133,7 +150,7 @@ extension HistoryRegistry {
             faceCentres: faceCentres, edgeCentres: edgeCentres, vertexCentres: vertexCentres,
             ref: ref, operationName: operationName
         )
-        graphs[bodyId] = postGraph
+        entries[bodyId] = Entry(graph: postGraph, isIdentityPreserving: false)
     }
 
     private func recordSide(
@@ -235,27 +252,15 @@ extension HistoryRegistry {
         postMutationShape: Shape,
         operationName: String
     ) {
+        // OCCT's history API treats `original == replacement` records
+        // as no-ops — `findDerived` returns empty for an identity-only
+        // record. Don't write anything; just register the post graph
+        // with the identity-preserving flag so RemapTools can
+        // short-circuit `findDerived` empties to "preserved at same
+        // index".
+        _ = operationName
         guard let graph = TopologyGraph(shape: postMutationShape) else { return }
-        // Faces / edges / vertices are the only kinds we surface as
-        // selectionIds, so we only need to record those.
-        for kind in [TopologyGraph.NodeKind.face, .edge, .vertex] {
-            let count: Int
-            switch kind {
-            case .face:    count = graph.faceCount
-            case .edge:    count = graph.edgeCount
-            case .vertex:  count = graph.vertexCount
-            default:       count = 0
-            }
-            for i in 0..<count {
-                let ref = TopologyGraph.NodeRef(kind: kind, index: i)
-                graph.recordHistory(
-                    operationName: operationName,
-                    original: ref,
-                    replacements: [ref]
-                )
-            }
-        }
-        graphs[bodyId] = graph
+        entries[bodyId] = Entry(graph: graph, isIdentityPreserving: true)
     }
 
     /// Conditional version of `recordIdentityHistory` — only records
@@ -281,24 +286,10 @@ extension HistoryRegistry {
               pre.vertexCount == post.vertexCount else {
             return false
         }
-        for kind in [TopologyGraph.NodeKind.face, .edge, .vertex] {
-            let count: Int
-            switch kind {
-            case .face:    count = post.faceCount
-            case .edge:    count = post.edgeCount
-            case .vertex:  count = post.vertexCount
-            default:       count = 0
-            }
-            for i in 0..<count {
-                let ref = TopologyGraph.NodeRef(kind: kind, index: i)
-                post.recordHistory(
-                    operationName: operationName,
-                    original: ref,
-                    replacements: [ref]
-                )
-            }
-        }
-        graphs[bodyId] = post
+        // Same reasoning as `recordIdentityHistory` — skip the
+        // self-referencing record loop and just flag the entry.
+        _ = operationName
+        entries[bodyId] = Entry(graph: post, isIdentityPreserving: true)
         return true
     }
 }

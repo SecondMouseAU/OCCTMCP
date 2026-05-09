@@ -626,6 +626,145 @@ struct IntegrationTests {
         }
     }
 
+    @Test("find_correspondences maps a face across a mirror_or_pattern mirror")
+    func findCorrespondencesAcrossMirror() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-corr-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Place a 20×20×20 box at +X so it doesn't straddle the YZ plane —
+        // the mirror produces a clearly-separated copy at -X.
+        guard let box = Shape.box(width: 20, height: 20, depth: 20),
+              let translated = box.translated(by: SIMD3(20, 0, 0)) else {
+            Issue.record("Failed to synthesise box")
+            return
+        }
+        try Exporter.writeBREP(shape: translated, to: URL(fileURLWithPath: "\(scene)/src.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "find_correspondences mirror test",
+            bodies: [BodyDescriptor(id: "src", file: "src.brep", color: [1, 0, 0, 1])]
+        ))
+
+        let harness = try Harness(
+            binary: binary,
+            extraEnv: ["OCCTMCP_OUTPUT_DIR": scene]
+        )
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // Mirror the source about the YZ plane → produces "mirror-src" body.
+        try harness.send(.init(
+            id: 80, method: "tools/call",
+            params: .object([
+                "name": .string("mirror_or_pattern"),
+                "arguments": .object([
+                    "bodyId": .string("src"),
+                    "kind": .string("mirror"),
+                    "params": .object([
+                        "planeOrigin": .array([.double(0), .double(0), .double(0)]),
+                        "planeNormal": .array([.double(1), .double(0), .double(0)]),
+                    ]),
+                ]),
+            ])
+        ))
+        let mirrorResp = try harness.recv(timeout: 30)
+        #expect(mirrorResp["error"] == nil, "mirror_or_pattern errored: \(mirrorResp)")
+        if case .object(let mr)? = mirrorResp["result"],
+           case .array(let mc)? = mr["content"],
+           case .object(let mf)? = mc.first,
+           let mt = mf["text"]?.stringValue {
+            #expect(mt.contains("→ \"mirror-src\""),
+                    "mirror_or_pattern didn't produce mirror-src body: \(mt)")
+        }
+
+        // Pick a face on the source. Any face — `find_correspondences` is
+        // about transporting the pick, not about which face it is.
+        try harness.send(.init(
+            id: 81, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("src"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue else {
+            Issue.record("select_topology response missing text content: \(selResp)")
+            return
+        }
+        guard let d1 = t1.data(using: .utf8) else {
+            Issue.record("select_topology text not utf8: \(t1)")
+            return
+        }
+        guard let parsed = try? JSONSerialization.jsonObject(with: d1),
+              let p1 = parsed as? [String: Any] else {
+            Issue.record("select_topology text wasn't JSON object: t1=[\(t1)] selResp=\(selResp)")
+            return
+        }
+        guard let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology missing selections array: \(t1)")
+            return
+        }
+
+        // Same mirror plane the pattern used.
+        try harness.send(.init(
+            id: 82, method: "tools/call",
+            params: .object([
+                "name": .string("find_correspondences"),
+                "arguments": .object([
+                    "sourceSelectionIds": .array([.string(selectionId)]),
+                    "targetBodyId": .string("mirror-src"),
+                    "transform": .object([
+                        "kind": .string("mirror"),
+                        "planeOrigin": .array([.double(0), .double(0), .double(0)]),
+                        "planeNormal": .array([.double(1), .double(0), .double(0)]),
+                    ]),
+                ]),
+            ])
+        ))
+        let corrResp = try harness.recv(timeout: 10)
+        guard case .object(let r2)? = corrResp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue else {
+            Issue.record("find_correspondences response missing text content: \(corrResp)")
+            return
+        }
+        guard let d2 = t2.data(using: .utf8),
+              let parsedCorr = try? JSONSerialization.jsonObject(with: d2),
+              let p2 = parsedCorr as? [String: Any] else {
+            Issue.record("find_correspondences text wasn't JSON object: t2=[\(t2)] corrResp=\(corrResp)")
+            return
+        }
+        guard let arr = p2["correspondences"] as? [[String: Any]],
+              let entry = arr.first else {
+            Issue.record("find_correspondences missing correspondences array: \(t2)")
+            return
+        }
+        let fate = entry["fate"] as? String ?? "<missing>"
+        #expect(fate == "matched", "expected matched, got \(fate) (entry: \(entry))")
+        let target = entry["targetSelectionId"] as? String ?? ""
+        #expect(target.hasPrefix("sel:mirror-src#face["),
+                "target selectionId should resolve onto the mirror body, got \(target)")
+        if let conf = entry["confidenceMm"] as? Double {
+            // Mirror is exact for axis-aligned faces; allow a generous
+            // floor for OCCT-tessellation centroid noise.
+            #expect(conf < 0.01, "expected near-zero match distance, got \(conf)")
+        }
+    }
+
     @Test("annotation tools round-trip via the sidecar")
     func annotationsRoundTrip() async throws {
         guard let binary = Self.binaryURL else {
@@ -817,7 +956,6 @@ final class Harness {
     func recv(timeout seconds: TimeInterval) throws -> [String: Value] {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
-            // Try to peel a line out of pending.
             if let line = nextLine() {
                 let parsed = try JSONDecoder().decode(Value.self, from: line)
                 guard case .object(let dict) = parsed else {
@@ -825,7 +963,6 @@ final class Harness {
                 }
                 return dict
             }
-            // Read more from stdout, non-blocking-ish.
             let chunk = stdout.availableData
             if chunk.isEmpty {
                 try? Task.checkCancellation()
