@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family. Two implementations live side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 49 typed tools. macOS 15+.
+- **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 50 typed tools. macOS 15+.
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI via `OCCTSwiftScripts`. 36 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only).
 
 Both speak stdio MCP and read/write the same `manifest.json` + `annotations.json` files in the output directory. Pick whichever fits the host: the Swift binary eliminates JSONL marshalling and per-call subprocess spawn; the Node server runs anywhere a Node 18+ runtime exists, but needs `occtkit` on `$PATH`.
@@ -41,7 +41,7 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
 
 `Sources/OCCTMCPCore/` (library) + `Sources/OCCTMCPServer/` (executable that connects stdio).
 
-- `Server.swift` — `createServer()` factory: registers all 49 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
+- `Server.swift` — `createServer()` factory: registers all 50 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
 - `Tools/` — one file per tool family:
   - `CoreTools.swift` — `get_scene`, `get_script`, `export_model`, `get_api_reference`
   - `ExecuteScriptTool.swift` — `execute_script` (writes Swift to tempfile, `occtkit run` via the resolved binary, parses manifest)
@@ -80,18 +80,22 @@ OCCTSwift / OCCTSwiftViewport are kernel layers. `OCCTSwiftTools` is the bridge 
 
 `remap_selection` resolves a `selectionId` against the post-mutation state of a body via:
 
-1. `HistoryRegistry.graph(for: bodyId)` — if recorded, walk `TopologyGraph.findDerived(originalRef:)`. fate ∈ {preserved, split, lost}, confidenceMm = 0.
+1. `HistoryRegistry.entry(for: bodyId)` — if recorded:
+   - Walk `TopologyGraph.findDerived(originalRef:)`. Non-empty result → fate ∈ {preserved, split}, confidenceMm = 0.
+   - Empty result + `isIdentityPreserving` flag set → preserved at same index, confidenceMm = 0. (OCCT's `findDerived` skips identity records — original==replacement entries are no-ops in the OCCT history log — so we track topology-preserving ops via a flag and short-circuit instead of writing self-referencing records.)
+   - Empty result, flag not set → fall through to the heuristic (we can't tell unmodified from deleted without per-record introspection).
 2. Centroid heuristic — load pre and post BREPs, find nearest face/edge/vertex within an epsilon. fate is preserved if within ε, lost otherwise. confidenceMm reports the centroid distance.
 
 Per-tool opt-in status:
 
 | Tool             | History path                              | Notes |
 |------------------|-------------------------------------------|-------|
-| `transform_body` | identity history (topology preserved)     | every node maps 1:1 |
-| `heal_shape`     | identity history if pre/post counts match | falls back to heuristic if shape repair changed topology |
+| `transform_body` | identity flag (topology preserved)        | every node maps 1:1 — `recordIdentityHistory` sets `isIdentityPreserving=true` |
+| `heal_shape`     | identity flag if pre/post counts match    | falls back to heuristic if shape repair changed topology |
 | `boolean_op`     | per-input history via `recordBooleanHistory` | OCCTSwift `*WithFullHistory` variants; recorded under output + both inputs |
 | `apply_feature`  | per-feature history via `recordSingleInputHistory` | OCCTSwift v1.0.4 `FeatureReconstructor.BuildResult.histories[id]` — every spec kind (boolean / hole / second-additive / fillet / chamfer) populates a `ShapeHistoryRef` when the spec carries a non-nil id |
-| `mirror_or_pattern` | heuristic only                         | doesn't fit the contract — needs a `find_correspondences` tool |
+
+`mirror_or_pattern` doesn't fit `remap_selection`'s contract (it produces new bodies rather than mutating in place). For that case use `find_correspondences`, which takes a source body, target body, and explicit `transform` (translate / mirror / rotate), applies the transform to each source anchor's centroid, and finds the nearest same-kind sub-shape on the target. Pure geometry, no OCCT history involved — appropriate because pattern instances aren't OCCT-derivatives of the source.
 
 ### Data flow for `execute_script`
 
@@ -141,7 +145,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ## MCP Tools
 
-49 tools across both implementations (Swift); 36 in Node (no selection / remap / annotations / history). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
+50 tools across both implementations (Swift); 36 in Node (no selection / remap / annotations / history). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
 
 ## Script Template
 

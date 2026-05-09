@@ -87,7 +87,7 @@ public enum RemapTools {
 
             // v0.6: prefer the recorded TopologyGraph history over the
             // centroid heuristic when a mutating tool opted in.
-            let recordedGraph = await historyRegistry.graph(for: bodyId)
+            let recordedEntry = await historyRegistry.entry(for: bodyId)
 
             for id in ids {
                 guard let anchor = await registry.anchor(for: id) else {
@@ -99,11 +99,12 @@ public enum RemapTools {
                     ))
                     continue
                 }
-                if let graph = recordedGraph,
+                if let recorded = recordedEntry,
                    let entry = remapViaHistory(
                        originalId: id,
                        anchor: anchor,
-                       graph: graph,
+                       graph: recorded.graph,
+                       isIdentityPreserving: recorded.isIdentityPreserving,
                        bodyId: bodyId
                    ) {
                     // Refresh the registry so the new selectionId
@@ -138,10 +139,19 @@ public enum RemapTools {
     /// algorithm: TopologyGraph.findDerived(of:) walks history records.
     /// Returns nil if the anchor isn't a face/edge/vertex (body always
     /// rebinds; whole-body picks aren't routed here).
+    ///
+    /// `isIdentityPreserving` flags ops like transform_body / heal_shape
+    /// where the topology graph is index-stable across the mutation —
+    /// every pre-mutation node maps 1:1 to the same index post-mutation.
+    /// OCCT's `findDerived` only walks recorded modifications, so an
+    /// untouched node returns an empty derivative list. For
+    /// identity-preserving ops we treat that as "preserved at the same
+    /// index" rather than falling back to the heuristic.
     static func remapViaHistory(
         originalId: String,
         anchor: TopologyAnchor,
         graph: TopologyGraph,
+        isIdentityPreserving: Bool,
         bodyId: String
     ) -> RemapEntry? {
         let kind: TopologyGraph.NodeKind
@@ -161,24 +171,38 @@ public enum RemapTools {
         case .vertex(_, let idx):
             kind = .vertex; originalIndex = idx
         }
+        let kindCount: Int
+        switch kind {
+        case .face:    kindCount = graph.faceCount
+        case .edge:    kindCount = graph.edgeCount
+        case .vertex:  kindCount = graph.vertexCount
+        default:       kindCount = 0
+        }
         let derived = graph.findDerived(of: .init(kind: kind, index: originalIndex))
         if derived.isEmpty {
-            // No record means either "deleted" or "not mentioned —
-            // presumed unchanged". For 1:1 ops this normally means
-            // the explicit identity record was suppressed; emit "lost"
-            // so callers don't silently inherit a stale index.
+            // Identity-preserving op + valid index → preserved at same
+            // index. Otherwise we can't tell (deleted vs untouched);
+            // hand off to the heuristic.
+            if isIdentityPreserving && originalIndex < kindCount {
+                let sameId: String
+                switch kind {
+                case .face:   sameId = TopologyAnchor.face(bodyId: bodyId, index: originalIndex).selectionId
+                case .edge:   sameId = TopologyAnchor.edge(bodyId: bodyId, index: originalIndex).selectionId
+                case .vertex: sameId = TopologyAnchor.vertex(bodyId: bodyId, index: originalIndex).selectionId
+                default:      return nil
+                }
+                return RemapEntry(
+                    originalSelectionId: originalId,
+                    newSelectionIds: [sameId],
+                    fate: "preserved",
+                    confidenceMm: 0
+                )
+            }
             return nil
         }
         // Filter to same-kind derivatives and clamp to the live graph.
-        let count: Int
-        switch kind {
-        case .face:    count = graph.faceCount
-        case .edge:    count = graph.edgeCount
-        case .vertex:  count = graph.vertexCount
-        default:       count = 0
-        }
         let validIndices = derived
-            .filter { $0.kind == kind && $0.index < count }
+            .filter { $0.kind == kind && $0.index < kindCount }
             .map(\.index)
         if validIndices.isEmpty {
             return nil
