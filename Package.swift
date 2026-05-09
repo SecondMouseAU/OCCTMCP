@@ -31,16 +31,13 @@ let package = Package(
         // → drives apply_feature's history-based remap_selection in v1.1.
         .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.0.3"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.0"),
-        // OCCTSwiftTools 1.0.1 ships PointConverter
-        // (gsdali/OCCTSwiftTools#18) — drives the pointCloud uncap in
-        // AnnotationsRenderer.
-        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.0.1"),
-        // OCCTSwiftViewport v1.0.0 is independently tagged but the
-        // rest of the v1.0 cohort (Tools / AIS / Scripts) still pins
-        // Viewport `from: 0.55.0` (<1.0.0), so we hold here too. Bump
-        // when those packages bump.
-        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "0.55.2"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.1"),
+        // OCCTSwiftTools 1.0.2 graduates onto OCCTSwiftViewport 1.0.x and
+        // pulls the v1.0.3 history APIs from OCCTSwift.
+        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.0.2"),
+        // OCCTSwiftViewport v1.0.x — the rest of the cohort has graduated
+        // (Tools 1.0.2, Scripts 1.0.1) so the 0.55.x hold no longer applies.
+        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.0.1"),
         .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "1.0.0"),
     ],
     targets: [
