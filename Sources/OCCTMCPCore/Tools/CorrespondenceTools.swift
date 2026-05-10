@@ -27,10 +27,84 @@ import ScriptHarness
 
 public enum CorrespondenceTools {
 
-    public enum TransformHint: Sendable {
+    public indirect enum TransformHint: Sendable, Codable {
         case translate(offset: SIMD3<Double>)
         case mirror(planeOrigin: SIMD3<Double>, planeNormal: SIMD3<Double>)
         case rotate(axisOrigin: SIMD3<Double>, axisDirection: SIMD3<Double>, angleDeg: Double)
+        case compound(steps: [TransformHint])
+
+        private enum CodingKeys: String, CodingKey {
+            case kind, offset, planeOrigin, planeNormal, axisOrigin, axisDirection, angleDeg, steps
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let kind = try c.decode(String.self, forKey: .kind)
+            switch kind {
+            case "translate":
+                let arr = try c.decode([Double].self, forKey: .offset)
+                guard arr.count == 3 else {
+                    throw DecodingError.dataCorruptedError(forKey: .offset, in: c,
+                        debugDescription: "translate.offset must be [x, y, z]")
+                }
+                self = .translate(offset: SIMD3(arr[0], arr[1], arr[2]))
+            case "mirror":
+                let nArr = try c.decode([Double].self, forKey: .planeNormal)
+                guard nArr.count == 3 else {
+                    throw DecodingError.dataCorruptedError(forKey: .planeNormal, in: c,
+                        debugDescription: "mirror.planeNormal must be [x, y, z]")
+                }
+                let origin: SIMD3<Double>
+                if let oArr = try c.decodeIfPresent([Double].self, forKey: .planeOrigin),
+                   oArr.count == 3 {
+                    origin = SIMD3(oArr[0], oArr[1], oArr[2])
+                } else {
+                    origin = .zero
+                }
+                self = .mirror(planeOrigin: origin,
+                               planeNormal: SIMD3(nArr[0], nArr[1], nArr[2]))
+            case "rotate":
+                let oArr = try c.decode([Double].self, forKey: .axisOrigin)
+                let dArr = try c.decode([Double].self, forKey: .axisDirection)
+                let angle = try c.decode(Double.self, forKey: .angleDeg)
+                guard oArr.count == 3, dArr.count == 3 else {
+                    throw DecodingError.dataCorruptedError(forKey: .axisOrigin, in: c,
+                        debugDescription: "rotate.axisOrigin / axisDirection must be [x, y, z]")
+                }
+                self = .rotate(
+                    axisOrigin: SIMD3(oArr[0], oArr[1], oArr[2]),
+                    axisDirection: SIMD3(dArr[0], dArr[1], dArr[2]),
+                    angleDeg: angle
+                )
+            case "compound":
+                let steps = try c.decode([TransformHint].self, forKey: .steps)
+                self = .compound(steps: steps)
+            default:
+                throw DecodingError.dataCorruptedError(forKey: .kind, in: c,
+                    debugDescription: "unknown transform kind: \(kind)")
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .translate(let o):
+                try c.encode("translate", forKey: .kind)
+                try c.encode([o.x, o.y, o.z], forKey: .offset)
+            case .mirror(let origin, let normal):
+                try c.encode("mirror", forKey: .kind)
+                try c.encode([origin.x, origin.y, origin.z], forKey: .planeOrigin)
+                try c.encode([normal.x, normal.y, normal.z], forKey: .planeNormal)
+            case .rotate(let origin, let dir, let angle):
+                try c.encode("rotate", forKey: .kind)
+                try c.encode([origin.x, origin.y, origin.z], forKey: .axisOrigin)
+                try c.encode([dir.x, dir.y, dir.z], forKey: .axisDirection)
+                try c.encode(angle, forKey: .angleDeg)
+            case .compound(let steps):
+                try c.encode("compound", forKey: .kind)
+                try c.encode(steps, forKey: .steps)
+            }
+        }
 
         /// Apply to a single point.
         func apply(_ p: SIMD3<Double>) -> SIMD3<Double> {
@@ -52,6 +126,8 @@ public enum CorrespondenceTools {
                     + simd_cross(axis, v) * s
                     + axis * simd_dot(axis, v) * oneMinusC
                 return origin + rotated
+            case .compound(let steps):
+                return steps.reduce(p) { $1.apply($0) }
             }
         }
     }
@@ -65,6 +141,13 @@ public enum CorrespondenceTools {
 
     public struct CorrespondencesReport: Encodable {
         public let correspondences: [Correspondence]
+        /// Where the effective transform came from:
+        /// `"explicit"` (caller-supplied), `"provenance"` (read from
+        /// `<output_dir>/provenance.json`), `"bbox-inference"`
+        /// (translation derived from bbox alignment), or
+        /// `"identity-fallback"` (no hint and inference failed —
+        /// returns a zero-translation default).
+        public let transformSource: String
     }
 
     /// Resolve correspondences from `sourceSelectionIds` onto `targetBodyId`
@@ -75,10 +158,18 @@ public enum CorrespondenceTools {
     /// by minimum centroid distance. Tolerance defaults to 1% of the
     /// target body's bbox diagonal — same sizing as remap_selection's
     /// heuristic so confidence values are directly comparable.
+    ///
+    /// `transform` is optional. When omitted:
+    ///   1. read `<output_dir>/provenance.json` — `mirror_or_pattern`
+    ///      records its mirror plane there for every output body.
+    ///   2. fall back to bbox-translation inference: source and
+    ///      target bbox sizes match, transform is the centroid delta.
+    /// Both fallbacks are best-effort. Callers that want a specific
+    /// transform should pass it explicitly.
     public static func findCorrespondences(
         sourceSelectionIds: [String],
         targetBodyId: String,
-        transform: TransformHint,
+        transform: TransformHint?,
         toleranceMmFraction: Double = 0.01,
         store: ManifestStore = ManifestStore(),
         registry: SelectionRegistry = .shared
@@ -94,6 +185,30 @@ public enum CorrespondenceTools {
         guard FileManager.default.fileExists(atPath: targetPath),
               let targetShape = try? Shape.loadBREP(fromPath: targetPath) else {
             return .init("Target BREP missing or unreadable: \(targetPath)")
+        }
+
+        // Resolve the effective transform — explicit hint wins; then
+        // provenance.json (mirror_or_pattern's record); then bbox
+        // inference. If all three fail we report transform=nil but
+        // continue with identity, since the caller might just want
+        // index-aligned matching on truly identical bodies.
+        let resolvedTransform: TransformHint
+        let transformSource: String
+        if let hint = transform {
+            resolvedTransform = hint
+            transformSource = "explicit"
+        } else if let prov = ProvenanceStore(outputDir: outputDir).read()[targetBodyId] {
+            resolvedTransform = prov.transform
+            transformSource = "provenance"
+        } else if let inferred = inferTranslation(
+            manifest: manifest, outputDir: outputDir,
+            targetShape: targetShape, targetBodyId: targetBodyId
+        ) {
+            resolvedTransform = inferred
+            transformSource = "bbox-inference"
+        } else {
+            resolvedTransform = .translate(offset: .zero)
+            transformSource = "identity-fallback"
         }
 
         let bb = targetShape.bounds
@@ -150,7 +265,7 @@ public enum CorrespondenceTools {
                 continue
             }
 
-            let transformed = transform.apply(sc)
+            let transformed = resolvedTransform.apply(sc)
 
             switch anchor {
             case .body:
@@ -202,7 +317,10 @@ public enum CorrespondenceTools {
             }
         }
 
-        return IntrospectionTools.encode(CorrespondencesReport(correspondences: out))
+        return IntrospectionTools.encode(CorrespondencesReport(
+            correspondences: out,
+            transformSource: transformSource
+        ))
     }
 
     private struct PickResult {
@@ -283,5 +401,40 @@ public enum CorrespondenceTools {
             guard idx < vs.count else { return nil }
             return vs[idx]
         }
+    }
+
+    /// Infer a translation transform from how source and target
+    /// bounding boxes align. Returns nil if the boxes have meaningfully
+    /// different sizes (which would imply rotation / scale / mirror —
+    /// none of which we attempt to recover from bbox alone).
+    ///
+    /// The provenance path handles `mirror_or_pattern` outputs cleanly;
+    /// this is the catch-all for "the LLM duplicated something via
+    /// `execute_script` and didn't bother to record a transform."
+    private static func inferTranslation(
+        manifest: ScriptManifest,
+        outputDir: String,
+        targetShape: Shape,
+        targetBodyId: String
+    ) -> TransformHint? {
+        // Pick any source body that isn't the target. Multi-source
+        // selection workflows pass the source explicitly via the
+        // selectionId prefix, but for inference we just need ONE shape
+        // to compare bboxes against.
+        guard let sourceBody = manifest.bodies.first(where: { $0.id != targetBodyId }),
+              let sourceShape = try? Shape.loadBREP(fromPath: "\(outputDir)/\(sourceBody.file)") else {
+            return nil
+        }
+        let s = sourceShape.bounds
+        let t = targetShape.bounds
+        let sourceSize = s.max - s.min
+        let targetSize = t.max - t.min
+        let sizeDiag = simd_length(sourceSize)
+        let sizeDelta = simd_length(sourceSize - targetSize)
+        // Allow 0.1% size mismatch for tessellation / numerical noise.
+        guard sizeDiag > 1e-6, sizeDelta / sizeDiag < 1e-3 else { return nil }
+        let sourceCentre = (s.min + s.max) * 0.5
+        let targetCentre = (t.min + t.max) * 0.5
+        return .translate(offset: targetCentre - sourceCentre)
     }
 }

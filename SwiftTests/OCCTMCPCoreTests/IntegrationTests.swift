@@ -765,6 +765,302 @@ struct IntegrationTests {
         }
     }
 
+    @Test("find_correspondences accepts a compound (translate then mirror) transform")
+    func findCorrespondencesCompoundTransform() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-corrcomp-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Source at +X corner, target is the same shape translated +5X
+        // then mirrored about the YZ plane → final position at -X-side.
+        // We pass the compound transform as one transform argument and
+        // expect the target face to resolve to a low-distance match.
+        guard let box = Shape.box(width: 20, height: 20, depth: 20),
+              let src = box.translated(by: SIMD3(20, 0, 0)) else {
+            Issue.record("Failed to synthesise box")
+            return
+        }
+        // Compose the same transform on the test side to construct
+        // the target BREP that the server will be asked to match.
+        guard let translated = src.translated(by: SIMD3(5, 0, 0)) else {
+            Issue.record("translated failed")
+            return
+        }
+        guard let mirrored = translated.mirrored(planeNormal: SIMD3(1, 0, 0), planeOrigin: .zero) else {
+            Issue.record("mirrored failed")
+            return
+        }
+        try Exporter.writeBREP(shape: src, to: URL(fileURLWithPath: "\(scene)/src.brep"))
+        try Exporter.writeBREP(shape: mirrored, to: URL(fileURLWithPath: "\(scene)/tgt.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "compound transform test",
+            bodies: [
+                BodyDescriptor(id: "src", file: "src.brep", color: [1, 0, 0, 1]),
+                BodyDescriptor(id: "tgt", file: "tgt.brep", color: [0, 1, 0, 1]),
+            ]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        try harness.send(.init(
+            id: 100, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("src"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = (try? JSONSerialization.jsonObject(with: d1)) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected: \(selResp)")
+            return
+        }
+
+        // compound: translate +5X, then mirror about YZ.
+        try harness.send(.init(
+            id: 101, method: "tools/call",
+            params: .object([
+                "name": .string("find_correspondences"),
+                "arguments": .object([
+                    "sourceSelectionIds": .array([.string(selectionId)]),
+                    "targetBodyId": .string("tgt"),
+                    "transform": .object([
+                        "kind": .string("compound"),
+                        "steps": .array([
+                            .object([
+                                "kind": .string("translate"),
+                                "offset": .array([.double(5), .double(0), .double(0)]),
+                            ]),
+                            .object([
+                                "kind": .string("mirror"),
+                                "planeOrigin": .array([.double(0), .double(0), .double(0)]),
+                                "planeNormal": .array([.double(1), .double(0), .double(0)]),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+            ])
+        ))
+        let resp = try harness.recv(timeout: 10)
+        guard case .object(let r2)? = resp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let parsed = (try? JSONSerialization.jsonObject(with: d2)) as? [String: Any],
+              let arr = parsed["correspondences"] as? [[String: Any]],
+              let entry = arr.first else {
+            Issue.record("find_correspondences response unexpected: \(resp)")
+            return
+        }
+        #expect(parsed["transformSource"] as? String == "explicit",
+                "compound was caller-supplied; transformSource should be 'explicit'")
+        #expect(entry["fate"] as? String == "matched",
+                "expected matched, got \(entry)")
+        if let conf = entry["confidenceMm"] as? Double {
+            #expect(conf < 0.01, "expected near-zero distance, got \(conf)")
+        }
+    }
+
+    @Test("find_correspondences reads provenance when transform omitted (mirror_or_pattern path)")
+    func findCorrespondencesProvenanceFallback() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-corrprov-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        guard let box = Shape.box(width: 20, height: 20, depth: 20),
+              let src = box.translated(by: SIMD3(20, 0, 0)) else {
+            Issue.record("Failed to synthesise box")
+            return
+        }
+        try Exporter.writeBREP(shape: src, to: URL(fileURLWithPath: "\(scene)/src.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "provenance fallback test",
+            bodies: [BodyDescriptor(id: "src", file: "src.brep", color: [1, 0, 0, 1])]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // Mirror via the tool — this is what writes the provenance entry.
+        try harness.send(.init(
+            id: 110, method: "tools/call",
+            params: .object([
+                "name": .string("mirror_or_pattern"),
+                "arguments": .object([
+                    "bodyId": .string("src"),
+                    "kind": .string("mirror"),
+                    "params": .object([
+                        "planeOrigin": .array([.double(0), .double(0), .double(0)]),
+                        "planeNormal": .array([.double(1), .double(0), .double(0)]),
+                    ]),
+                ]),
+            ])
+        ))
+        _ = try harness.recv(timeout: 30)
+
+        // Pick a face on the source.
+        try harness.send(.init(
+            id: 111, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("src"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = (try? JSONSerialization.jsonObject(with: d1)) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        // No transform argument — should pick up the provenance record.
+        try harness.send(.init(
+            id: 112, method: "tools/call",
+            params: .object([
+                "name": .string("find_correspondences"),
+                "arguments": .object([
+                    "sourceSelectionIds": .array([.string(selectionId)]),
+                    "targetBodyId": .string("mirror-src"),
+                ]),
+            ])
+        ))
+        let resp = try harness.recv(timeout: 10)
+        guard case .object(let r2)? = resp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let parsed = (try? JSONSerialization.jsonObject(with: d2)) as? [String: Any],
+              let arr = parsed["correspondences"] as? [[String: Any]],
+              let entry = arr.first else {
+            Issue.record("find_correspondences response unexpected: \(resp)")
+            return
+        }
+        #expect(parsed["transformSource"] as? String == "provenance",
+                "transform should resolve from provenance.json, got transformSource=\(parsed["transformSource"] ?? "nil")")
+        #expect(entry["fate"] as? String == "matched",
+                "expected matched via provenance default, got \(entry)")
+    }
+
+    @Test("find_correspondences infers a translation from bbox alignment when no hint")
+    func findCorrespondencesBboxInference() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-corrbbox-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Two boxes of the same size, translated by [30, 0, 0]. No
+        // mirror_or_pattern call → no provenance entry → tool falls
+        // through to bbox inference.
+        guard let box = Shape.box(width: 20, height: 20, depth: 20),
+              let tgt = box.translated(by: SIMD3(30, 0, 0)) else {
+            Issue.record("Failed to synthesise boxes")
+            return
+        }
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(scene)/src.brep"))
+        try Exporter.writeBREP(shape: tgt, to: URL(fileURLWithPath: "\(scene)/tgt.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "bbox inference test",
+            bodies: [
+                BodyDescriptor(id: "src", file: "src.brep", color: [1, 0, 0, 1]),
+                BodyDescriptor(id: "tgt", file: "tgt.brep", color: [0, 1, 0, 1]),
+            ]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        try harness.send(.init(
+            id: 120, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("src"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = (try? JSONSerialization.jsonObject(with: d1)) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        try harness.send(.init(
+            id: 121, method: "tools/call",
+            params: .object([
+                "name": .string("find_correspondences"),
+                "arguments": .object([
+                    "sourceSelectionIds": .array([.string(selectionId)]),
+                    "targetBodyId": .string("tgt"),
+                ]),
+            ])
+        ))
+        let resp = try harness.recv(timeout: 10)
+        guard case .object(let r2)? = resp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let parsed = (try? JSONSerialization.jsonObject(with: d2)) as? [String: Any],
+              let arr = parsed["correspondences"] as? [[String: Any]],
+              let entry = arr.first else {
+            Issue.record("find_correspondences response unexpected: \(resp)")
+            return
+        }
+        #expect(parsed["transformSource"] as? String == "bbox-inference",
+                "transform should be inferred from bbox alignment, got transformSource=\(parsed["transformSource"] ?? "nil")")
+        #expect(entry["fate"] as? String == "matched",
+                "expected matched via bbox inference, got \(entry)")
+    }
+
     @Test("annotation tools round-trip via the sidecar")
     func annotationsRoundTrip() async throws {
         guard let binary = Self.binaryURL else {
