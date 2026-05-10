@@ -97,7 +97,14 @@ Per-tool opt-in status:
 | `boolean_op`     | per-input history via `recordBooleanHistory` | OCCTSwift `*WithFullHistory` variants; recorded under output + both inputs |
 | `apply_feature`  | per-feature history via `recordSingleInputHistory` | OCCTSwift v1.0.4 `FeatureReconstructor.BuildResult.histories[id]` — every spec kind (boolean / hole / second-additive / fillet / chamfer) populates a `ShapeHistoryRef` when the spec carries a non-nil id |
 
-`mirror_or_pattern` doesn't fit `remap_selection`'s contract (it produces new bodies rather than mutating in place). For that case use `find_correspondences`, which takes a source body, target body, and explicit `transform` (translate / mirror / rotate), applies the transform to each source anchor's centroid, and finds the nearest same-kind sub-shape on the target. Pure geometry, no OCCT history involved — appropriate because pattern instances aren't OCCT-derivatives of the source.
+`mirror_or_pattern` doesn't fit `remap_selection`'s contract (it produces new bodies rather than mutating in place). For that case use `find_correspondences`, which takes a source body and target body and applies a transform to each source anchor's centroid before nearest-neighbour search on the target. Pure geometry, no OCCT history involved — pattern instances aren't OCCT-derivatives of the source.
+
+`find_correspondences`'s `transform` is optional. Resolution order:
+1. **Explicit hint** — `translate` / `mirror` / `rotate` / `compound { steps: [...] }` (the last one is a recursive composition applied in array order). Codable, so the same JSON shape works in tool args and on disk.
+2. **`<output_dir>/provenance.json`** — `mirror_or_pattern` writes its mirror plane here for every output body it produces. (Linear / circular patterns produce N copies, which don't fit the single-target return shape, so they're skipped.)
+3. **Bbox-translation inference** — if source and target bbox sizes match, transform is the centroid delta. Catch-all for `execute_script`-built duplicates that didn't record anything.
+
+The response includes `transformSource ∈ {explicit, provenance, bbox-inference, identity-fallback}` so callers can tell which path resolved.
 
 ### Data flow for `execute_script`
 

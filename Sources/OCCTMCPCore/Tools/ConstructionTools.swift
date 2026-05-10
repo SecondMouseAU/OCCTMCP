@@ -422,6 +422,26 @@ public enum ConstructionTools {
         )
         try? store.write(updated)
 
+        // Mirror provenance — single-target case fits
+        // find_correspondences's "one target id per source id" contract.
+        // Linear / circular patterns produce N copies, so a single
+        // TransformHint can't describe the full mapping; skip those
+        // until find_correspondences grows a multi-target return type.
+        if kind == .mirror,
+           let normal = params.planeNormal {
+            let provenance = ProvenanceStore(outputDir: outputDir)
+            provenance.upsert(
+                bodyId: outId,
+                record: ProvenanceRecord(
+                    sourceBodyId: bodyId,
+                    transform: .mirror(
+                        planeOrigin: params.planeOrigin ?? .zero,
+                        planeNormal: normal
+                    )
+                )
+            )
+        }
+
         return .init("Pattern \(kind.rawValue) on \"\(bodyId)\" → \"\(outId)\" (\(outFile)).")
     }
 

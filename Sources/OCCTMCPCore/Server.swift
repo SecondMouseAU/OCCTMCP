@@ -395,7 +395,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "find_correspondences",
-            description: "Map selectionIds from a source body onto a target body that's a known transform of the source (typically a mirror_or_pattern output). Apply `transform` to each source anchor's centroid, then find the nearest same-kind sub-shape on the target. Returns each source id mapped to one target selectionId (or null) with confidenceMm + fate ('matched' | 'lost'). Use this for cross-body workflows; remap_selection is for the within-body case.",
+            description: "Map selectionIds from a source body onto a target body that's a known transform of the source (typically a mirror_or_pattern output). Returns each source id mapped to one target selectionId (or null) with confidenceMm + fate ('matched' | 'lost'). `transform` is optional: when omitted, falls back to provenance metadata recorded by mirror_or_pattern, then to bbox-translation inference. Use this for cross-body workflows; remap_selection is for the within-body case.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -406,11 +406,14 @@ func catalogTools() -> [Tool] {
                     "targetBodyId": .object(["type": .string("string")]),
                     "transform": .object([
                         "type": .string("object"),
-                        "description": .string("Transform applied to source anchors before nearest-neighbour search on the target. Exactly one of `translate` / `mirror` / `rotate` is required."),
+                        "description": .string("Optional. Transform applied to source anchors before nearest-neighbour search. Exactly one of `translate` / `mirror` / `rotate` / `compound` per object. `compound.steps` is an array of nested transform objects applied in order."),
                         "properties": .object([
                             "kind": .object([
                                 "type": .string("string"),
-                                "enum": .array([.string("translate"), .string("mirror"), .string("rotate")]),
+                                "enum": .array([
+                                    .string("translate"), .string("mirror"),
+                                    .string("rotate"),    .string("compound"),
+                                ]),
                             ]),
                             "offset": .object([
                                 "type": .string("array"),
@@ -441,6 +444,11 @@ func catalogTools() -> [Tool] {
                                 "type": .string("number"),
                                 "description": .string("rotate: angle in degrees, right-hand rule about axisDirection"),
                             ]),
+                            "steps": .object([
+                                "type": .string("array"),
+                                "description": .string("compound: array of transform objects applied in order"),
+                                "items": .object(["type": .string("object")]),
+                            ]),
                         ]),
                         "required": .array([.string("kind")]),
                     ]),
@@ -449,7 +457,7 @@ func catalogTools() -> [Tool] {
                         "description": .string("Fraction of target bbox diagonal to use as the match tolerance. Default 0.01."),
                     ]),
                 ]),
-                "required": .array([.string("sourceSelectionIds"), .string("targetBodyId"), .string("transform")]),
+                "required": .array([.string("sourceSelectionIds"), .string("targetBodyId")]),
                 "additionalProperties": .bool(false),
             ])
         ),
@@ -1073,46 +1081,20 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         guard let targetId = arguments["targetBodyId"]?.stringValue else {
             return ToolText("find_correspondences requires `targetBodyId`.", isError: true).asCallToolResult()
         }
-        guard case .object(let t)? = arguments["transform"],
-              let kind = t["kind"]?.stringValue else {
-            return ToolText("find_correspondences requires `transform.kind`.", isError: true).asCallToolResult()
-        }
-        let transform: CorrespondenceTools.TransformHint
-        switch kind {
-        case "translate":
-            guard let arr = t["offset"]?.arrayValue, arr.count == 3,
-                  let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue else {
-                return ToolText("translate requires `offset: [x, y, z]`.", isError: true).asCallToolResult()
+        // transform is now optional — find_correspondences falls back
+        // to provenance metadata (mirror_or_pattern emits this) and
+        // then bbox-translation inference when omitted.
+        var transform: CorrespondenceTools.TransformHint?
+        if let transformValue = arguments["transform"] {
+            do {
+                let data = try JSONEncoder().encode(transformValue)
+                transform = try JSONDecoder().decode(CorrespondenceTools.TransformHint.self, from: data)
+            } catch {
+                return ToolText(
+                    "transform parse failed: \(error.localizedDescription)",
+                    isError: true
+                ).asCallToolResult()
             }
-            transform = .translate(offset: SIMD3(x, y, z))
-        case "mirror":
-            guard let nArr = t["planeNormal"]?.arrayValue, nArr.count == 3,
-                  let nx = nArr[0].numberValue, let ny = nArr[1].numberValue, let nz = nArr[2].numberValue else {
-                return ToolText("mirror requires `planeNormal: [x, y, z]`.", isError: true).asCallToolResult()
-            }
-            let origin: SIMD3<Double>
-            if let oArr = t["planeOrigin"]?.arrayValue, oArr.count == 3,
-               let ox = oArr[0].numberValue, let oy = oArr[1].numberValue, let oz = oArr[2].numberValue {
-                origin = SIMD3(ox, oy, oz)
-            } else {
-                origin = .zero
-            }
-            transform = .mirror(planeOrigin: origin, planeNormal: SIMD3(nx, ny, nz))
-        case "rotate":
-            guard let oArr = t["axisOrigin"]?.arrayValue, oArr.count == 3,
-                  let ox = oArr[0].numberValue, let oy = oArr[1].numberValue, let oz = oArr[2].numberValue,
-                  let dArr = t["axisDirection"]?.arrayValue, dArr.count == 3,
-                  let dx = dArr[0].numberValue, let dy = dArr[1].numberValue, let dz = dArr[2].numberValue,
-                  let angle = t["angleDeg"]?.numberValue else {
-                return ToolText("rotate requires `axisOrigin`, `axisDirection`, `angleDeg`.", isError: true).asCallToolResult()
-            }
-            transform = .rotate(
-                axisOrigin: SIMD3(ox, oy, oz),
-                axisDirection: SIMD3(dx, dy, dz),
-                angleDeg: angle
-            )
-        default:
-            return ToolText("transform.kind must be one of `translate`, `mirror`, `rotate`.", isError: true).asCallToolResult()
         }
         let tol = arguments["toleranceMmFraction"]?.numberValue ?? 0.01
         return await CorrespondenceTools.findCorrespondences(
