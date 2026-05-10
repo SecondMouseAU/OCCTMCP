@@ -15,18 +15,6 @@ public enum OCCTMCPVersion {
     public static let serverVersion = "0.1.0"
 }
 
-extension Value {
-    /// Numeric coercion for tool dispatch — JSON whole numbers
-    /// (`[0, 0, 1]`) decode as `.int` per the SDK's Codable, but every
-    /// numeric coordinate / scalar in our schemas wants a `Double`.
-    /// `doubleValue` alone misses ints; this helper accepts either.
-    var asDouble: Double? {
-        if let d = doubleValue { return d }
-        if let i = intValue { return Double(i) }
-        return nil
-    }
-}
-
 /// Build a fully-configured MCP server with every OCCTMCP tool registered.
 /// Caller is responsible for `start(transport:)` and `waitUntilCompleted()`.
 public func makeOCCTMCPServer() async -> Server {
@@ -983,7 +971,7 @@ func parseRenderOptions(_ value: Value?) -> RenderPreviewTool.Options {
     }
     func vec3(_ key: String) -> SIMD3<Float>? {
         guard let arr = o[key]?.arrayValue, arr.count == 3,
-              let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble else { return nil }
+              let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue else { return nil }
         return SIMD3(Float(x), Float(y), Float(z))
     }
     opts.cameraPosition = vec3("cameraPosition")
@@ -1073,7 +1061,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         guard let ids = arguments["selectionIds"]?.arrayValue?.compactMap({ $0.stringValue }), !ids.isEmpty else {
             return ToolText("remap_selection requires `selectionIds` array.", isError: true).asCallToolResult()
         }
-        let tol = arguments["toleranceMmFraction"]?.asDouble ?? 0.01
+        let tol = arguments["toleranceMmFraction"]?.numberValue ?? 0.01
         return await RemapTools.remapSelection(
             selectionIds: ids, toleranceMmFraction: tol
         ).asCallToolResult()
@@ -1093,18 +1081,18 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         switch kind {
         case "translate":
             guard let arr = t["offset"]?.arrayValue, arr.count == 3,
-                  let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble else {
+                  let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue else {
                 return ToolText("translate requires `offset: [x, y, z]`.", isError: true).asCallToolResult()
             }
             transform = .translate(offset: SIMD3(x, y, z))
         case "mirror":
             guard let nArr = t["planeNormal"]?.arrayValue, nArr.count == 3,
-                  let nx = nArr[0].asDouble, let ny = nArr[1].asDouble, let nz = nArr[2].asDouble else {
+                  let nx = nArr[0].numberValue, let ny = nArr[1].numberValue, let nz = nArr[2].numberValue else {
                 return ToolText("mirror requires `planeNormal: [x, y, z]`.", isError: true).asCallToolResult()
             }
             let origin: SIMD3<Double>
             if let oArr = t["planeOrigin"]?.arrayValue, oArr.count == 3,
-               let ox = oArr[0].asDouble, let oy = oArr[1].asDouble, let oz = oArr[2].asDouble {
+               let ox = oArr[0].numberValue, let oy = oArr[1].numberValue, let oz = oArr[2].numberValue {
                 origin = SIMD3(ox, oy, oz)
             } else {
                 origin = .zero
@@ -1112,10 +1100,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             transform = .mirror(planeOrigin: origin, planeNormal: SIMD3(nx, ny, nz))
         case "rotate":
             guard let oArr = t["axisOrigin"]?.arrayValue, oArr.count == 3,
-                  let ox = oArr[0].asDouble, let oy = oArr[1].asDouble, let oz = oArr[2].asDouble,
+                  let ox = oArr[0].numberValue, let oy = oArr[1].numberValue, let oz = oArr[2].numberValue,
                   let dArr = t["axisDirection"]?.arrayValue, dArr.count == 3,
-                  let dx = dArr[0].asDouble, let dy = dArr[1].asDouble, let dz = dArr[2].asDouble,
-                  let angle = t["angleDeg"]?.asDouble else {
+                  let dx = dArr[0].numberValue, let dy = dArr[1].numberValue, let dz = dArr[2].numberValue,
+                  let angle = t["angleDeg"]?.numberValue else {
                 return ToolText("rotate requires `axisOrigin`, `axisDirection`, `angleDeg`.", isError: true).asCallToolResult()
             }
             transform = .rotate(
@@ -1126,7 +1114,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         default:
             return ToolText("transform.kind must be one of `translate`, `mirror`, `rotate`.", isError: true).asCallToolResult()
         }
-        let tol = arguments["toleranceMmFraction"]?.asDouble ?? 0.01
+        let tol = arguments["toleranceMmFraction"]?.numberValue ?? 0.01
         return await CorrespondenceTools.findCorrespondences(
             sourceSelectionIds: ids,
             targetBodyId: targetId,
@@ -1166,7 +1154,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             filter.minLength = f["minLength"]?.doubleValue
             filter.maxLength = f["maxLength"]?.doubleValue
             if let arr = f["normalDirection"]?.arrayValue, arr.count == 3,
-               let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble {
+               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
                 filter.normalDirection = SIMD3(x, y, z)
             }
             filter.normalTolerance = f["normalTolerance"]?.doubleValue
@@ -1419,16 +1407,16 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         }
         var opts = ConstructionTools.TransformOptions()
         if let arr = arguments["translate"]?.arrayValue, arr.count == 3,
-           let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble {
+           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
             opts.translate = SIMD3(x, y, z)
         }
         if let arr = arguments["rotateAxisAngle"]?.arrayValue, arr.count == 4,
-           let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble,
+           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue,
            let r = arr[3].doubleValue {
             opts.rotateAxisAngle = (SIMD3(x, y, z), r)
         }
         if let arr = arguments["rotateEulerXyz"]?.arrayValue, arr.count == 3,
-           let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble {
+           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
             opts.rotateEulerXyz = SIMD3(x, y, z)
         }
         opts.scale = arguments["scale"]?.doubleValue
@@ -1459,25 +1447,25 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         var p = ConstructionTools.PatternParams()
         if case .object(let f)? = arguments["params"] {
             if let arr = f["planeOrigin"]?.arrayValue, arr.count == 3,
-               let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble {
+               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
                 p.planeOrigin = SIMD3(x, y, z)
             }
             if let arr = f["planeNormal"]?.arrayValue, arr.count == 3,
-               let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble {
+               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
                 p.planeNormal = SIMD3(x, y, z)
             }
             if let arr = f["direction"]?.arrayValue, arr.count == 3,
-               let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble {
+               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
                 p.direction = SIMD3(x, y, z)
             }
-            p.spacing = f["spacing"]?.asDouble
+            p.spacing = f["spacing"]?.numberValue
             p.count = f["count"]?.intValue
             if let arr = f["axisOrigin"]?.arrayValue, arr.count == 3,
-               let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble {
+               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
                 p.axisOrigin = SIMD3(x, y, z)
             }
             if let arr = f["axisDirection"]?.arrayValue, arr.count == 3,
-               let x = arr[0].asDouble, let y = arr[1].asDouble, let z = arr[2].asDouble {
+               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
                 p.axisDirection = SIMD3(x, y, z)
             }
             p.totalCount = f["totalCount"]?.intValue
