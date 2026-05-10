@@ -22,19 +22,23 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        // OCCT 8.0.0 GA cohort, fully aligned at v1.0.x.
+        // OCCT 8.0.0 GA cohort.
+        //
+        // OCCTSwift 1.1.0 closes gsdali/OCCTSwift#167: TopologyGraph
+        // gains `findDerivedOrSelf(of:)` and `hasHistoryRecord(for:)` —
+        // single-call disambiguation between untouched / modified /
+        // deleted nodes. Lets RemapTools drop its v1.3
+        // isIdentityPreserving flag workaround.
         //
         // OCCTSwift 1.0.4 closes gsdali/OCCTSwift#166: applyFillet /
-        // applyChamfer in FeatureReconstructor go through
-        // *WithFullHistory and populate BuildResult.histories[id] for
-        // every spec kind. apply_feature picks this up transparently
-        // (no consumer code change since v1.1).
+        // applyChamfer go through *WithFullHistory and populate
+        // BuildResult.histories[id] for every FeatureSpec kind.
         //
         // OCCTSwiftViewport 1.0.2 closes #28: Metal point-sprite
         // pipeline. Combined with OCCTSwiftTools 1.1.0 wiring
         // pointRadius / vertexColors through to ViewportBody, the
         // pointCloud annotation now actually renders.
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.0.4"),
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.1.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.2"),
         .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.0"),

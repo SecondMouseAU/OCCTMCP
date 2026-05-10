@@ -25,20 +25,10 @@ import OCCTSwift
 public actor HistoryRegistry {
     public static let shared = HistoryRegistry()
 
-    /// Per-body cached state. `isIdentityPreserving` is true when the
-    /// recorded mutation didn't change topology indices — every
-    /// pre-mutation node maps to the same index post-mutation. Used so
-    /// remap_selection can short-circuit `findDerived` (which OCCT
-    /// only populates for *changed* nodes — explicit
-    /// "original==replacement" identity records are no-ops in OCCT) and
-    /// just return the same index. Cleared/replaced when the body is
-    /// re-mutated.
-    public struct Entry: Sendable {
-        public let graph: TopologyGraph
-        public let isIdentityPreserving: Bool
-    }
-
-    private var entries: [String: Entry] = [:]
+    /// Per-body post-mutation `TopologyGraph`. Replaced when the body
+    /// is re-mutated. Consumed by `RemapTools` via
+    /// `TopologyGraph.findDerivedOrSelf` (OCCTSwift 1.1.0+).
+    private var graphs: [String: TopologyGraph] = [:]
 
     public init() {}
 
@@ -46,23 +36,19 @@ public actor HistoryRegistry {
     /// entry for the same body — older selectionIds remap against the
     /// most recent state only.
     public func record(bodyId: String, graph: TopologyGraph) {
-        entries[bodyId] = Entry(graph: graph, isIdentityPreserving: false)
-    }
-
-    public func entry(for bodyId: String) -> Entry? {
-        return entries[bodyId]
+        graphs[bodyId] = graph
     }
 
     public func graph(for bodyId: String) -> TopologyGraph? {
-        return entries[bodyId]?.graph
+        return graphs[bodyId]
     }
 
     public func clear() {
-        entries.removeAll()
+        graphs.removeAll()
     }
 
     public func count() -> Int {
-        return entries.count
+        return graphs.count
     }
 }
 
@@ -117,10 +103,9 @@ extension HistoryRegistry {
         // Same graph under all three keys so remap_selection finds it
         // regardless of which input the selectionId was originally
         // recorded against.
-        let entry = Entry(graph: postGraph, isIdentityPreserving: false)
-        entries[outId] = entry
-        entries[aBodyId] = entry
-        entries[bBodyId] = entry
+        graphs[outId] = postGraph
+        graphs[aBodyId] = postGraph
+        graphs[bBodyId] = postGraph
     }
 
     /// Translate a single-input `ShapeHistoryRef` (gsdali/OCCTSwift#165
@@ -150,7 +135,7 @@ extension HistoryRegistry {
             faceCentres: faceCentres, edgeCentres: edgeCentres, vertexCentres: vertexCentres,
             ref: ref, operationName: operationName
         )
-        entries[bodyId] = Entry(graph: postGraph, isIdentityPreserving: false)
+        graphs[bodyId] = postGraph
     }
 
     private func recordSide(
@@ -218,6 +203,16 @@ extension HistoryRegistry {
             // unrecorded so remap_selection's heuristic can still make
             // a guess rather than locking in "lost".
             guard !postIndices.isEmpty else { continue }
+            // Skip identity records (input mapped to its own index).
+            // OCCTSwift v1.1.0's `findDerivedOrSelf` returns [] when
+            // any history record names the original — including
+            // identity ones — which would conflate "modified to self"
+            // with "deleted". Leaving the identity case unrecorded
+            // makes findDerivedOrSelf return [self] correctly via the
+            // "no record at all → untouched" branch.
+            if !record.isDeleted && postIndices == [inputIndex] {
+                continue
+            }
             postGraph.recordHistory(
                 operationName: operationName,
                 original: TopologyGraph.NodeRef(kind: kind, index: inputIndex),
@@ -252,15 +247,13 @@ extension HistoryRegistry {
         postMutationShape: Shape,
         operationName: String
     ) {
-        // OCCT's history API treats `original == replacement` records
-        // as no-ops — `findDerived` returns empty for an identity-only
-        // record. Don't write anything; just register the post graph
-        // with the identity-preserving flag so RemapTools can
-        // short-circuit `findDerived` empties to "preserved at same
-        // index".
+        // No history records to write — transforms preserve topology
+        // 1:1 by construction. Register the post-mutation graph and
+        // let RemapTools' `findDerivedOrSelf` resolve every node to
+        // self (since none are mentioned in any record).
         _ = operationName
         guard let graph = TopologyGraph(shape: postMutationShape) else { return }
-        entries[bodyId] = Entry(graph: graph, isIdentityPreserving: true)
+        graphs[bodyId] = graph
     }
 
     /// Conditional version of `recordIdentityHistory` — only records
@@ -286,10 +279,10 @@ extension HistoryRegistry {
               pre.vertexCount == post.vertexCount else {
             return false
         }
-        // Same reasoning as `recordIdentityHistory` — skip the
-        // self-referencing record loop and just flag the entry.
+        // Topology preserved 1:1 — no records to write. RemapTools'
+        // `findDerivedOrSelf` resolves every node to self.
         _ = operationName
-        entries[bodyId] = Entry(graph: post, isIdentityPreserving: true)
+        graphs[bodyId] = post
         return true
     }
 }

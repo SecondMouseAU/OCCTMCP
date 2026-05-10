@@ -80,18 +80,20 @@ OCCTSwift / OCCTSwiftViewport are kernel layers. `OCCTSwiftTools` is the bridge 
 
 `remap_selection` resolves a `selectionId` against the post-mutation state of a body via:
 
-1. `HistoryRegistry.entry(for: bodyId)` — if recorded:
-   - Walk `TopologyGraph.findDerived(originalRef:)`. Non-empty result → fate ∈ {preserved, split}, confidenceMm = 0.
-   - Empty result + `isIdentityPreserving` flag set → preserved at same index, confidenceMm = 0. (OCCT's `findDerived` skips identity records — original==replacement entries are no-ops in the OCCT history log — so we track topology-preserving ops via a flag and short-circuit instead of writing self-referencing records.)
-   - Empty result, flag not set → fall through to the heuristic (we can't tell unmodified from deleted without per-record introspection).
+1. `HistoryRegistry.graph(for: bodyId)` — if recorded, call `TopologyGraph.findDerivedOrSelf(originalRef:)` (OCCTSwift v1.1.0+):
+   - Non-empty derivatives → fate ∈ {preserved, split}, confidenceMm = 0.
+   - Empty result → explicitly recorded as deleted, fate = lost.
+   - `[self]` (no record at all) → preserved at same index, confidenceMm = 0.
 2. Centroid heuristic — load pre and post BREPs, find nearest face/edge/vertex within an epsilon. fate is preserved if within ε, lost otherwise. confidenceMm reports the centroid distance.
+
+`recordSingleInputHistory` and `recordBooleanHistory` skip writing identity records (`original → [original]`) so they fall through to the implicit `[self]` branch above. Without this, an OCCT-reported "modified to same index" would be conflated with an explicit delete by `findDerivedOrSelf`.
 
 Per-tool opt-in status:
 
 | Tool             | History path                              | Notes |
 |------------------|-------------------------------------------|-------|
-| `transform_body` | identity flag (topology preserved)        | every node maps 1:1 — `recordIdentityHistory` sets `isIdentityPreserving=true` |
-| `heal_shape`     | identity flag if pre/post counts match    | falls back to heuristic if shape repair changed topology |
+| `transform_body` | implicit identity (no records written)    | every node maps 1:1; `findDerivedOrSelf` returns `[self]` |
+| `heal_shape`     | implicit identity if pre/post counts match | falls back to heuristic if shape repair changed topology |
 | `boolean_op`     | per-input history via `recordBooleanHistory` | OCCTSwift `*WithFullHistory` variants; recorded under output + both inputs |
 | `apply_feature`  | per-feature history via `recordSingleInputHistory` | OCCTSwift v1.0.4 `FeatureReconstructor.BuildResult.histories[id]` — every spec kind (boolean / hole / second-additive / fillet / chamfer) populates a `ShapeHistoryRef` when the spec carries a non-nil id |
 
@@ -129,7 +131,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 1.0.4 — kernel wrapper around OpenCASCADE; full per-input history coverage for booleans + every `FeatureSpec` kind in `BuildResult.histories[id]`
+- **OCCTSwift** ≥ 1.1.0 — kernel wrapper around OpenCASCADE; full per-input history coverage for booleans + every `FeatureSpec` kind in `BuildResult.histories[id]`, plus `TopologyGraph.findDerivedOrSelf` / `hasHistoryRecord` for unambiguous untouched-vs-deleted resolution
 - **OCCTSwiftMesh** ≥ 1.0.0 — mesh-domain algorithms (QEM decimation today; smoothing / repair / remeshing in roadmap)
 - **OCCTSwiftScripts** ≥ 1.0.2 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process
 - **OCCTSwiftTools** ≥ 1.1.0 — Shape↔ViewportBody bridge; ships `PointConverter` and wires `pointRadius` / `vertexColors` through to `ViewportBody`
