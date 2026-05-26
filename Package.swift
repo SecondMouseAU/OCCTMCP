@@ -21,13 +21,12 @@ let package = Package(
         .executable(name: "occtmcp-server", targets: ["OCCTMCPServer"]),
     ],
     dependencies: [
-        // Temporary pin against gsdali's swift-sdk fork while
-        // modelcontextprotocol/swift-sdk#226 is in review. Upstream
-        // tag floor goes back to `from: "0.11.0"` once the PR merges.
-        // The branch ships `Value.numberValue` (proposed in upstream
-        // #225) — Server.swift consumes it directly so we delete our
-        // own back-port the moment upstream lands.
-        .package(url: "https://github.com/gsdali/swift-sdk.git", branch: "add-value-numbervalue"),
+        // Official MCP Swift SDK. `Value.numberValue` (proposed upstream
+        // in modelcontextprotocol/swift-sdk#225, PR #226) is not yet in a
+        // tagged release, so we back-port it locally in
+        // Sources/OCCTMCPCore/Value+NumberValue.swift. Delete that file
+        // and nothing else changes once the SDK ships the property.
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
         // OCCT 8.0.0 GA cohort.
         //
         // OCCTSwift 1.1.0 closes gsdali/OCCTSwift#167: TopologyGraph
