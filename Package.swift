@@ -45,10 +45,13 @@ let package = Package(
         // pointCloud annotation now actually renders.
         .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.1.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.2"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.0"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.0.2"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "1.0.1"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.3"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.1"),
+        // Viewport floored at 1.0.4: 1.0.3 fixes an uncatchable quantize()
+        // crash on body load (Viewport #30) that would trap the MCP server
+        // during render-preview; 1.0.4 makes the package dependency-free.
+        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.0.4"),
+        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "1.0.2"),
     ],
     targets: [
         .target(
