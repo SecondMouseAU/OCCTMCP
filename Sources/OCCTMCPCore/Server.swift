@@ -943,6 +943,96 @@ func catalogTools() -> [Tool] {
                 "additionalProperties": .bool(false),
             ])
         ),
+        // ── reconstruct_* — read/write the attributed reconstruction graph (#33)
+        Tool(
+            name: "reconstruct_get_graph",
+            description: "Export the attributed reconstruction graph as JSON: topology counts, every annotated node (with its reconstruct.* attributes), and instance clusters. Pass `sessionId` for an existing session, or `bodyId` to start one from a scene body. Nodes are addressed as `<kind>:<index>` (e.g. `face:3`).",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "sessionId": .object(["type": .string("string"), "description": .string("Existing reconstruction session id.")]),
+                    "bodyId": .object(["type": .string("string"), "description": .string("Scene body to start a new session from (sessionId defaults to bodyId).")]),
+                ]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "reconstruct_set_decision",
+            description: "Annotate a node's reconstruction decision: `decidedBy` (geometric | ml | human) and/or `accepted` (accept/reject a proposed fit). At least one must be supplied.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "sessionId": .object(["type": .string("string")]),
+                    "node": .object(["type": .string("string"), "description": .string("Target node as `<kind>:<index>`, e.g. `face:3`.")]),
+                    "decidedBy": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("geometric"), .string("ml"), .string("human")]),
+                    ]),
+                    "accepted": .object(["type": .string("boolean")]),
+                ]),
+                "required": .array([.string("sessionId"), .string("node")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "reconstruct_force_fit",
+            description: "Override a node's fitted surface type (e.g. force `cylinder`). Records the override as an attribute for the OCCTReconstruct engine to honour on its next pass; it does not re-fit here.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "sessionId": .object(["type": .string("string")]),
+                    "node": .object(["type": .string("string"), "description": .string("Target node as `<kind>:<index>`.")]),
+                    "surfaceType": .object(["type": .string("string"), "description": .string("Forced surface type, e.g. plane / cylinder / cone / sphere / torus.")]),
+                ]),
+                "required": .array([.string("sessionId"), .string("node"), .string("surfaceType")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "reconstruct_confirm_instances",
+            description: "Confirm or reject a congruence cluster (\"these N nodes are one part definition\"). Tags every listed node with `clusterId` and the `confirmed` flag.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "sessionId": .object(["type": .string("string")]),
+                    "clusterId": .object(["type": .string("string")]),
+                    "nodes": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                        "description": .string("Cluster member nodes as `<kind>:<index>`."),
+                    ]),
+                    "confirmed": .object(["type": .string("boolean"), "description": .string("Default true.")]),
+                ]),
+                "required": .array([.string("sessionId"), .string("clusterId"), .string("nodes")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "reconstruct_export_session",
+            description: "Write the session's attributed graph snapshot to disk (byte-stable JSON). Defaults to <output_dir>/reconstruct/<sessionId>.session.json. Round-trips losslessly via reconstruct_import_session.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "sessionId": .object(["type": .string("string")]),
+                    "path": .object(["type": .string("string"), "description": .string("Optional output path.")]),
+                ]),
+                "required": .array([.string("sessionId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "reconstruct_import_session",
+            description: "Reload a graph snapshot file into a session and return its state. `sessionId` defaults to the file's stem.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "path": .object(["type": .string("string")]),
+                    "sessionId": .object(["type": .string("string")]),
+                ]),
+                "required": .array([.string("path")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
     ]
 }
 
@@ -1529,6 +1619,63 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
     case "compare_versions":
         let since = arguments["since"]?.intValue ?? 1
         return await SceneTools.compareVersions(since: since).asCallToolResult()
+
+    case "reconstruct_get_graph":
+        return await ReconstructTools.getGraph(
+            sessionId: arguments["sessionId"]?.stringValue,
+            bodyId: arguments["bodyId"]?.stringValue
+        ).asCallToolResult()
+
+    case "reconstruct_set_decision":
+        guard let sessionId = arguments["sessionId"]?.stringValue,
+              let node = arguments["node"]?.stringValue else {
+            return ToolText("reconstruct_set_decision requires `sessionId` and `node`.", isError: true).asCallToolResult()
+        }
+        return await ReconstructTools.setDecision(
+            sessionId: sessionId,
+            node: node,
+            decidedBy: arguments["decidedBy"]?.stringValue,
+            accepted: arguments["accepted"]?.boolValue
+        ).asCallToolResult()
+
+    case "reconstruct_force_fit":
+        guard let sessionId = arguments["sessionId"]?.stringValue,
+              let node = arguments["node"]?.stringValue,
+              let surfaceType = arguments["surfaceType"]?.stringValue else {
+            return ToolText("reconstruct_force_fit requires `sessionId`, `node`, and `surfaceType`.", isError: true).asCallToolResult()
+        }
+        return await ReconstructTools.forceFit(
+            sessionId: sessionId, node: node, surfaceType: surfaceType
+        ).asCallToolResult()
+
+    case "reconstruct_confirm_instances":
+        guard let sessionId = arguments["sessionId"]?.stringValue,
+              let clusterId = arguments["clusterId"]?.stringValue,
+              let nodes = arguments["nodes"]?.arrayValue?.compactMap({ $0.stringValue }), !nodes.isEmpty else {
+            return ToolText("reconstruct_confirm_instances requires `sessionId`, `clusterId`, and a non-empty `nodes` array.", isError: true).asCallToolResult()
+        }
+        return await ReconstructTools.confirmInstances(
+            sessionId: sessionId,
+            clusterId: clusterId,
+            nodes: nodes,
+            confirmed: arguments["confirmed"]?.boolValue ?? true
+        ).asCallToolResult()
+
+    case "reconstruct_export_session":
+        guard let sessionId = arguments["sessionId"]?.stringValue else {
+            return ToolText("reconstruct_export_session requires `sessionId`.", isError: true).asCallToolResult()
+        }
+        return await ReconstructTools.exportSession(
+            sessionId: sessionId, path: arguments["path"]?.stringValue
+        ).asCallToolResult()
+
+    case "reconstruct_import_session":
+        guard let path = arguments["path"]?.stringValue else {
+            return ToolText("reconstruct_import_session requires `path`.", isError: true).asCallToolResult()
+        }
+        return await ReconstructTools.importSession(
+            path: path, sessionId: arguments["sessionId"]?.stringValue
+        ).asCallToolResult()
 
     default:
         return ToolText("Unknown tool: \(callName)", isError: true).asCallToolResult()

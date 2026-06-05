@@ -39,11 +39,18 @@ let package = Package(
         // applyChamfer go through *WithFullHistory and populate
         // BuildResult.histories[id] for every FeatureSpec kind.
         //
+        // OCCTSwift 1.2.0 closes gsdali/OCCTSwift#168: TopologyGraph
+        // gains a per-node attribute store (`attributes` /
+        // `setAttribute` / `attribute`), a closed `AttrValue` enum, and
+        // a Codable `GraphSnapshot` round-trip (`snapshot()` /
+        // `init(snapshot:)`). Backs the `reconstruct_*` tool group
+        // (OCCTMCP #33) — LLM read/write over the attributed graph.
+        //
         // OCCTSwiftViewport 1.0.2 closes #28: Metal point-sprite
         // pipeline. Combined with OCCTSwiftTools 1.1.0 wiring
         // pointRadius / vertexColors through to ViewportBody, the
         // pointCloud annotation now actually renders.
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.1.0"),
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.2.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.3"),
         .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.1"),
