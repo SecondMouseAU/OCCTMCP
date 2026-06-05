@@ -1,5 +1,5 @@
 {
-  "originHash" : "e1067c9af961ea600d3bfb6c5aead9c184003b4ab9985e95e807e5be8eb7e464",
+  "originHash" : "fd106e498eb0f75b0da3a758cfb28c2760bbe82c6a3d794d01a9f134d3b4a73c",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/gsdali/OCCTSwift.git",
       "state" : {
-        "revision" : "2124f0c63ed5750886b9235838cd3b866d3367ee",
-        "version" : "1.1.0"
+        "revision" : "12b37d2a49e9c391f84cbc735ec512b228d7d4bc",
+        "version" : "1.2.0"
       }
     },
     {

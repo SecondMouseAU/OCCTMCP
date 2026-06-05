@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family. Two implementations live side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 50 typed tools. macOS 15+.
+- **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 56 typed tools. macOS 15+.
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI via `OCCTSwiftScripts`. 36 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only).
 
 Both speak stdio MCP and read/write the same `manifest.json` + `annotations.json` files in the output directory. Pick whichever fits the host: the Swift binary eliminates JSONL marshalling and per-call subprocess spawn; the Node server runs anywhere a Node 18+ runtime exists, but needs `occtkit` on `$PATH`.
@@ -41,7 +41,7 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
 
 `Sources/OCCTMCPCore/` (library) + `Sources/OCCTMCPServer/` (executable that connects stdio).
 
-- `Server.swift` — `createServer()` factory: registers all 50 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
+- `Server.swift` — `createServer()` factory: registers all 56 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
 - `Tools/` — one file per tool family:
   - `CoreTools.swift` — `get_scene`, `get_script`, `export_model`, `get_api_reference`
   - `ExecuteScriptTool.swift` — `execute_script` (writes Swift to tempfile, `occtkit run` via the resolved binary, parses manifest)
@@ -62,6 +62,8 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
   - `GapFillerTools.swift` — `show_bounding_box`, `diff_overlay`, `select_by_feature`
   - `IntrospectionRegistryTools.swift` — `list_selections`, `clear_selections`, `list_annotations`
   - `AutoDimensionTool.swift` — `auto_dimension`
+  - `ReconstructTools.swift` — `reconstruct_get_graph`, `reconstruct_set_decision`, `reconstruct_force_fit`, `reconstruct_confirm_instances`, `reconstruct_export_session`, `reconstruct_import_session` (LLM read/write over the attributed reconstruction graph; #33)
+- `ReconstructRegistry.swift` — actor-backed `sessionId → TopologyGraph`. Holds the per-node attribute overlay (OCCTSwift 1.2.0 `NodeAttributeStore`) for a reconstruction session; all graph reads/writes are actor-isolated. `reconstruct.*` namespaced keys (`decidedBy`, `accepted`, `forcedSurfaceType`, `instanceCluster`, `instanceConfirmed`). Nodes addressed as `<kind>:<index>`. The reconstruction *engine* (fitting, congruence) lives in OCCTReconstruct — `force_fit` records an override, it does not re-fit. Persistence via `TopologyGraph.snapshot()` / `GraphSnapshot` round-trip.
 - `Manifest.swift` — `ScriptManifest` + `BodyDescriptor` Codable, plus `ManifestStore` (atomic JSON read/write)
 - `Annotations.swift` — `AnnotationsSidecar` (`<output_dir>/annotations.json`): `dimensions[]` + `primitives[]`, `AnyCodable` for per-kind primitive params
 - `AnnotationsRenderer.swift` — synthesises `ViewportBody` overlays from the sidecar (trihedron / workPlane / axis / pointCloud / boundingBox / diffMarker / 3D dimension leaders), and `ViewportMeasurement` entries (linear / angular / radial) for OffscreenRenderer's 2D label overlay. `pointCloud` routes through `OCCTSwiftTools.PointConverter.pointsToBody` (no per-point cap).
@@ -138,7 +140,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 1.1.0 — kernel wrapper around OpenCASCADE; full per-input history coverage for booleans + every `FeatureSpec` kind in `BuildResult.histories[id]`, plus `TopologyGraph.findDerivedOrSelf` / `hasHistoryRecord` for unambiguous untouched-vs-deleted resolution
+- **OCCTSwift** ≥ 1.2.0 — kernel wrapper around OpenCASCADE; full per-input history coverage for booleans + every `FeatureSpec` kind in `BuildResult.histories[id]`, plus `TopologyGraph.findDerivedOrSelf` / `hasHistoryRecord` for unambiguous untouched-vs-deleted resolution. v1.2.0 adds the `TopologyGraph` per-node attribute store (`attributes` / `setAttribute` / `attribute`, closed `AttrValue` enum) and Codable `GraphSnapshot` round-trip (`snapshot()` / `init(snapshot:)`) backing the `reconstruct_*` tool group (#33)
 - **OCCTSwiftMesh** ≥ 1.0.0 — mesh-domain algorithms (QEM decimation today; smoothing / repair / remeshing in roadmap)
 - **OCCTSwiftScripts** ≥ 1.0.2 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process
 - **OCCTSwiftTools** ≥ 1.1.0 — Shape↔ViewportBody bridge; ships `PointConverter` and wires `pointRadius` / `vertexColors` through to `ViewportBody`
@@ -154,7 +156,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ## MCP Tools
 
-50 tools across both implementations (Swift); 36 in Node (no selection / remap / annotations / history). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
+56 tools in Swift; 36 in Node (no selection / remap / annotations / history / reconstruct). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
 
 ## Script Template
 

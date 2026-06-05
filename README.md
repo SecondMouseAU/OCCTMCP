@@ -7,7 +7,7 @@ MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD
 
 Part of the [OCCTSwift ecosystem](https://github.com/gsdali/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
 
-The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 50 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, and dimension overlays.
+The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 56 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, and dimension overlays.
 
 ## How It Works
 
@@ -22,7 +22,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 ## Tools
 
-50 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
+56 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
 
 ### Authoring
 
@@ -128,11 +128,24 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 | `graph_ml` | Export topology + UV/edge samples as ML-friendly JSON |
 | `feature_recognize` | Pockets + holes (raw BREP path; `recognize_features` is the scene-aware wrapper) |
 
+### Reconstruction graph (read/write)
+
+LLM read/write over an attributed reconstruction graph — annotate per-node decisions and persist them. Backed by OCCTSwift 1.2.0's `NodeAttributeStore` + Codable `GraphSnapshot`. Nodes are addressed as `<kind>:<index>` (e.g. `face:3`). The reconstruction *engine* (surface fitting, congruence detection) lives in [OCCTReconstruct](https://github.com/gsdali/OCCTReconstruct); these tools are the annotate-and-persist layer — `reconstruct_force_fit` records an override for the engine to honour, it does not re-fit here.
+
+| Tool | Purpose |
+|------|---------|
+| `reconstruct_get_graph` | Export the attributed graph as JSON — topology counts, annotated nodes (with `reconstruct.*` attributes), instance clusters. Starts a session from a `bodyId` or reads an existing one by `sessionId` |
+| `reconstruct_set_decision` | Annotate a node's `decidedBy` (geometric / ml / human) and/or accept-reject a proposed fit |
+| `reconstruct_force_fit` | Override a node's fitted surface type (e.g. force `cylinder`) |
+| `reconstruct_confirm_instances` | Confirm / reject a congruence cluster ("these N nodes are one part definition") |
+| `reconstruct_export_session` | Write the session snapshot to disk (byte-stable JSON) |
+| `reconstruct_import_session` | Reload a snapshot file into a session |
+
 ## Implementations
 
 This repo ships two implementations side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 50 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
+- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 56 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 36 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
 
 Both speak stdio MCP and read/write the same manifest format.
