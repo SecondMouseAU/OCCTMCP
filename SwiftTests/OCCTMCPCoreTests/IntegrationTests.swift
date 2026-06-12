@@ -81,6 +81,7 @@ struct IntegrationTests {
         }
         for expected in [
             "ping", "get_scene", "execute_script", "render_preview",
+            "pick_surface_point",
             "compute_metrics", "boolean_op", "set_assembly_metadata",
             "check_thickness",
         ] {
@@ -298,6 +299,105 @@ struct IntegrationTests {
         // PNG with a body + dimension overlay should comfortably exceed
         // ~2 KB. A blank 400×300 RGBA PNG is ~700 bytes.
         #expect(size > 2_000, "rendered PNG was \(size) bytes — overlay may not have been drawn")
+    }
+
+    @Test("pick_surface_point hits a body and composes into add_dimension")
+    func pickSurfacePointMeasures() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-pick-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // A box: its 8 pick-vertices give an interior centroid, so the
+        // centre-pixel ray (which the framing aims at the centroid) crosses two
+        // faces and reliably hits. A cylinder's sparse seam vertices would put
+        // the framing pivot on the lateral surface → grazing ray.
+        guard let box = Shape.box(width: 20, height: 20, depth: 20) else {
+            Issue.record("Failed to synthesise box fixture")
+            return
+        }
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(scene)/box.brep"))
+        let store = ManifestStore(path: "\(scene)/manifest.json")
+        try store.write(ScriptManifest(
+            description: "pick_surface_point test scene",
+            bodies: [BodyDescriptor(id: "box", file: "box.brep", color: [0.8, 0.7, 0.3, 1])]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // The centre pixel ray passes through the framing pivot (bbox centre),
+        // which is interior to the solid, so it must hit a boundary face. Two
+        // different camera presets give two distinct surface points.
+        func pick(id: Int, camera: String) throws -> String {
+            try harness.send(.init(
+                id: id, method: "tools/call",
+                params: .object([
+                    "name": .string("pick_surface_point"),
+                    "arguments": .object([
+                        "screenX": .double(200),
+                        "screenY": .double(150),
+                        "options": .object([
+                            "camera": .string(camera),
+                            "width": .int(400),
+                            "height": .int(300),
+                        ]),
+                    ]),
+                ])
+            ))
+            let resp = try harness.recv(timeout: 30)
+            guard case .object(let result)? = resp["result"],
+                  case .array(let content)? = result["content"],
+                  case .object(let first)? = content.first,
+                  let text = first["text"]?.stringValue,
+                  let data = text.data(using: .utf8) else {
+                throw Harness.HarnessError.unexpectedShape("pick_surface_point response envelope")
+            }
+            guard let parsed = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                Issue.record("pick_surface_point (\(camera)) returned non-JSON: \(text)")
+                throw Harness.HarnessError.unexpectedShape("pick_surface_point body not JSON")
+            }
+            #expect(parsed["hit"] as? Bool == true, "centre-pixel pick missed the solid (\(camera))")
+            #expect(parsed["bodyId"] as? String == "box")
+            guard let sel = parsed["selectionId"] as? String else {
+                throw Harness.HarnessError.unexpectedShape("pick_surface_point returned no selectionId")
+            }
+            return sel
+        }
+
+        let front = try pick(id: 50, camera: "front")
+        let top = try pick(id: 51, camera: "top")
+
+        // The picked points must be usable directly as add_dimension anchors.
+        try harness.send(.init(
+            id: 52, method: "tools/call",
+            params: .object([
+                "name": .string("add_dimension"),
+                "arguments": .object([
+                    "kind": .string("linear"),
+                    "id": .string("pick_span"),
+                    "anchors": .object(["from": .string(front), "to": .string(top)]),
+                ]),
+            ])
+        ))
+        let dimResp = try harness.recv(timeout: 10)
+        #expect(dimResp["error"] == nil)
+        guard case .object(let dimResult)? = dimResp["result"],
+              case .array(let dimContent)? = dimResult["content"],
+              case .object(let dimFirst)? = dimContent.first,
+              let dimText = dimFirst["text"]?.stringValue,
+              let dimData = dimText.data(using: .utf8),
+              let dimParsed = try JSONSerialization.jsonObject(with: dimData) as? [String: Any] else {
+            Issue.record("add_dimension response shape unexpected")
+            return
+        }
+        // A non-zero span between two distinct surface points.
+        let value = (dimParsed["value"] as? Double) ?? 0
+        #expect(value > 0, "dimension between two picked points was \(value)")
     }
 
     @Test("history-based remap survives boolean_op via per-input history")
@@ -1255,7 +1355,7 @@ final class Harness {
             if let line = nextLine() {
                 let parsed = try JSONDecoder().decode(Value.self, from: line)
                 guard case .object(let dict) = parsed else {
-                    throw HarnessError.unexpectedShape("top-level not an object")
+                    throw Harness.HarnessError.unexpectedShape("top-level not an object")
                 }
                 return dict
             }

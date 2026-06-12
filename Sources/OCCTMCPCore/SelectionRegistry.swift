@@ -146,6 +146,15 @@ public actor SelectionRegistry {
         snapshots[id] = snapshot
     }
 
+    /// Record a snapshot under an arbitrary selectionId that isn't a
+    /// topology sub-shape — e.g. a `pick:<bodyId>#N` surface point from
+    /// `pick_surface_point`. There's no `TopologyAnchor` for a free point,
+    /// so only the snapshot is stored; `add_dimension` resolves anchors via
+    /// `snapshot(for:)`, so the picked point composes as a dimension anchor.
+    public func recordPointSnapshot(selectionId: String, snapshot: AnchorSnapshot) {
+        snapshots[selectionId] = snapshot
+    }
+
     public func anchor(for selectionId: String) -> TopologyAnchor? {
         if let cached = anchors[selectionId] { return cached }
         // Fall back to parsing — selectionId is self-describing so a
