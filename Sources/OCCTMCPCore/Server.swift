@@ -375,6 +375,24 @@ func catalogTools() -> [Tool] {
             ])
         ),
         Tool(
+            name: "pick_surface_point",
+            description: "Cast a ray through pixel (screenX, screenY) of a render_preview-framed view and return the nearest world-space surface point [x,y,z] on a body, plus the bodyId and a selectionId. Pass the SAME options (camera / width / height) you rendered the preview with so the pixel maps to the same ray. The returned selectionId is a valid add_dimension anchor, so you can pick two points and dimension between them — measure to an arbitrary point on a face, not just a topology centroid.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "screenX": .object(["type": .string("number"), "description": .string("Pixel X (top-left origin) in the options.width×height image.")]),
+                    "screenY": .object(["type": .string("number"), "description": .string("Pixel Y (top-left origin) in the options.width×height image.")]),
+                    "id": .object(["type": .string("string"), "description": .string("Optional explicit selectionId for the picked point.")]),
+                    "options": .object([
+                        "type": .string("object"),
+                        "description": .string("Camera / framing — same shape as render_preview.options (camera, cameraPosition/Target/Up, width, height)."),
+                    ]),
+                ]),
+                "required": .array([.string("screenX"), .string("screenY")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
             name: "remap_selection",
             description: "Remap selectionIds across a scene mutation using a position-matching heuristic (closest-centroid within a body-bbox-relative tolerance). Returns each input mapped to zero or more new selectionIds plus a `fate` ('preserved' | 'approximate' | 'lost'). High-confidence for transforms / in-place edits; approximate for fillets / chamfers / boolean splits.",
             inputSchema: .object([
@@ -1287,6 +1305,20 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         let opts = parseRenderOptions(arguments["options"])
         return await RenderPreviewTool.render(
             outputPath: outputPath, bodyIds: ids, options: opts
+        ).asCallToolResult()
+
+    case "pick_surface_point":
+        // numberValue (not doubleValue): an integer pixel like 200 round-trips
+        // through JSON to Value.int, and doubleValue returns nil for .int.
+        guard let sx = arguments["screenX"]?.numberValue,
+              let sy = arguments["screenY"]?.numberValue else {
+            return ToolText("pick_surface_point requires `screenX` and `screenY`.", isError: true).asCallToolResult()
+        }
+        return await RayPickTool.pickSurfacePoint(
+            screenX: sx,
+            screenY: sy,
+            options: parseRenderOptions(arguments["options"]),
+            id: arguments["id"]?.stringValue
         ).asCallToolResult()
 
     case "execute_script":

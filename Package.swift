@@ -54,10 +54,13 @@ let package = Package(
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.3"),
         .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.1"),
-        // Viewport floored at 1.0.4: 1.0.3 fixes an uncatchable quantize()
+        // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server
-        // during render-preview; 1.0.4 makes the package dependency-free.
-        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.0.4"),
+        // during render-preview; 1.0.4 makes the package dependency-free;
+        // 1.1.20 adds tap-to-measure (Viewport #68) and
+        // ViewportBody.worldHitPoint(ray:triangleIndex:) — ray → world
+        // surface-point reconstruction that respects the body transform.
+        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.1.20"),
         .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "1.0.2"),
     ],
     targets: [
