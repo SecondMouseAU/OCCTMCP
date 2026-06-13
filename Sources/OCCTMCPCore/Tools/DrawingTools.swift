@@ -17,10 +17,19 @@ public enum DrawingTools {
         public let detailCount: Int
         public let scaleLabel: String
         public let fileSize: Int
+        /// Number of bodies laid out (1 for a single-part drawing; N for a
+        /// general-arrangement / assembly sheet).
+        public let componentCount: Int
+        /// Number of parts-list rows on the sheet (0 for a single-part drawing).
+        public let partCount: Int
     }
 
+    /// Render a drawing for one or more scene bodies. A single body produces a
+    /// standard multi-view part drawing (sections / dimensions honoured); several
+    /// bodies produce a general-arrangement sheet — shared views, a parts list,
+    /// and a numbered balloon per body (OCCTSwiftScripts#50).
     public static func generateDrawing(
-        bodyId: String,
+        bodyIds: [String],
         outputPath: String,
         spec: Value,
         store: ManifestStore = ManifestStore()
@@ -28,47 +37,52 @@ public enum DrawingTools {
         guard let manifest = try? store.read() else {
             return .init("No scene loaded. Run execute_script first.")
         }
-        guard let body = manifest.body(withId: bodyId) else {
-            return .init("Body not found: \(bodyId)")
+        guard !bodyIds.isEmpty else {
+            return .init("generate_drawing requires `bodyId` or a non-empty `bodyIds`.")
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
-        let inputPath = "\(outputDir)/\(body.file)"
-        guard FileManager.default.fileExists(atPath: inputPath) else {
-            return .init("BREP file missing: \(inputPath)")
+
+        // Resolve + load every requested body.
+        var loaded: [(id: String, name: String, shape: Shape)] = []
+        for id in bodyIds {
+            guard let body = manifest.body(withId: id) else {
+                return .init("Body not found: \(id)")
+            }
+            let inputPath = "\(outputDir)/\(body.file)"
+            guard FileManager.default.fileExists(atPath: inputPath) else {
+                return .init("BREP file missing: \(inputPath)")
+            }
+            do {
+                let shape = try Shape.loadBREP(fromPath: inputPath)
+                loaded.append((id, body.name ?? id, shape))
+            } catch {
+                return .init("Failed to load BREP \(id): \(error.localizedDescription)", isError: true)
+            }
         }
 
-        // Inject shape + output into the spec so callers don't have to.
-        var enriched: Value = spec
-        if case .object(var dict) = enriched {
-            dict["shape"] = .string(inputPath)
-            dict["output"] = .string(outputPath)
-            enriched = .object(dict)
-        } else {
+        guard case .object = spec else {
             return .init("`spec` must be a JSON object.")
-        }
-
-        let specData: Data
-        do {
-            specData = try JSONEncoder().encode(enriched)
-        } catch {
-            return .init("Failed to encode spec: \(error.localizedDescription)", isError: true)
         }
         let drawingSpec: DrawingSpec
         do {
+            let specData = try JSONEncoder().encode(spec)
             drawingSpec = try JSONDecoder().decode(DrawingSpec.self, from: specData)
         } catch {
             return .init("Invalid DrawingSpec: \(error.localizedDescription)")
         }
 
-        let shape: Shape
-        do {
-            shape = try Shape.loadBREP(fromPath: inputPath)
-        } catch {
-            return .init("Failed to load BREP: \(error.localizedDescription)", isError: true)
-        }
         let result: DrawingComposerResult
         do {
-            result = try Composer.render(spec: drawingSpec, shape: shape)
+            if loaded.count == 1 {
+                // Single body → standard part drawing (keeps section / dimension support).
+                result = try Composer.render(spec: drawingSpec, shape: loaded[0].shape)
+            } else {
+                // Multiple bodies → general-arrangement sheet with a parts list.
+                let components = loaded.map {
+                    Composer.DrawingComponent(shape: $0.shape, name: $0.name, partNumber: $0.id)
+                }
+                result = try Composer.render(spec: drawingSpec, components: components)
+            }
         } catch {
             return .init("Composer.render failed: \(error.localizedDescription)", isError: true)
         }
@@ -89,7 +103,9 @@ public enum DrawingTools {
             sectionCount: result.sectionCount,
             detailCount: result.detailCount,
             scaleLabel: result.scaleLabel,
-            fileSize: size
+            fileSize: size,
+            componentCount: result.componentCount,
+            partCount: result.partsList.count
         ))
     }
 }

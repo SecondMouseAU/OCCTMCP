@@ -301,6 +301,75 @@ struct IntegrationTests {
         #expect(size > 2_000, "rendered PNG was \(size) bytes — overlay may not have been drawn")
     }
 
+    @Test("generate_drawing lays out multiple bodies as a general-arrangement sheet")
+    func generateDrawingAssembly() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-ga-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Two distinct parts in the scene.
+        let plate = try #require(Shape.box(width: 40, height: 30, depth: 8))
+        let pin = try #require(Shape.cylinder(radius: 5, height: 25))
+        try Exporter.writeBREP(shape: plate, to: URL(fileURLWithPath: "\(scene)/plate.brep"))
+        try Exporter.writeBREP(shape: pin, to: URL(fileURLWithPath: "\(scene)/pin.brep"))
+        let store = ManifestStore(path: "\(scene)/manifest.json")
+        try store.write(ScriptManifest(
+            description: "GA drawing test scene",
+            bodies: [
+                BodyDescriptor(id: "plate", file: "plate.brep", name: "Base Plate", color: [0.7, 0.7, 0.7, 1]),
+                BodyDescriptor(id: "pin", file: "pin.brep", name: "Dowel Pin", color: [0.6, 0.6, 0.6, 1]),
+            ]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        let dxfPath = "\(scene)/ga.dxf"
+        try harness.send(.init(
+            id: 60, method: "tools/call",
+            params: .object([
+                "name": .string("generate_drawing"),
+                "arguments": .object([
+                    "bodyIds": .array([.string("plate"), .string("pin")]),
+                    "outputPath": .string(dxfPath),
+                    "spec": .object([
+                        "sheet": .object([
+                            "size": .string("a3"),
+                            "orientation": .string("landscape"),
+                            "projection": .string("third"),
+                            "scale": .string("auto"),
+                        ]),
+                        "views": .array([
+                            .object(["name": .string("front")]),
+                            .object(["name": .string("top")]),
+                            .object(["name": .string("right")]),
+                        ]),
+                    ]),
+                ]),
+            ])
+        ))
+        let resp = try harness.recv(timeout: 30)
+        #expect(resp["error"] == nil)
+        guard case .object(let result)? = resp["result"],
+              case .array(let content)? = result["content"],
+              case .object(let first)? = content.first,
+              let text = first["text"]?.stringValue,
+              let data = text.data(using: .utf8),
+              let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("generate_drawing response shape unexpected")
+            return
+        }
+        #expect(parsed["componentCount"] as? Int == 2)   // two bodies laid out
+        #expect(parsed["partCount"] as? Int == 2)         // two parts-list rows
+        let fileSize = (parsed["fileSize"] as? Int) ?? 0
+        #expect(fileSize > 4_000, "GA DXF was \(fileSize) bytes — views may not have rendered")
+    }
+
     @Test("pick_surface_point hits a body and composes into add_dimension")
     func pickSurfacePointMeasures() async throws {
         guard let binary = Self.binaryURL else {

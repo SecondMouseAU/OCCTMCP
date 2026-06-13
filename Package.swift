@@ -50,9 +50,17 @@ let package = Package(
         // pipeline. Combined with OCCTSwiftTools 1.1.0 wiring
         // pointRadius / vertexColors through to ViewportBody, the
         // pointCloud annotation now actually renders.
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.2.0"),
+        //
+        // Floored at 1.3.1 because OCCTSwiftScripts 1.0.4 (GA / assembly
+        // drawings, #50) raised its own OCCTSwift floor to 1.3.1; resolves
+        // to 1.4.0 (OCCT.xcframework 1.3.2) in the current cohort.
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.3.1"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.0.0"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.3"),
+        // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
+        // Composer.render(spec:components:) / render(spec:document:) — multi-body
+        // drawings with a parts list + balloons. Surfaced via generate_drawing's
+        // bodyIds.
+        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.4"),
         .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.1"),
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server

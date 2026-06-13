@@ -229,18 +229,23 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "generate_drawing",
-            description: "Render a multi-view ISO 128-30 DXF technical drawing for a scene body. Pass a DrawingSpec object (sheet, title, views, sections, dimensions, ...). The tool injects shape + output into the spec.",
+            description: "Render a multi-view ISO 128-30 DXF technical drawing. Pass `bodyId` for a single-part drawing (sections / dimensions honoured), or `bodyIds` (2+) for a general-arrangement / assembly sheet — shared views with a parts list and a numbered balloon per body. Pass a DrawingSpec object (sheet, title, views, sections, dimensions, ...).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "bodyId": .object(["type": .string("string")]),
+                    "bodyId": .object(["type": .string("string"), "description": .string("Single body — standard part drawing.")]),
+                    "bodyIds": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                        "description": .string("Two or more bodies — general-arrangement assembly sheet with a parts list. Takes precedence over `bodyId`."),
+                    ]),
                     "outputPath": .object(["type": .string("string")]),
                     "spec": .object([
                         "type": .string("object"),
-                        "description": .string("DrawingSpec object: { sheet, title?, views, sections?, dimensions?, ... }. See OCCTSwiftScripts/Sources/DrawingComposer/Spec.swift."),
+                        "description": .string("DrawingSpec object: { sheet, title?, views, sections?, dimensions?, ... }. See OCCTSwiftScripts/Sources/DrawingComposer/Spec.swift. For a general-arrangement sheet, per-view sections/dimensions are not applied."),
                     ]),
                 ]),
-                "required": .array([.string("bodyId"), .string("outputPath"), .string("spec")]),
+                "required": .array([.string("outputPath"), .string("spec")]),
                 "additionalProperties": .bool(false),
             ])
         ),
@@ -1349,13 +1354,18 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         ).asCallToolResult()
 
     case "generate_drawing":
-        guard let bodyId = arguments["bodyId"]?.stringValue,
-              let outputPath = arguments["outputPath"]?.stringValue,
+        guard let outputPath = arguments["outputPath"]?.stringValue,
               let spec = arguments["spec"] else {
-            return ToolText("generate_drawing requires `bodyId`, `outputPath`, `spec`.", isError: true).asCallToolResult()
+            return ToolText("generate_drawing requires `outputPath` and `spec`.", isError: true).asCallToolResult()
+        }
+        // Accept either a single `bodyId` or a `bodyIds` array (general-arrangement).
+        let ids = arguments["bodyIds"]?.arrayValue?.compactMap { $0.stringValue }
+            ?? arguments["bodyId"]?.stringValue.map { [$0] }
+        guard let bodyIds = ids, !bodyIds.isEmpty else {
+            return ToolText("generate_drawing requires `bodyId` or a non-empty `bodyIds`.", isError: true).asCallToolResult()
         }
         return await DrawingTools.generateDrawing(
-            bodyId: bodyId, outputPath: outputPath, spec: spec
+            bodyIds: bodyIds, outputPath: outputPath, spec: spec
         ).asCallToolResult()
 
     case "get_api_reference":
