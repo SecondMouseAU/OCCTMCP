@@ -160,7 +160,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "graph_ml",
-            description: "Export a BREP's topology graph as ML-friendly JSON. Pass an absolute BREP path and optionally a description. Wraps ScriptHarness BREPGraphJSONExporter.",
+            description: "Export a BREP's topology graph as ML-friendly JSON. Pass an absolute BREP path and optionally a description. Wraps ScriptHarness BREPGraphJSONExporter, augmented with a `faceAdjacency` block ({face1,face2,convexity,sharedEdgeCount}) — the convexity-attributed gAAG edge attribute, face indices in shape.faces() order.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([

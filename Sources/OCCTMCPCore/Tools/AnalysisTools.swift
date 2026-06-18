@@ -303,7 +303,24 @@ public enum AnalysisTools {
             try BREPGraphJSONExporter.export(graph, to: tempURL, description: description)
             defer { try? FileManager.default.removeItem(at: tempURL) }
             let data = try Data(contentsOf: tempURL)
-            return .init(String(data: data, encoding: .utf8) ?? "{}")
+            // Augment the exporter JSON with a convexity-attributed face-adjacency
+            // block (the gAAG edge attribute B-rep GNNs key on), computed
+            // kernel-direct from the AAG — same source as graph_select. Closes the
+            // graph_ml half of OCCTMCP#38. Face indices follow shape.faces() order.
+            guard var obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .init(String(data: data, encoding: .utf8) ?? "{}")
+            }
+            let aag = AAG(shape: shape)
+            obj["faceAdjacency"] = aag.edges.map { e in
+                [
+                    "face1": e.face1Index,
+                    "face2": e.face2Index,
+                    "convexity": convexityLabel(e.convexity),
+                    "sharedEdgeCount": e.sharedEdgeCount,
+                ] as [String: Any]
+            }
+            let out = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+            return .init(String(decoding: out, as: UTF8.self))
         } catch {
             return .init("graph_ml failed: \(error.localizedDescription)", isError: true)
         }
