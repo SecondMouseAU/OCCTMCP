@@ -309,6 +309,147 @@ public enum AnalysisTools {
         }
     }
 
+    // ── graph_select ────────────────────────────────────────────────────
+    // Local B-rep graph adjacency / selection queries without dumping the
+    // whole graph (graph_ml). Mirrors the OCCTSwiftScripts `graph-select` verb,
+    // backed directly by the kernel AAG (face queries + convexity) and
+    // TopologyGraph (edge/vertex adjacency). Convexity is a dihedral-between-two-
+    // faces property, so it is reported on face *adjacencies* (the gAAG edge
+    // attribute). Face indices follow shape.faces() order (the `face[N]` scheme
+    // query_topology emits); edge/vertex indices are TopologyGraph indices.
+    // OCCTMCP#38.
+
+    private static func convexityLabel(_ c: EdgeConvexity) -> String {
+        switch c {
+        case .concave: return "concave"
+        case .smooth:  return "smooth"
+        case .convex:  return "convex"
+        }
+    }
+
+    public struct GraphSelectNeighbour: Encodable {
+        public let face: Int; public let convexity: String; public let sharedEdgeCount: Int
+    }
+    public struct GraphSelectFaceNeighbors: Encodable {
+        public let query = "face-neighbors"
+        public let face: Int
+        public let isPlanar: Bool
+        public let isVertical: Bool
+        public let isHorizontal: Bool
+        public let normal: [Double]?
+        public let neighbors: [GraphSelectNeighbour]
+    }
+    public struct GraphSelectEdgeFaces: Encodable {
+        public let query = "edge-faces"
+        public let edge: Int
+        public let faces: [Int]
+        public let startVertex: Int?
+        public let endVertex: Int?
+        public let boundary: Bool
+        public let manifold: Bool
+    }
+    public struct GraphSelectVertexEdges: Encodable {
+        public let query = "vertex-edges"
+        public let vertex: Int
+        public let edges: [Int]
+    }
+    public struct GraphSelectFaceAdj: Encodable {
+        public let face1: Int; public let face2: Int; public let convexity: String; public let sharedEdgeCount: Int
+    }
+    public struct GraphSelectFaceAdjacency: Encodable {
+        public let query = "face-adjacency"
+        public let faceCount: Int
+        public let adjacencies: [GraphSelectFaceAdj]
+    }
+    public struct GraphSelectEdgesClass: Encodable {
+        public let query = "edges-class"
+        public let edgeClass: String
+        public let edges: [Int]
+    }
+
+    public static func graphSelect(
+        brepPath: String,
+        query: String,
+        face: Int?,
+        edge: Int?,
+        vertex: Int?,
+        edgeClass: String?
+    ) async -> ToolText {
+        guard FileManager.default.fileExists(atPath: brepPath) else {
+            return .init("BREP file not found: \(brepPath)")
+        }
+        do {
+            let shape = try Shape.loadBREP(fromPath: brepPath)
+            switch query {
+            case "face-neighbors":
+                let aag = AAG(shape: shape)
+                guard let f = face, f >= 0, f < aag.nodes.count else {
+                    return .init("face-neighbors requires `face` in 0..<\(AAG(shape: shape).nodes.count)", isError: true)
+                }
+                let node = aag.nodes[f]
+                let neighbors = aag.neighbors(of: f).sorted().map { nb -> GraphSelectNeighbour in
+                    let e = aag.edge(between: f, and: nb)
+                    return GraphSelectNeighbour(face: nb,
+                                                convexity: convexityLabel(e?.convexity ?? .smooth),
+                                                sharedEdgeCount: e?.sharedEdgeCount ?? 0)
+                }
+                return IntrospectionTools.encode(GraphSelectFaceNeighbors(
+                    face: f, isPlanar: node.isPlanar, isVertical: node.isVertical,
+                    isHorizontal: node.isHorizontal,
+                    normal: node.normal.map { [$0.x, $0.y, $0.z] },
+                    neighbors: neighbors))
+
+            case "edge-faces":
+                let graph = try GraphIO.buildGraph(from: shape)
+                guard let m = edge, m >= 0, m < graph.edgeCount else {
+                    return .init("edge-faces requires `edge` in 0..<\(graph.edgeCount)", isError: true)
+                }
+                return IntrospectionTools.encode(GraphSelectEdgeFaces(
+                    edge: m, faces: graph.faces(of: m),
+                    startVertex: graph.edgeStartVertex(m), endVertex: graph.edgeEndVertex(m),
+                    boundary: graph.isBoundaryEdge(m), manifold: graph.isManifoldEdge(m)))
+
+            case "vertex-edges":
+                let graph = try GraphIO.buildGraph(from: shape)
+                guard let k = vertex, k >= 0, k < graph.vertexCount else {
+                    return .init("vertex-edges requires `vertex` in 0..<\(graph.vertexCount)", isError: true)
+                }
+                return IntrospectionTools.encode(GraphSelectVertexEdges(vertex: k, edges: graph.edges(of: k)))
+
+            case "face-adjacency":
+                let aag = AAG(shape: shape)
+                let adjacencies = aag.edges.map {
+                    GraphSelectFaceAdj(face1: $0.face1Index, face2: $0.face2Index,
+                                       convexity: convexityLabel($0.convexity), sharedEdgeCount: $0.sharedEdgeCount)
+                }
+                return IntrospectionTools.encode(GraphSelectFaceAdjacency(
+                    faceCount: aag.nodes.count, adjacencies: adjacencies))
+
+            case "edges-class":
+                let graph = try GraphIO.buildGraph(from: shape)
+                let kind = edgeClass ?? "boundary"
+                guard ["boundary", "non-manifold", "seam", "degenerate"].contains(kind) else {
+                    return .init("`class` must be boundary | non-manifold | seam | degenerate", isError: true)
+                }
+                let matches: [Int] = (0..<graph.edgeCount).filter { i in
+                    switch kind {
+                    case "boundary":     return graph.isBoundaryEdge(i)
+                    case "non-manifold": return !graph.isManifoldEdge(i)
+                    case "seam":         return graph.edgeCoEdges(i).contains { graph.coedgeSeamPair($0) != nil }
+                    case "degenerate":   return graph.isEdgeDegenerated(i)
+                    default:             return false
+                    }
+                }
+                return IntrospectionTools.encode(GraphSelectEdgesClass(edgeClass: kind, edges: matches))
+
+            default:
+                return .init("Unknown query '\(query)'. Use face-neighbors | edge-faces | vertex-edges | face-adjacency | edges-class.", isError: true)
+            }
+        } catch {
+            return .init("graph_select failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
     public static func featureRecognize(brepPath: String) async -> ToolText {
         guard FileManager.default.fileExists(atPath: brepPath) else {
             return .init("BREP file not found: \(brepPath)")
