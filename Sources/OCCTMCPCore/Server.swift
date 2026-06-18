@@ -160,7 +160,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "graph_ml",
-            description: "Export a BREP's topology graph as ML-friendly JSON. Pass an absolute BREP path and optionally a description. Wraps ScriptHarness BREPGraphJSONExporter.",
+            description: "Export a BREP's topology graph as ML-friendly JSON. Pass an absolute BREP path and optionally a description. Wraps ScriptHarness BREPGraphJSONExporter, augmented with a `faceAdjacency` block ({face1,face2,convexity,sharedEdgeCount}) — the convexity-attributed gAAG edge attribute, face indices in shape.faces() order.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -168,6 +168,26 @@ func catalogTools() -> [Tool] {
                     "description": .object(["type": .string("string")]),
                 ]),
                 "required": .array([.string("brep_path")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "graph_select",
+            description: "Local B-rep graph adjacency / selection query (no full-graph dump). query=face-neighbors needs `face` (returns adjacent faces + convexity + shared-edge count); edge-faces needs `edge`; vertex-edges needs `vertex`; face-adjacency returns the full attributed face-adjacency graph (gAAG); edges-class needs `class` (boundary|non-manifold|seam|degenerate). Face indices follow shape.faces() order (the face[N] scheme query_topology emits); edge/vertex indices are TopologyGraph indices.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "brep_path": .object(["type": .string("string")]),
+                    "query": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("face-neighbors"), .string("edge-faces"), .string("vertex-edges"), .string("face-adjacency"), .string("edges-class")]),
+                    ]),
+                    "face": .object(["type": .string("integer")]),
+                    "edge": .object(["type": .string("integer")]),
+                    "vertex": .object(["type": .string("integer")]),
+                    "class": .object(["type": .string("string"), "enum": .array([.string("boundary"), .string("non-manifold"), .string("seam"), .string("degenerate")])]),
+                ]),
+                "required": .array([.string("brep_path"), .string("query")]),
                 "additionalProperties": .bool(false),
             ])
         ),
@@ -1440,6 +1460,20 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             return ToolText("feature_recognize requires `brep_path`.", isError: true).asCallToolResult()
         }
         return await AnalysisTools.featureRecognize(brepPath: path).asCallToolResult()
+
+    case "graph_select":
+        guard let path = arguments["brep_path"]?.stringValue,
+              let query = arguments["query"]?.stringValue else {
+            return ToolText("graph_select requires `brep_path` and `query`.", isError: true).asCallToolResult()
+        }
+        return await AnalysisTools.graphSelect(
+            brepPath: path,
+            query: query,
+            face: arguments["face"]?.intValue,
+            edge: arguments["edge"]?.intValue,
+            vertex: arguments["vertex"]?.intValue,
+            edgeClass: arguments["class"]?.stringValue
+        ).asCallToolResult()
 
     case "graph_ml":
         guard let path = arguments["brep_path"]?.stringValue else {

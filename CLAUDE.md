@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family. Two implementations live side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 56 typed tools. macOS 15+.
+- **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 57 typed tools. macOS 15+.
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI via `OCCTSwiftScripts`. 36 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only).
 
 Both speak stdio MCP and read/write the same `manifest.json` + `annotations.json` files in the output directory. Pick whichever fits the host: the Swift binary eliminates JSONL marshalling and per-call subprocess spawn; the Node server runs anywhere a Node 18+ runtime exists, but needs `occtkit` on `$PATH`.
@@ -41,7 +41,7 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
 
 `Sources/OCCTMCPCore/` (library) + `Sources/OCCTMCPServer/` (executable that connects stdio).
 
-- `Server.swift` — `createServer()` factory: registers all 56 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
+- `Server.swift` — `createServer()` factory: registers all 57 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
 - `Tools/` — one file per tool family:
   - `CoreTools.swift` — `get_scene`, `get_script`, `export_model`, `get_api_reference`
   - `ExecuteScriptTool.swift` — `execute_script` (writes Swift to tempfile, `occtkit run` via the resolved binary, parses manifest)
@@ -156,7 +156,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ## MCP Tools
 
-56 tools in Swift; 36 in Node (no selection / remap / annotations / history / reconstruct). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
+57 tools in Swift; 36 in Node (no selection / remap / annotations / history / reconstruct). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
 
 ## Script Template
 

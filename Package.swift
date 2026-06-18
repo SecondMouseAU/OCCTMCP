@@ -60,7 +60,9 @@ let package = Package(
         // Composer.render(spec:components:) / render(spec:document:) — multi-body
         // drawings with a parts list + balloons. Surfaced via generate_drawing's
         // bodyIds.
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.0.5"),
+        // v1.2.0 = OCCTSwift 1.7.1 floor (OCCT 8.0.0p1) + the graph-select verb /
+        // convexity-attributed faceAdjacency (OCCTSwiftScripts #54/#55).
+        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.2.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.2"),
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server
