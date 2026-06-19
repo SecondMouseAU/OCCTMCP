@@ -168,6 +168,36 @@ export async function measureDistance(
   return passthroughResult("measure-distance", await runVerbJSON("measure-distance", req));
 }
 
+// ── measure_deviation ────────────────────────────────────────────────────────
+
+export async function measureDeviation(
+  fromBodyId: string,
+  toBodyId: string,
+  deflection?: number,
+  maxSamples?: number
+): Promise<ToolResult> {
+  const m = await readManifest();
+  if (!m) return text("No scene loaded. Run execute_script first.");
+  const a = findBody(m, fromBodyId);
+  const b = findBody(m, toBodyId);
+  if (!a) return text(`Body not found: ${fromBodyId}`);
+  if (!b) return text(`Body not found: ${toBodyId}`);
+
+  const req: Record<string, unknown> = { a: bodyPath(a), b: bodyPath(b) };
+  if (deflection !== undefined) req.deflection = deflection;
+  if (maxSamples !== undefined) req.maxSamples = maxSamples;
+  const r = await runVerbJSON("measure-deviation", req);
+  if (!r.ok) return text(`occtkit measure-deviation failed.\n\n${r.error}\n${r.stderr}`);
+  // occtkit reports on BREP paths, not body ids — re-attach the ids so the Node
+  // response matches the Swift server's measure_deviation shape.
+  try {
+    const parsed = JSON.parse(r.stdout) as Record<string, unknown>;
+    return text(JSON.stringify({ from: fromBodyId, to: toBodyId, ...parsed }, null, 2));
+  } catch {
+    return text(r.stdout);
+  }
+}
+
 // ── check_thickness ────────────────────────────────────────────────────────
 
 export async function checkThickness(
