@@ -82,7 +82,7 @@ struct IntegrationTests {
         for expected in [
             "ping", "get_scene", "execute_script", "render_preview",
             "pick_surface_point",
-            "compute_metrics", "boolean_op", "set_assembly_metadata",
+            "compute_metrics", "measure_deviation", "boolean_op", "set_assembly_metadata",
             "check_thickness",
         ] {
             #expect(names.contains(expected), "missing tool: \(expected)")
