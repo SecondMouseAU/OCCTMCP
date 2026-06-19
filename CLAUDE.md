@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family. Two implementations live side-by-side:
 
 - **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 59 typed tools. macOS 15+.
-- **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI via `OCCTSwiftScripts`. 36 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only).
+- **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI via `OCCTSwiftScripts`. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only).
 
 Both speak stdio MCP and read/write the same `manifest.json` + `annotations.json` files in the output directory. Pick whichever fits the host: the Swift binary eliminates JSONL marshalling and per-call subprocess spawn; the Node server runs anywhere a Node 18+ runtime exists, but needs `occtkit` on `$PATH`.
 
@@ -151,13 +151,13 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Node implementation
 
-- **OCCTSwiftScripts** — provides `occtkit` on `$PATH` (`make install` from the OCCTSwiftScripts repo) or via sibling clone at `~/Projects/OCCTSwiftScripts` so `swift run -c release occtkit` works as the fallback
+- **OCCTSwiftScripts** ≥ 1.3.0 — provides `occtkit` on `$PATH` (`make install` from the OCCTSwiftScripts repo) or via sibling clone at `~/Projects/OCCTSwiftScripts` so `swift run -c release occtkit` works as the fallback. v1.3.0 adds the `measure-deviation` verb and the `metrics` `boundingBoxOptimal` field that the Node `measure_deviation` / `compute_metrics` tools wrap
 - **OCCTSwift** — required at `~/Projects/OCCTSwift/` only when regenerating `src/api-reference.ts` via `scripts/generate-api-reference.mjs` (runs as `npm run prebuild`)
 - **OCCTSwiftViewport** — Metal viewport that watches the output directory via `ScriptWatcher` and auto-reloads. Optional but expected if you want the live preview
 
 ## MCP Tools
 
-59 tools in Swift; 36 in Node (no selection / remap / annotations / history / reconstruct). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
+59 tools in Swift; 37 in Node (no selection / remap / annotations / history / reconstruct). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
 
 ## Script Template
 

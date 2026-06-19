@@ -29,6 +29,7 @@ import {
   computeMetrics,
   queryTopology,
   measureDistance,
+  measureDeviation,
   checkThickness,
   analyzeClearance,
   generateMesh,
@@ -457,15 +458,26 @@ server.tool(
 server.tool(
   "compute_metrics",
   "Compute volume / surface area / center of mass / bounding box / principal " +
-    "axes for a scene body. Wraps occtkit metrics.",
+    "axes for a scene body. Wraps occtkit metrics. `boundingBox` is the default " +
+    "Bnd_Box (control-point hull — over-reports curved B-spline geometry); " +
+    "request `boundingBoxOptimal` for a tight BRepBndLib::AddOptimal extent.",
   {
     bodyId: z.string().describe("Body to compute metrics for."),
     metrics: z
       .array(
-        z.enum(["volume", "surfaceArea", "centerOfMass", "boundingBox", "principalAxes"])
+        z.enum([
+          "volume",
+          "surfaceArea",
+          "centerOfMass",
+          "boundingBox",
+          "boundingBoxOptimal",
+          "principalAxes",
+        ])
       )
       .optional()
-      .describe("Subset to compute. Default: all."),
+      .describe(
+        "Subset to compute. Default: all except boundingBoxOptimal (opt-in — list it explicitly)."
+      ),
   },
   async ({ bodyId, metrics }) => computeMetrics(bodyId, metrics)
 );
@@ -509,6 +521,37 @@ server.tool(
   },
   async ({ fromBodyId, toBodyId, fromRef, toRef, computeContacts }) =>
     measureDistance(fromBodyId, toBodyId, fromRef, toRef, computeContacts)
+);
+
+// ── measure_deviation ───────────────────────────────────────────────────────
+server.tool(
+  "measure_deviation",
+  "Directed + symmetric surface deviation (Hausdorff) between two scene bodies " +
+    "— the metric for certifying a reconstruction against its source mesh. " +
+    "Unlike measure_distance (minimum gap, ~0 for overlapping bodies), this " +
+    "samples each body's tessellated surface and reports the worst / RMS / mean " +
+    "distance to the other in BOTH directions: fromToTo (over-extension) and " +
+    "toToFrom (under-coverage), each with a worstPoint, plus symmetricHausdorff. " +
+    "Wraps occtkit measure-deviation.",
+  {
+    fromBodyId: z.string(),
+    toBodyId: z.string(),
+    deflection: z
+      .number()
+      .positive()
+      .optional()
+      .describe(
+        "Mesh linear deflection (model units). Smaller = finer = tighter bound. Default: 0.5% of the from-body bbox diagonal."
+      ),
+    maxSamples: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Max source surface samples per direction (stride-subsampled). Default 20000."),
+  },
+  async ({ fromBodyId, toBodyId, deflection, maxSamples }) =>
+    measureDeviation(fromBodyId, toBodyId, deflection, maxSamples)
 );
 
 // ── check_thickness ───────────────────────────────────────────────────────
