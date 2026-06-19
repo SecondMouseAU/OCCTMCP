@@ -20,9 +20,13 @@ public enum ExecuteScriptTool {
 
     public static let buildTimeoutSeconds: TimeInterval = 300
 
-    /// Pin floor for OCCTSwiftScripts (provides ScriptHarness). Bump as
-    /// new ScriptManifest fields land.
-    static let scriptsPin = "0.8.1"
+    /// Pin floor for OCCTSwiftScripts (provides ScriptHarness). MUST track
+    /// `Package.swift`'s OCCTSwiftScripts pin — they share the OCCTSwift
+    /// cohort transitively, so divergence makes execute_script compile
+    /// against a different (older) kernel than the server's own tools.
+    /// A `from: "0.x"` floor caps below 1.0.0 (SPM "up to next major"),
+    /// which stranded scripts on pre-GA OCCTSwift 0.171.0 (#42).
+    static let scriptsPin = "1.2.0"
 
     public static func execute(
         code: String,
