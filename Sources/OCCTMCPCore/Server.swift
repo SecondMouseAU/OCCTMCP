@@ -744,7 +744,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "compute_metrics",
-            description: "Compute volume / surface area / center of mass / bounding box / principal axes for a scene body. Direct OCCTSwift call, no occtkit subprocess.",
+            description: "Compute volume / surface area / center of mass / bounding box / principal axes for a scene body. Direct OCCTSwift call, no occtkit subprocess. `boundingBox` is the default Bnd_Box (control-point hull — over-reports curved B-spline geometry); request `boundingBoxOptimal` for a tight BRepBndLib::AddOptimal extent that matches the exact surface / mesh.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -752,7 +752,7 @@ func catalogTools() -> [Tool] {
                     "metrics": .object([
                         "type": .string("array"),
                         "items": .object(["type": .string("string")]),
-                        "description": .string("Subset to compute. Default: all. Items: volume, surfaceArea, centerOfMass, boundingBox, principalAxes."),
+                        "description": .string("Subset to compute. Default: all except boundingBoxOptimal. Items: volume, surfaceArea, centerOfMass, boundingBox, boundingBoxOptimal, principalAxes. boundingBoxOptimal (tight AddOptimal extent) is opt-in — list it explicitly."),
                     ]),
                 ]),
                 "required": .array([.string("bodyId")]),
