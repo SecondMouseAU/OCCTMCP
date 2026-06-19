@@ -795,6 +795,27 @@ func catalogTools() -> [Tool] {
             ])
         ),
         Tool(
+            name: "measure_deviation",
+            description: "Surface deviation (one-sided + symmetric Hausdorff) between two scene bodies — the metric for certifying a reconstruction against its source mesh. Unlike measure_distance (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface and reports the worst / RMS / mean distance to the other in BOTH directions: `fromToTo` (from's surface vs to — over-extension) and `toToFrom` (under-coverage), each with a worstPoint, plus `symmetricHausdorff`. Mesh-based; fidelity scales with `deflection` (default 0.5% of the from-body bbox diagonal). `maxSamples` (default 20000) stride-subsamples the source surface per direction.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "fromBodyId": .object(["type": .string("string")]),
+                    "toBodyId": .object(["type": .string("string")]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string("Mesh linear deflection (model units). Smaller = finer = tighter bound. Default: 0.5% of the from-body bbox diagonal."),
+                    ]),
+                    "maxSamples": .object([
+                        "type": .string("integer"),
+                        "description": .string("Max source surface samples per direction (stride-subsampled). Default 20000."),
+                    ]),
+                ]),
+                "required": .array([.string("fromBodyId"), .string("toBodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
             name: "transform_body",
             description: "Apply translate / rotate / uniform-scale to a scene body. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
             inputSchema: .object([
@@ -1547,6 +1568,17 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         let computeContacts = arguments["computeContacts"]?.boolValue ?? false
         return await IntrospectionTools.measureDistance(
             fromBodyId: fromId, toBodyId: toId, computeContacts: computeContacts
+        ).asCallToolResult()
+
+    case "measure_deviation":
+        guard let fromId = arguments["fromBodyId"]?.stringValue,
+              let toId = arguments["toBodyId"]?.stringValue else {
+            return ToolText("measure_deviation requires `fromBodyId` and `toBodyId`.", isError: true).asCallToolResult()
+        }
+        let deflection = arguments["deflection"]?.doubleValue
+        let maxSamples = arguments["maxSamples"]?.intValue ?? 20_000
+        return await DeviationTools.measureDeviation(
+            fromBodyId: fromId, toBodyId: toId, deflection: deflection, maxSamples: maxSamples
         ).asCallToolResult()
 
     case "transform_body":
