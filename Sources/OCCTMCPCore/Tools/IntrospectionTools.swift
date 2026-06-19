@@ -55,6 +55,7 @@ public enum IntrospectionTools {
         public var surfaceArea: Double?
         public var centerOfMass: [Double]?
         public var boundingBox: BBox?
+        public var boundingBoxOptimal: BBox?
         public var principalAxes: PrincipalAxes?
 
         public struct BBox: Encodable {
@@ -94,10 +95,25 @@ public enum IntrospectionTools {
             report.centerOfMass = [i.centerOfMass.x, i.centerOfMass.y, i.centerOfMass.z]
         }
         if wants("boundingBox") {
+            // Default Bnd_Box: for B-spline / curved faces this is the
+            // control-point hull and over-reports the true extent
+            // (OCCTSwift #232 / #213). Use boundingBoxOptimal for a tight box.
             let b = shape.bounds
             report.boundingBox = .init(
                 min: [b.min.x, b.min.y, b.min.z],
                 max: [b.max.x, b.max.y, b.max.z]
+            )
+        }
+        // Opt-in only (not part of default-all): AddOptimal is costlier than
+        // the Bnd_Box, and most callers want the cheap footprint.
+        if metrics?.contains("boundingBoxOptimal") == true, let o = shape.boundingBoxOptimal() {
+            // BRepBndLib::AddOptimal — tight extent that matches the exact
+            // surface (and the mesh) for curved geometry; equal to the
+            // Bnd_Box for planar bodies. Needed for extent-vs-mesh
+            // reconstruction verification (#44).
+            report.boundingBoxOptimal = .init(
+                min: [o.min.x, o.min.y, o.min.z],
+                max: [o.max.x, o.max.y, o.max.z]
             )
         }
         if wants("principalAxes"), let i = inertia {
