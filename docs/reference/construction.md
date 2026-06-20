@@ -33,28 +33,30 @@ Apply a single parametric feature (drill, fillet, chamfer, extrude, revolve, thr
 **Example**
 
 ```json
-// tool call arguments — fillet the edges of "block" with radius 2 mm
+// tool call arguments — fillet every edge of "block" with radius 2 mm, in place
 {
   "bodyId": "block",
-  "feature": {
-    "kind": "fillet",
-    "radius": 2.0,
-    "edgeSelectionIds": ["sel:block#edge[0]", "sel:block#edge[3]"]
-  },
-  "outputBodyId": "block_filleted"
+  "feature": { "kind": "fillet", "radius": 2.0 }
 }
 ```
 ```json
 // example result
-{
-  "bodies": [
-    { "id": "block", "name": "Block" },
-    { "id": "block_filleted", "name": "Block (filleted)" }
-  ]
-}
+{ "bodyId": "block", "inPlace": true, "outputPath": "…/block.brep" }
 ```
 
-**Notes** — The `kind` field is the discriminator for the FeatureSpec union: `drill` / `fillet` / `chamfer` / `extrude` / `revolve` / `thread` / `boolean`. Each kind carries its own required sub-fields (e.g. `fillet` needs `radius`; `drill` needs `axisOrigin`, `axisDirection`, `diameter`, `depth`). `apply_feature` records per-feature topology history (via `BuildResult.histories[id]`) so [`remap_selection`](selection.md#remap_selection) can map `selectionId`s from the input body onto the output.
+**Notes** — The `feature` object is a FeatureSpec keyed by a `kind` discriminator. The decoded kinds and their fields (note **snake_case** keys — this is the JSON the reconstructor decodes, not the Swift labels):
+
+| `kind` | fields |
+|--------|--------|
+| `fillet` | `radius` — blends **all** edges |
+| `chamfer` | `distance` — chamfers **all** edges |
+| `hole` | `axis_point` `[x,y,z]`, `axis_direction` `[x,y,z]`, `diameter`, `depth` (optional) |
+| `thread` | `hole_ref`, `spec` (e.g. `"M5x0.8"`), `length` (optional) |
+| `extrude` | `profile_points_2d` `[[x,y],…]`, `plane_origin`, `plane_normal`, `length` |
+| `revolve` | `profile_points_2d`, `axis_origin`, `axis_direction`, `angle_deg` (optional, default 360) |
+| `boolean` | `op` (`union`/`subtract`/`intersect`), `left`, `right` (body IDs) |
+
+`apply_feature` records per-feature topology history (via `BuildResult.histories[id]`) so [`remap_selection`](selection.md#remap_selection) can map `selectionId`s from the input body onto the output. An unrecognised `kind` (or one whose geometry the reconstructor rejects) returns no shape with a `skipped` reason.
 
 **Drives** — `OCCTSwift.FeatureReconstructor`; `occtkit reconstruct` (Node).
 

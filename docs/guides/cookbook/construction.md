@@ -6,166 +6,138 @@ nav_order: 3
 
 # Construction
 
-Build up a part step by step using the four typed construction tools — no `execute_script` required. Each tool call consumes the `bodyId` output from the previous step, so the chain is readable end-to-end. Because `boolean_op` and `apply_feature` record topology history, any `selectionId` you picked before the mutation remaps cleanly afterwards; see [Selection & remap](../selection-and-remap.md).
+Build a part up step by step with the typed construction tools — `boolean_op`, `apply_feature`,
+`transform_body`, `mirror_or_pattern`. Each call **mutates the running body in place** (or feeds its
+`outputBodyId` into the next step), so the model grows down the page and every render shows the
+cumulative result. All four tools are on both the Swift `occtmcp-server` and the Node server.
 
-All four tools are available on both the Swift `occtmcp-server` and the Node server.
+Because `boolean_op` and `apply_feature` record topology history, a `selectionId` you picked before a
+mutation remaps cleanly afterwards — see [Selection & remap](../selection-and-remap.md).
 
-**Scenario:** a mounting bracket — a rectangular block with a cylindrical pin subtracted, a fillet on the top edges, positioned at a working height, and a circular pattern of four mounting holes punched through the base.
+**Scenario — a mounting boss:** fuse a cylindrical post onto a base plate, round every edge, bore a
+central hole, then replicate the finished part into a row.
 
----
-
-## 1. Subtract a pin pocket — `boolean_op`
-
-The scene already contains `block` (60 × 40 × 20 mm) and `pin` (Ø10 × 25 mm cylinder, centred on the block top face) created by an earlier `execute_script`. Subtract the pin to open a pocket.
-
-```json
-{
-  "op": "subtract",
-  "aBodyId": "block",
-  "bBodyId": "pin",
-  "outputBodyId": "bracket_raw",
-  "removeInputs": true
-}
-```
-
-```json
-{
-  "bodies": [
-    { "id": "bracket_raw", "name": "bracket_raw" }
-  ]
-}
-```
-
-Reference: [`boolean_op`](../../reference/construction.md#boolean_op). The result body `bracket_raw` carries full per-input history for both `block` and `pin`, so any `selectionId` that lived on either survives a [`remap_selection`](../selection-and-remap.md) call.
+Every step below is a real, runnable tool call; the figures are `render_preview` PNGs of the scene
+*after* that step.
 
 ---
 
-## 2. Fillet the top edges — `apply_feature`
+## 0. Seed two bodies — `execute_script`
 
-Round the four top edges of the pocket to R3 mm. The `kind` discriminator is `"fillet"`; supply the edge `selectionId`s minted by a prior [`select_topology`](../selection-and-remap.md) call (Swift only) or computed from the known topology.
+There's no typed primitive-maker, so start the scene with a short script that adds the base `plate`
+and the `post` that will become the boss (the post's base sits 4 mm inside the plate so the union is a
+clean solid). Everything after this is typed tools.
 
 ```json
 {
-  "bodyId": "bracket_raw",
+  "description": "base plate + post",
+  "code": "import OCCTSwift\nimport ScriptHarness\n\nlet ctx = ScriptContext()\nlet C = ScriptContext.Colors.self\n\nguard let plate = Shape.box(origin: SIMD3(0, 0, 0), width: 80, height: 60, depth: 12),\n      let post = Shape.cylinder(at: SIMD3(40, 30, 8), direction: SIMD3(0, 0, 1), radius: 15, height: 28) else {\n    throw ScriptError.message(\"setup failed\")\n}\n\ntry ctx.add(plate, id: \"plate\", color: C.steel, name: \"Plate\")\ntry ctx.add(post,  id: \"post\",  color: C.steel, name: \"Post\")\ntry ctx.emit(description: \"base plate + post\")\n"
+}
+```
+
+![Plate and post, two separate bodies](images/construction-1-setup.png)
+
+See [Authoring with execute_script](authoring.md) for the script template. Reference: [`execute_script`](../../reference/core.md#execute_script).
+
+---
+
+## 1. Fuse the post onto the plate — `boolean_op`
+
+Union the two bodies into one solid `bracket`. `removeInputs: true` drops `plate` and `post` from the
+scene, leaving just the fused result.
+
+```json
+{ "op": "union", "aBodyId": "plate", "bBodyId": "post", "outputBodyId": "bracket", "removeInputs": true }
+```
+
+```json
+// result
+{ "message": "Boolean union(plate, post) → \"bracket\"; inputs removed." }
+```
+
+![The fused boss bracket](images/construction-2-union.png)
+
+Reference: [`boolean_op`](../../reference/construction.md#boolean_op) (`op`: `union` / `subtract` / `intersect` / `split`). `bracket` carries per-input history for both `plate` and `post`, so a `selectionId` that lived on either survives a [`remap_selection`](../selection-and-remap.md).
+
+---
+
+## 2. Round every edge — `apply_feature` (fillet)
+
+The `fillet` feature blends **all** edges to the given radius — no edge list needed. Omitting
+`outputBodyId` mutates `bracket` **in place**.
+
+```json
+{ "bodyId": "bracket", "feature": { "kind": "fillet", "radius": 2 } }
+```
+
+```json
+// result
+{ "bodyId": "bracket", "inPlace": true, "outputPath": "…/bracket.brep" }
+```
+
+![All edges filleted](images/construction-3-fillet.png)
+
+Reference: [`apply_feature`](../../reference/construction.md#apply_feature). The `feature` object is a FeatureSpec keyed by `kind`; `fillet` takes just `radius`, `chamfer` takes `distance`.
+
+---
+
+## 3. Bore a central hole — `apply_feature` (hole)
+
+The `hole` feature drills a cylinder along an axis. Here it goes straight down the part's centre
+(`axis_point` above the top face, `axis_direction` pointing down), again in place.
+
+```json
+{
+  "bodyId": "bracket",
   "feature": {
-    "kind": "fillet",
-    "radius": 3.0,
-    "edgeSelectionIds": [
-      "sel:bracket_raw#edge[0]",
-      "sel:bracket_raw#edge[1]",
-      "sel:bracket_raw#edge[2]",
-      "sel:bracket_raw#edge[3]"
-    ]
-  },
-  "outputBodyId": "bracket_filleted"
-}
-```
-
-```json
-{
-  "bodies": [
-    { "id": "bracket_raw", "name": "bracket_raw" },
-    { "id": "bracket_filleted", "name": "bracket_filleted" }
-  ]
-}
-```
-
-Reference: [`apply_feature`](../../reference/construction.md#apply_feature). The `drill` kind works the same way (needs `axisOrigin`, `axisDirection`, `diameter`, `depth` instead of `radius`).
-
----
-
-## 3. Lift to working height — `transform_body`
-
-Translate the filleted bracket 80 mm up the Z axis so it sits at mounting height. Keep the original for reference by using `outputBodyId`.
-
-```json
-{
-  "bodyId": "bracket_filleted",
-  "translate": [0, 0, 80],
-  "outputBodyId": "bracket_placed"
-}
-```
-
-```json
-{
-  "bodies": [
-    { "id": "bracket_filleted", "name": "bracket_filleted" },
-    { "id": "bracket_placed", "name": "bracket_placed" }
-  ]
-}
-```
-
-Reference: [`transform_body`](../../reference/construction.md#transform_body). `transform_body` is a rigid transform — topology is preserved 1-to-1, so any `selectionId` on `bracket_filleted` resolves to the same index on `bracket_placed` via the implicit identity path.
-
----
-
-## 4. Circular pattern of mounting holes — `mirror_or_pattern`
-
-Pattern a single mounting hole body (`hole`, Ø6 × 25 mm) four times around the Z axis centred at the bracket origin, then subtract the compound from `bracket_placed` to punch all four holes at once.
-
-### 4a. Pattern the hole
-
-```json
-{
-  "bodyId": "hole",
-  "kind": "circular",
-  "params": {
-    "axisOrigin": [0, 0, 80],
-    "axisDirection": [0, 0, 1],
-    "totalCount": 4
-  },
-  "outputBodyId": "holes_pattern"
-}
-```
-
-```json
-{
-  "bodies": [
-    { "id": "hole", "name": "hole" },
-    { "id": "bracket_placed", "name": "bracket_placed" },
-    { "id": "holes_pattern", "name": "holes_pattern" }
-  ]
-}
-```
-
-### 4b. Subtract the pattern
-
-```json
-{
-  "op": "subtract",
-  "aBodyId": "bracket_placed",
-  "bBodyId": "holes_pattern",
-  "outputBodyId": "bracket_final",
-  "removeInputs": true
-}
-```
-
-```json
-{
-  "bodies": [
-    { "id": "bracket_filleted", "name": "bracket_filleted" },
-    { "id": "bracket_final", "name": "bracket_final" }
-  ]
-}
-```
-
-Reference: [`mirror_or_pattern`](../../reference/construction.md#mirror_or_pattern). For a linear pattern supply `direction`, `spacing`, and `count` instead. `mirror_or_pattern` outputs new bodies rather than mutating in place — use [`find_correspondences`](../selection-and-remap.md) (not `remap_selection`) to map a source `selectionId` onto one of the pattern copies.
-
----
-
-## 5. Render the result
-
-```json
-{
-  "outputPath": "<output_dir>/preview.png",
-  "options": {
-    "camera": "iso"
+    "kind": "hole",
+    "axis_point": [40, 30, 40],
+    "axis_direction": [0, 0, -1],
+    "diameter": 14,
+    "depth": 44
   }
 }
 ```
 
+![Centre hole bored through the boss](images/construction-4-bore.png)
+
+Reference: [`apply_feature`](../../reference/construction.md#apply_feature). Note the snake_case keys (`axis_point`, `axis_direction`) — this is the FeatureSpec JSON the reconstructor decodes. This is the finished single part.
+
+---
+
+## 4. Replicate into a row — `mirror_or_pattern`
+
+A linear pattern copies the finished `bracket` along a direction. `mirror_or_pattern` produces **new**
+bodies rather than mutating in place, so it takes an `outputBodyId`.
+
+```json
+{
+  "bodyId": "bracket",
+  "kind": "linear",
+  "params": { "direction": [1, 0, 0], "spacing": 100, "count": 3 },
+  "outputBodyId": "row"
+}
+```
+
+```json
+// result
+{ "message": "Pattern linear on \"bracket\" → \"row\"." }
+```
+
+![The bracket patterned into a row of three](images/construction-5-pattern.png)
+
+Reference: [`mirror_or_pattern`](../../reference/construction.md#mirror_or_pattern) — `circular` takes `axisOrigin` / `axisDirection` / `totalCount`; `mirror` takes a plane. Because the copies aren't OCCT history-derivatives of the source, map a source `selectionId` onto a copy with [`find_correspondences`](../selection-and-remap.md), not `remap_selection`.
+
+---
+
+## The finished part
+
+The single bored bracket from step 3, as an interactive model (drag to orbit):
+
 <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
 
-<model-viewer src="models/construction.glb" poster="images/construction.png" alt="Patterned bracket" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+<model-viewer src="models/construction.glb" poster="images/construction-4-bore.png" alt="Boss bracket with central bore" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
 
 <sub>🖱️ Drag to orbit · scroll to zoom · auto-rotating. The static render shows until the 3D model loads. (Model exported from this recipe's tool calls via `export_scene` → glTF.)</sub>
+
+To render any step yourself, call [`render_preview`](../../reference/mesh-visualization.md#render_preview) with `{ "outputPath": "<output_dir>/preview.png", "options": { "camera": "iso" } }`.
