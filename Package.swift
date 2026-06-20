@@ -53,8 +53,9 @@ let package = Package(
         //
         // Floored at 1.7.1 for OCCT 8.0.0p1 — the redesigned BRepGraph/
         // TopologyGraph model. All sibling deps below are re-pinned to the
-        // matching p1 cohort.
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.7.1"),
+        // matching p1 cohort. 1.8.0 adds Exporter.writeBREP(allowInvalid:) for
+        // read_brep / import_file `allowInvalid` (#41).
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.8.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.1.1"),
         // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
         // Composer.render(spec:components:) / render(spec:document:) — multi-body
@@ -62,7 +63,9 @@ let package = Package(
         // bodyIds.
         // v1.2.0 = OCCTSwift 1.7.1 floor (OCCT 8.0.0p1) + the graph-select verb /
         // convexity-attributed faceAdjacency (OCCTSwiftScripts #54/#55).
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.2.0"),
+        // v1.4.0 = measure-deviation verb + metrics boundingBoxOptimal (#44) +
+        // load-brep/import --allow-invalid (#41), used by the Node server.
+        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.4.0"),
         .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.2"),
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server

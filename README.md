@@ -105,8 +105,8 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 | Tool | Purpose |
 |------|---------|
-| `read_brep` | Load a `.brep` from disk into the scene |
-| `import_file` | Multi-format import (STEP / IGES / STL / OBJ); optional XCAF assembly |
+| `read_brep` | Load a `.brep` from disk into the scene (`allowInvalid` loads a loose-face / invalid shape for measurement) |
+| `import_file` | Multi-format import (STEP / IGES / STL / OBJ); optional XCAF assembly; `allowInvalid` for in-progress reconstructions |
 | `export_scene` | Export to STEP / IGES / BREP / STL / OBJ / glTF / GLB |
 | `set_assembly_metadata` | Modify XCAF document or per-component metadata |
 

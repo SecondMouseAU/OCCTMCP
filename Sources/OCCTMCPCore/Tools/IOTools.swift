@@ -25,6 +25,7 @@ public enum IOTools {
         inputPath: String,
         bodyId: String? = nil,
         color: [Float]? = nil,
+        allowInvalid: Bool = false,
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
@@ -53,7 +54,7 @@ public enum IOTools {
         let outFile = "\(resolvedId).brep"
         let outPath = "\(outputDir)/\(outFile)"
         do {
-            try Exporter.writeBREP(shape: shape, to: URL(fileURLWithPath: outPath))
+            try Exporter.writeBREP(shape: shape, to: URL(fileURLWithPath: outPath), allowInvalid: allowInvalid)
         } catch {
             return .init("Failed to copy BREP: \(error.localizedDescription)", isError: true)
         }
@@ -118,6 +119,7 @@ public enum IOTools {
         inputPath: String,
         format: ImportFormat = .auto,
         idPrefix: String = "imported",
+        allowInvalid: Bool = false,
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
@@ -158,7 +160,7 @@ public enum IOTools {
         let outFile = "\(id).brep"
         let outPath = "\(outputDir)/\(outFile)"
         do {
-            try Exporter.writeBREP(shape: shape, to: URL(fileURLWithPath: outPath))
+            try Exporter.writeBREP(shape: shape, to: URL(fileURLWithPath: outPath), allowInvalid: allowInvalid)
         } catch {
             return .init("Failed to write BREP: \(error.localizedDescription)", isError: true)
         }

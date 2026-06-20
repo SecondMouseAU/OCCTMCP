@@ -947,6 +947,10 @@ func catalogTools() -> [Tool] {
                         "type": .string("array"),
                         "items": .object(["type": .string("number")]),
                     ]),
+                    "allowInvalid": .object([
+                        "type": .string("boolean"),
+                        "description": .string("Load a topologically invalid / loose-face shape as-is (skip the validity write-gate) so compute_metrics / measure_deviation / validate_geometry can run on an in-progress reconstruction. Default false."),
+                    ]),
                 ]),
                 "required": .array([.string("inputPath")]),
                 "additionalProperties": .bool(false),
@@ -964,6 +968,10 @@ func catalogTools() -> [Tool] {
                         "enum": .array([.string("auto"), .string("step"), .string("iges"), .string("obj"), .string("brep")]),
                     ]),
                     "idPrefix": .object(["type": .string("string")]),
+                    "allowInvalid": .object([
+                        "type": .string("boolean"),
+                        "description": .string("Import a topologically invalid / loose-face shape as-is (skip the validity write-gate) so the analysis tools can measure an in-progress reconstruction. Default false."),
+                    ]),
                 ]),
                 "required": .array([.string("inputPath")]),
                 "additionalProperties": .bool(false),
@@ -1701,7 +1709,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         return await IOTools.readBrep(
             inputPath: inputPath,
             bodyId: arguments["bodyId"]?.stringValue,
-            color: color
+            color: color,
+            allowInvalid: arguments["allowInvalid"]?.boolValue ?? false
         ).asCallToolResult()
 
     case "import_file":
@@ -1712,7 +1721,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         return await IOTools.importFile(
             inputPath: inputPath,
             format: format,
-            idPrefix: arguments["idPrefix"]?.stringValue ?? "imported"
+            idPrefix: arguments["idPrefix"]?.stringValue ?? "imported",
+            allowInvalid: arguments["allowInvalid"]?.boolValue ?? false
         ).asCallToolResult()
 
     case "export_scene":

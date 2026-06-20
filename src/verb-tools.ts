@@ -623,12 +623,14 @@ async function mergeStagedImport(
 export async function readBrep(
   inputPath: string,
   bodyId?: string,
-  color?: string
+  color?: string,
+  allowInvalid?: boolean
 ): Promise<ToolResult> {
   if (!existsSync(inputPath)) return text(`BREP file not found: ${inputPath}`);
   const req: Record<string, unknown> = { inputBrep: inputPath };
   if (bodyId !== undefined) req.id = bodyId;
   if (color !== undefined) req.color = color;
+  if (allowInvalid !== undefined) req.allowInvalid = allowInvalid;
   return mergeStagedImport("load-brep", req, 60_000);
 }
 
@@ -639,7 +641,8 @@ export async function importFile(
   format?: "auto" | "step" | "iges" | "stl" | "obj",
   idPrefix?: string,
   preserveAssembly?: boolean,
-  healOnImport?: boolean
+  healOnImport?: boolean,
+  allowInvalid?: boolean
 ): Promise<ToolResult> {
   if (!existsSync(inputPath)) return text(`File not found: ${inputPath}`);
   const req: Record<string, unknown> = { inputPath };
@@ -647,6 +650,7 @@ export async function importFile(
   if (idPrefix !== undefined) req.idPrefix = idPrefix;
   if (preserveAssembly !== undefined) req.preserveAssembly = preserveAssembly;
   if (healOnImport !== undefined) req.healOnImport = healOnImport;
+  if (allowInvalid !== undefined) req.allowInvalid = allowInvalid;
   return mergeStagedImport("import", req, 240_000);
 }
 
