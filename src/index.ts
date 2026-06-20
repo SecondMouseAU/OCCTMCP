@@ -713,8 +713,15 @@ server.tool(
     inputPath: z.string(),
     bodyId: z.string().optional(),
     color: z.string().optional().describe("'#rrggbb' or '#rrggbbaa'."),
+    allowInvalid: z
+      .boolean()
+      .optional()
+      .describe(
+        "Load a topologically invalid / loose-face shape as-is (skip the validity write-gate) so compute_metrics / measure_deviation / validate_geometry can run on an in-progress reconstruction. Default false."
+      ),
   },
-  async ({ inputPath, bodyId, color }) => readBrep(inputPath, bodyId, color)
+  async ({ inputPath, bodyId, color, allowInvalid }) =>
+    readBrep(inputPath, bodyId, color, allowInvalid)
 );
 
 // ── import_file ───────────────────────────────────────────────────────────
@@ -731,9 +738,15 @@ server.tool(
       .optional()
       .describe("STEP only: walk XCAF and emit one body per leaf node."),
     healOnImport: z.boolean().optional(),
+    allowInvalid: z
+      .boolean()
+      .optional()
+      .describe(
+        "Import a topologically invalid / loose-face shape as-is (skip the validity write-gate) so the analysis tools can measure an in-progress reconstruction. Default false."
+      ),
   },
-  async ({ inputPath, format, idPrefix, preserveAssembly, healOnImport }) =>
-    importFile(inputPath, format, idPrefix, preserveAssembly, healOnImport)
+  async ({ inputPath, format, idPrefix, preserveAssembly, healOnImport, allowInvalid }) =>
+    importFile(inputPath, format, idPrefix, preserveAssembly, healOnImport, allowInvalid)
 );
 
 // ── render_preview ────────────────────────────────────────────────────────

@@ -141,9 +141,9 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 1.2.0 — kernel wrapper around OpenCASCADE; full per-input history coverage for booleans + every `FeatureSpec` kind in `BuildResult.histories[id]`, plus `TopologyGraph.findDerivedOrSelf` / `hasHistoryRecord` for unambiguous untouched-vs-deleted resolution. v1.2.0 adds the `TopologyGraph` per-node attribute store (`attributes` / `setAttribute` / `attribute`, closed `AttrValue` enum) and Codable `GraphSnapshot` round-trip (`snapshot()` / `init(snapshot:)`) backing the `reconstruct_*` tool group (#33)
+- **OCCTSwift** ≥ 1.8.0 — kernel wrapper around OpenCASCADE; full per-input history coverage for booleans + every `FeatureSpec` kind in `BuildResult.histories[id]`, plus `TopologyGraph.findDerivedOrSelf` / `hasHistoryRecord` for unambiguous untouched-vs-deleted resolution. v1.2.0 adds the `TopologyGraph` per-node attribute store (`attributes` / `setAttribute` / `attribute`, closed `AttrValue` enum) and Codable `GraphSnapshot` round-trip (`snapshot()` / `init(snapshot:)`) backing the `reconstruct_*` tool group (#33). v1.8.0 adds `Exporter.writeBREP(allowInvalid:)` backing `read_brep` / `import_file`'s `allowInvalid` (#41)
 - **OCCTSwiftMesh** ≥ 1.0.0 — mesh-domain algorithms (QEM decimation today; smoothing / repair / remeshing in roadmap)
-- **OCCTSwiftScripts** ≥ 1.0.2 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process
+- **OCCTSwiftScripts** ≥ 1.4.0 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process. `ExecuteScriptTool.scriptsPin` must track this pin (#42)
 - **OCCTSwiftTools** ≥ 1.1.0 — Shape↔ViewportBody bridge; ships `PointConverter` and wires `pointRadius` / `vertexColors` through to `ViewportBody`
 - **OCCTSwiftViewport** ≥ 1.0.2 — Metal viewport + offscreen renderer; v1.0.2 added the point-sprite pipeline that makes `pointCloud` overlays actually render
 - **OCCTSwiftAIS** ≥ 1.0.1 — selection, manipulators, dimensions
@@ -151,7 +151,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Node implementation
 
-- **OCCTSwiftScripts** ≥ 1.3.0 — provides `occtkit` on `$PATH` (`make install` from the OCCTSwiftScripts repo) or via sibling clone at `~/Projects/OCCTSwiftScripts` so `swift run -c release occtkit` works as the fallback. v1.3.0 adds the `measure-deviation` verb and the `metrics` `boundingBoxOptimal` field that the Node `measure_deviation` / `compute_metrics` tools wrap
+- **OCCTSwiftScripts** ≥ 1.4.0 — provides `occtkit` on `$PATH` (`make install` from the OCCTSwiftScripts repo) or via sibling clone at `~/Projects/OCCTSwiftScripts` so `swift run -c release occtkit` works as the fallback. v1.3.0 adds the `measure-deviation` verb and the `metrics` `boundingBoxOptimal` field (Node `measure_deviation` / `compute_metrics`); v1.4.0 adds `load-brep` / `import` `--allow-invalid` (Node `read_brep` / `import_file` `allowInvalid`, #41)
 - **OCCTSwift** — required at `~/Projects/OCCTSwift/` only when regenerating `src/api-reference.ts` via `scripts/generate-api-reference.mjs` (runs as `npm run prebuild`)
 - **OCCTSwiftViewport** — Metal viewport that watches the output directory via `ScriptWatcher` and auto-reloads. Optional but expected if you want the live preview
 
