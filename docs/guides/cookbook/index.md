@@ -26,12 +26,22 @@ reference rather than restating every parameter.
 - **Note the server.** When a recipe uses a Swift-only tool (selection / remap / annotations /
   reconstruct / `graph_select` / `pick_surface_point`), say it needs the Swift `occtmcp-server`.
 
-## Figures
+## Figures & interactive 3D
 
-OCCTMCP renders its own figures: build the scene with `execute_script` (or the typed construction
-tools), then call `render_preview` to a PNG committed under `docs/guides/cookbook/images/`, and embed
-it with `![alt](images/<name>.png)`. Because the picture comes from the same tool calls the page
-shows, code and figure never drift.
+OCCTMCP renders its own figures from the same tool calls the page shows, so code and figure never
+drift. Build the scene with `execute_script` (or the typed construction tools), then:
+
+- **PNG** via `render_preview` → committed under `images/` (also the loading poster below).
+- **Interactive GLB** via `export_scene` (`format: "glb"`) → committed under `models/`, embedded with
+  Google's [`<model-viewer>`](https://modelviewer.dev/) web component (orbit / zoom / auto-rotate),
+  using the PNG as the poster until the model loads.
+
+```html
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+<model-viewer src="models/<name>.glb" poster="images/<name>.png" alt="…"
+  camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1"
+  style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+```
 
 ## Pages
 
