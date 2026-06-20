@@ -102,7 +102,11 @@ maintainer commits to `docs/guides/cookbook/images/authoring.png`.
 }
 ```
 
-![A drilled block](images/authoring.png)
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<model-viewer src="models/authoring.glb" poster="images/authoring.png" alt="A drilled block" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+
+<sub>🖱️ Drag to orbit · scroll to zoom · auto-rotating. The static render shows until the 3D model loads. (Model exported from this recipe's tool calls via `export_scene` → glTF.)</sub>
 
 ---
 

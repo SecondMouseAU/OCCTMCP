@@ -168,7 +168,11 @@ render. All annotations in `annotations.json` are composited automatically.
 }
 ```
 
-![Dimensioned part](images/annotations-and-preview.png)
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<model-viewer src="models/annotations-and-preview.glb" poster="images/annotations-and-preview.png" alt="Dimensioned part" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+
+<sub>🖱️ Drag to orbit · scroll to zoom · auto-rotating. The static render shows until the 3D model loads. The overlays (bounding box, trihedron) appear in the PNG poster; the interactive model shows the body geometry. (Model exported via `export_scene` → glTF.)</sub>
 
 ---
 
