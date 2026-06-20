@@ -58,24 +58,26 @@ leave the existing values unchanged if omitted.
 
 **Change color and make translucent:**
 
+![Default steel appearance](images/scene-appearance-default.png)
+
 ```json
 // tool: set_appearance — arguments
 {
-  "bodyId": "housing",
-  "color": [0.8, 0.2, 0.1],
-  "opacity": 0.6,
-  "name": "Housing (cut-away view)"
+  "bodyId": "widget",
+  "color": [0.85, 0.12, 0.12],
+  "opacity": 0.65
 }
 ```
 
 ```json
 // example result
 {
-  "updated": "housing",
-  "color": [0.8, 0.2, 0.1, 0.6],
-  "name": "Housing (cut-away view)"
+  "updated": "widget",
+  "color": [0.85, 0.12, 0.12, 0.65]
 }
 ```
+
+![Recolored translucent red](images/scene-appearance-recolored.png)
 
 **Set PBR metallic / roughness for a steel look:**
 
@@ -195,3 +197,13 @@ manifest metadata (color, name, etc.) differs. A body can appear in both lists.
 
 Use `since: 2` to look further back — e.g. to compare the current state against a run before a
 multi-step editing session. Requesting a depth beyond available history returns an error.
+
+---
+
+## The widget — interactive model
+
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<model-viewer src="models/scene-and-appearance.glb" poster="images/scene-appearance-default.png" alt="Widget" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+
+<sub>🖱️ Drag to orbit · scroll to zoom · auto-rotating. (Model exported via `export_scene` → glTF.)</sub>

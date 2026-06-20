@@ -10,6 +10,14 @@ Three tools cover the mesh-and-drawing pipeline: [`generate_mesh`](../../referen
 
 ---
 
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<model-viewer src="models/meshing-and-drawings.glb" poster="images/meshing-and-drawings.png" alt="Drilled sphere — a curved part to tessellate" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+
+<sub>🖱️ Drag to orbit · scroll to zoom · auto-rotating. (Model exported via `export_scene` → glTF.)</sub>
+
+---
+
 ## Step 1 — Tessellate with quality metrics
 
 Call `generate_mesh` first to inspect surface quality and decide whether you need a tighter mesh or a decimated export.

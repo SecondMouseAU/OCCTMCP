@@ -34,6 +34,12 @@ The simplest import — a single `.brep` file that is already on disk (written b
 
 The body is now in the scene manifest under id `"housing"` and live-reloads in the viewport.
 
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<model-viewer src="models/import-export.glb" poster="images/import-export.png" alt="Imported L-bracket" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+
+<sub>🖱️ Drag to orbit · scroll to zoom · auto-rotating. (Model exported via `export_scene` → glTF.)</sub>
+
 ### Loading a loose-face / in-progress reconstruction
 
 A mesh-reconstructed BREP often has open shells or non-manifold edges that fail the default validity

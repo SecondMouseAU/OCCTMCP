@@ -43,6 +43,12 @@ See [`import_file`](../../reference/io.md#import_file).
 The `bodyId` assigned (here `"imported_1"` from the `idPrefix`) is what every subsequent call
 uses.
 
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<model-viewer src="models/healing.glb" poster="images/healing.png" alt="Imported part to be healed" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+
+<sub>🖱️ Drag to orbit · scroll to zoom · auto-rotating. Healing repairs topology; the geometry looks the same but becomes valid/watertight. (Model exported via `export_scene` → glTF.)</sub>
+
 ---
 
 ## 2. Validate — before
