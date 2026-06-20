@@ -14,6 +14,16 @@ All four tools run on both the Swift `occtmcp-server` and the Node server.
 
 ---
 
+The part used as the running example throughout this page is a 60 × 40 × 10 mm plate with two Ø8 mm through-holes (body id `"part"`). The interactive model below is that exact body exported via `export_scene` → glTF; the tool calls that follow use the same body.
+
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<model-viewer src="models/inspection.glb" poster="images/inspection.png" alt="Plate with two through-holes" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
+
+<sub>🖱️ Drag to orbit · scroll to zoom · auto-rotating. (Model exported via `export_scene` → glTF.)</sub>
+
+---
+
 ## 1. Validate geometry
 
 Before doing any measurement, confirm the body is valid. An invalid shell or degenerate edge will
@@ -23,12 +33,12 @@ See [`validate_geometry`](../../reference/introspection.md#validate_geometry).
 
 ```json
 // tool call arguments
-{ "bodyId": "housing" }
+{ "bodyId": "part" }
 ```
 
 ```json
 // example result
-{ "bodyId": "housing", "valid": true, "issues": [] }
+{ "bodyId": "part", "valid": true, "issues": [] }
 ```
 
 If `valid` is `false`, the `issues` array lists the violations (open shells, bad orientation,
@@ -48,7 +58,7 @@ See [`compute_metrics`](../../reference/introspection.md#compute_metrics).
 ```json
 // tool call arguments
 {
-  "bodyId": "housing",
+  "bodyId": "part",
   "metrics": ["volume", "surfaceArea", "centerOfMass", "boundingBox"]
 }
 ```
@@ -56,10 +66,10 @@ See [`compute_metrics`](../../reference/introspection.md#compute_metrics).
 ```json
 // example result
 {
-  "volume": 18432.6,
-  "surfaceArea": 7804.1,
-  "centerOfMass": [0.0, 0.0, 24.5],
-  "boundingBox": { "min": [-40.0, -30.0, 0.0], "max": [40.0, 30.0, 49.0] }
+  "volume": 22994.7,
+  "surfaceArea": 7101.6,
+  "centerOfMass": [30.0, 20.0, 5.0],
+  "boundingBox": { "min": [0.0, 0.0, 0.0], "max": [60.0, 40.0, 10.0] }
 }
 ```
 
@@ -76,7 +86,7 @@ explicitly:
 ```json
 // tool call arguments
 {
-  "bodyId": "housing",
+  "bodyId": "part",
   "metrics": ["boundingBox", "boundingBoxOptimal"]
 }
 ```
@@ -84,8 +94,8 @@ explicitly:
 ```json
 // example result
 {
-  "boundingBox":        { "min": [-40.3, -30.3, 0.0], "max": [40.3, 30.3, 49.0] },
-  "boundingBoxOptimal": { "min": [-40.0, -30.0, 0.0], "max": [40.0, 30.0, 49.0] }
+  "boundingBox":        { "min": [0.0, 0.0, 0.0], "max": [60.0, 40.0, 10.0] },
+  "boundingBoxOptimal": { "min": [0.0, 0.0, 0.0], "max": [60.0, 40.0, 10.0] }
 }
 ```
 
@@ -106,7 +116,7 @@ See [`query_topology`](../../reference/introspection.md#query_topology).
 ```json
 // tool call arguments
 {
-  "bodyId": "housing",
+  "bodyId": "part",
   "entity": "face",
   "filter": { "surfaceType": "plane" },
   "limit": 20
@@ -116,8 +126,12 @@ See [`query_topology`](../../reference/introspection.md#query_topology).
 ```json
 // example result
 [
-  { "id": "face[0]", "surfaceType": "plane", "area": 2400.0, "centroid": [0.0, 0.0, 49.0] },
-  { "id": "face[1]", "surfaceType": "plane", "area": 2400.0, "centroid": [0.0, 0.0,  0.0] }
+  { "id": "face[0]", "surfaceType": "plane", "area": 2299.5, "centroid": [30.0, 20.0, 10.0] },
+  { "id": "face[1]", "surfaceType": "plane", "area": 2299.5, "centroid": [30.0, 20.0,  0.0] },
+  { "id": "face[2]", "surfaceType": "plane", "area":  400.0, "centroid": [30.0,  0.0,  5.0] },
+  { "id": "face[3]", "surfaceType": "plane", "area":  400.0, "centroid": [30.0, 40.0,  5.0] },
+  { "id": "face[4]", "surfaceType": "plane", "area":  600.0, "centroid": [ 0.0, 20.0,  5.0] },
+  { "id": "face[5]", "surfaceType": "plane", "area":  600.0, "centroid": [60.0, 20.0,  5.0] }
 ]
 ```
 
@@ -126,7 +140,7 @@ See [`query_topology`](../../reference/introspection.md#query_topology).
 ```json
 // tool call arguments
 {
-  "bodyId": "housing",
+  "bodyId": "part",
   "entity": "face",
   "filter": { "surfaceType": "cylinder" }
 }
@@ -135,8 +149,8 @@ See [`query_topology`](../../reference/introspection.md#query_topology).
 ```json
 // example result
 [
-  { "id": "face[2]", "surfaceType": "cylinder", "area": 9483.5, "centroid": [0.0, 0.0, 24.5] },
-  { "id": "face[3]", "surfaceType": "cylinder", "area": 1884.9, "centroid": [0.0, 0.0, 24.5] }
+  { "id": "face[6]", "surfaceType": "cylinder", "area": 251.3, "centroid": [15.0, 20.0, 5.0] },
+  { "id": "face[7]", "surfaceType": "cylinder", "area": 251.3, "centroid": [45.0, 20.0, 5.0] }
 ]
 ```
 
@@ -155,19 +169,15 @@ See [`recognize_features`](../../reference/introspection.md#recognize_features).
 
 ```json
 // tool call arguments
-{ "bodyId": "housing", "kinds": ["pocket", "hole"] }
+{ "bodyId": "part", "kinds": ["pocket", "hole"] }
 ```
 
 ```json
 // example result
 {
   "features": [
-    { "kind": "hole",   "faces": ["face[4]", "face[5]"],   "diameter": 8.0,  "depth": 20.0 },
-    { "kind": "hole",   "faces": ["face[6]", "face[7]"],   "diameter": 8.0,  "depth": 20.0 },
-    { "kind": "hole",   "faces": ["face[8]", "face[9]"],   "diameter": 8.0,  "depth": 20.0 },
-    { "kind": "hole",   "faces": ["face[10]", "face[11]"], "diameter": 8.0,  "depth": 20.0 },
-    { "kind": "pocket", "faces": ["face[12]", "face[13]", "face[14]", "face[15]"],
-                        "depth": 5.0 }
+    { "kind": "hole", "faces": ["face[6]"], "diameter": 8.0, "depth": 10.0 },
+    { "kind": "hole", "faces": ["face[7]"], "diameter": 8.0, "depth": 10.0 }
   ]
 }
 ```
