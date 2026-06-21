@@ -10,6 +10,19 @@
 // the clash.
 
 import PackageDescription
+import Foundation
+
+// Prefer a local sibling checkout (../<name>) when present, else the published URL — so the whole
+// OCCT ecosystem SHARES the single OCCTSwift/Libraries/OCCT.xcframework instead of each repo
+// extracting its own 1.3 GB copy. CI / fresh clones (no sibling) use the URL pin. `#filePath`-relative
+// so it's independent of build CWD.
+func occtDep(_ name: String, from version: String) -> Package.Dependency {
+    let manifestDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+    if FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift") {
+        return .package(path: "../\(name)")
+    }
+    return .package(url: "https://github.com/gsdali/\(name).git", from: Version(version)!)
+}
 
 let package = Package(
     name: "OCCTMCP",
@@ -55,8 +68,8 @@ let package = Package(
         // TopologyGraph model. All sibling deps below are re-pinned to the
         // matching p1 cohort. 1.8.0 adds Exporter.writeBREP(allowInvalid:) for
         // read_brep / import_file `allowInvalid` (#41).
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.8.0"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftMesh.git", from: "1.1.1"),
+        occtDep("OCCTSwift", from: "1.8.0"),
+        occtDep("OCCTSwiftMesh", from: "1.1.1"),
         // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
         // Composer.render(spec:components:) / render(spec:document:) — multi-body
         // drawings with a parts list + balloons. Surfaced via generate_drawing's
@@ -65,16 +78,16 @@ let package = Package(
         // convexity-attributed faceAdjacency (OCCTSwiftScripts #54/#55).
         // v1.4.0 = measure-deviation verb + metrics boundingBoxOptimal (#44) +
         // load-brep/import --allow-invalid (#41), used by the Node server.
-        .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "1.4.0"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.1.2"),
+        occtDep("OCCTSwiftScripts", from: "1.4.0"),
+        occtDep("OCCTSwiftTools", from: "1.1.2"),
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server
         // during render-preview; 1.0.4 makes the package dependency-free;
         // 1.1.20 adds tap-to-measure (Viewport #68) and
         // ViewportBody.worldHitPoint(ray:triangleIndex:) — ray → world
         // surface-point reconstruction that respects the body transform.
-        .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.1.20"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftAIS.git", from: "1.0.3"),
+        occtDep("OCCTSwiftViewport", from: "1.1.20"),
+        occtDep("OCCTSwiftAIS", from: "1.0.3"),
     ],
     targets: [
         .target(
