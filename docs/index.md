@@ -6,7 +6,7 @@ nav_order: 1
 # OCCTMCP documentation
 
 An **MCP server** that gives LLMs the ability to author, inspect, measure and iterate on 3D CAD models
-with [OpenCASCADE](https://www.opencascade.com/) via the [OCCTSwift](https://github.com/gsdali/OCCTSwift)
+with [OpenCASCADE](https://www.opencascade.com/) via the [OCCTSwift](https://github.com/SecondMouseAU/OCCTSwift)
 family. The LLM picks a typed tool; OCCTMCP runs the OCCT operation in-process and writes BREP / STEP /
 PNG + a `manifest.json` scene the viewer auto-reloads.
 
@@ -46,7 +46,7 @@ real workflows, with `render_preview` figures. The **[Cookbook index](guides/coo
 
 - **[Tool Reference](reference/)** — per-tool-family detail: every tool's JSON-Schema parameters,
   returns, an example call + result, Node availability, and the OCCTSwift / occtkit behind it.
-- [README tool table](https://github.com/gsdali/OCCTMCP#mcp-tools) — the one-line catalog.
+- [README tool table](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools) — the one-line catalog.
 
 ## Guides & concepts
 
@@ -55,5 +55,5 @@ real workflows, with `render_preview` figures. The **[Cookbook index](guides/coo
 
 ## Project
 
-- Source & issues: [github.com/gsdali/OCCTMCP](https://github.com/gsdali/OCCTMCP)
-- Part of the [OCCTSwift ecosystem](https://github.com/gsdali/OCCTSwift/blob/main/docs/ecosystem.md). SemVer-stable since v1.0.0.
+- Source & issues: [github.com/SecondMouseAU/OCCTMCP](https://github.com/SecondMouseAU/OCCTMCP)
+- Part of the [OCCTSwift ecosystem](https://github.com/SecondMouseAU/OCCTSwift/blob/main/docs/ecosystem.md). SemVer-stable since v1.0.0.

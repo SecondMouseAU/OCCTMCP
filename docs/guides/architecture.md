@@ -117,7 +117,7 @@ DrawingComposer    — 2D drawing / general-arrangement output (via OCCTSwiftScr
 
 `render_preview` depends on **OCCTSwiftTools + OCCTSwiftViewport** to compose body overlays (measurements, annotations, point clouds, bounding boxes). The Node server does not have in-process access to this stack — it shells to `occtkit` for every call.
 
-For the ecosystem package versions and dependency pins, see `Package.swift` and the [OCCTMCP README](https://github.com/gsdali/OCCTMCP#mcp-tools).
+For the ecosystem package versions and dependency pins, see `Package.swift` and the [OCCTMCP README](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools).
 
 ---
 

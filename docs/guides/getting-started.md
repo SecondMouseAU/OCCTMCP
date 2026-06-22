@@ -18,7 +18,7 @@ This page covers installing OCCTMCP, wiring it into an MCP client, and making yo
 
 - Node.js 18+
 - The `occtkit` CLI on `$PATH` — install it by running `make install` inside a clone of
-  [OCCTSwiftScripts](https://github.com/gsdali/OCCTSwiftScripts), or keep a sibling clone at
+  [OCCTSwiftScripts](https://github.com/SecondMouseAU/OCCTSwiftScripts), or keep a sibling clone at
   `~/Projects/OCCTSwiftScripts` so OCCTMCP can fall back to `swift run -c release occtkit` automatically
 
 The Node server exposes a 37-tool subset; the Swift server exposes all 59 tools (selection, remap,
@@ -32,7 +32,7 @@ per-tool server availability.
 ### Swift
 
 ```bash
-git clone https://github.com/gsdali/OCCTMCP.git
+git clone https://github.com/SecondMouseAU/OCCTMCP.git
 cd OCCTMCP
 swift build -c release
 # binary at: .build/release/occtmcp-server
@@ -41,7 +41,7 @@ swift build -c release
 ### Node
 
 ```bash
-git clone https://github.com/gsdali/OCCTMCP.git
+git clone https://github.com/SecondMouseAU/OCCTMCP.git
 cd OCCTMCP
 npm install
 npm run build

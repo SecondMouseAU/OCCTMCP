@@ -57,7 +57,7 @@ Multi-format CAD import (STEP / IGES / BREP / OBJ). Adds the imported shape as a
 | name | type | required | description |
 |------|------|:--------:|-------------|
 | `inputPath` | string | yes | Path to the file to import. |
-| `format` | `"auto"` \| `"step"` \| `"iges"` \| `"obj"` \| `"brep"` | no | File format; defaults to `"auto"` (inferred from extension). |
+| `format` | `"auto"` \| `"step"` \| `"iges"` \| `"obj"` \| `"brep"` | no | File format; defaults to `"auto"`, inferred from extension (`.step`/`.stp`, `.iges`/`.igs`, `.obj`, `.brep`/`.brp`). |
 | `idPrefix` | string | no | Prefix for auto-generated body IDs when the file contains multiple parts. |
 | `allowInvalid` | boolean | no | Import a topologically invalid / loose-face shape as-is (skip the validity write-gate) so the analysis tools can measure an in-progress reconstruction. Default `false`. |
 
@@ -75,6 +75,8 @@ Multi-format CAD import (STEP / IGES / BREP / OBJ). Adds the imported shape as a
 ```
 
 **Notes** — Like `read_brep`, `allowInvalid: true` bypasses the write-gate so you can load a loose-face or open-shell STEP file produced by a reconstruction tool and immediately measure it with `measure_deviation` or `validate_geometry`. STEP assemblies with multiple solids produce one body per solid, each prefixed with `idPrefix`.
+
+BREP (`.brep` / `.brp`) is a single shape, so it imports as one body. On the **Swift** server it loads in-process via `Shape.loadBREP`. On the **Node** server it is routed to the occtkit `load-brep` verb — occtkit's `import` verb itself has no BREP loader — so `import_file` is a single entry point for every format on both servers (you don't need to fall back to `read_brep` for BREP).
 
 ---
 
