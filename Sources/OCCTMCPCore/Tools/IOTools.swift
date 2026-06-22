@@ -104,7 +104,7 @@ public enum IOTools {
             case "step", "stp": return .step
             case "iges", "igs": return .iges
             case "obj": return .obj
-            case "brep": return .brep
+            case "brep", "brp": return .brep
             default: return nil
             }
         }
