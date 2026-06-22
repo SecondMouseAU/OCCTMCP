@@ -1,0 +1,10 @@
+okf_version: 1
+repo: OCCTMCP
+cluster: kernel
+visibility: public
+status: active
+language: Swift
+summary: An MCP server that lets LLMs author, inspect, and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family — 59 typed MCP tools calling OCCT in-process.
+products: []
+depends_on: [OCCTSwift, OCCTSwiftMesh, OCCTSwiftScripts, OCCTSwiftTools, OCCTSwiftViewport, OCCTSwiftAIS]
+maintainer: gsdali
