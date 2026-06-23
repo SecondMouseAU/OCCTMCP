@@ -638,13 +638,27 @@ export async function readBrep(
 
 export async function importFile(
   inputPath: string,
-  format?: "auto" | "step" | "iges" | "stl" | "obj",
+  format?: "auto" | "step" | "iges" | "stl" | "obj" | "brep",
   idPrefix?: string,
   preserveAssembly?: boolean,
   healOnImport?: boolean,
   allowInvalid?: boolean
 ): Promise<ToolResult> {
   if (!existsSync(inputPath)) return text(`File not found: ${inputPath}`);
+
+  // occtkit's `import` verb only handles STEP / IGES / STL / OBJ; BREP has its
+  // own `load-brep` verb. Route BREP (explicit format or .brep/.brp extension)
+  // there so import_file is a single entry point for all of them.
+  const ext = extname(inputPath).slice(1).toLowerCase();
+  const isAutoFormat = format === undefined || format === "auto";
+  const isBrep = format === "brep" || (isAutoFormat && (ext === "brep" || ext === "brp"));
+  if (isBrep) {
+    const brepReq: Record<string, unknown> = { inputBrep: inputPath };
+    if (idPrefix !== undefined) brepReq.id = idPrefix;
+    if (allowInvalid !== undefined) brepReq.allowInvalid = allowInvalid;
+    return mergeStagedImport("load-brep", brepReq, 60_000);
+  }
+
   const req: Record<string, unknown> = { inputPath };
   if (format !== undefined) req.format = format;
   if (idPrefix !== undefined) req.idPrefix = idPrefix;

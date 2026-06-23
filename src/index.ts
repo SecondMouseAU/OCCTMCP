@@ -727,11 +727,12 @@ server.tool(
 // ── import_file ───────────────────────────────────────────────────────────
 server.tool(
   "import_file",
-  "Multi-format CAD import (STEP / IGES / STL / OBJ) into the scene. Wraps " +
-    "occtkit import.",
+  "Multi-format CAD import (STEP / IGES / STL / OBJ / BREP) into the scene. " +
+    "Wraps occtkit import; BREP (.brep / .brp) is routed to occtkit load-brep, " +
+    "which occtkit import itself does not handle.",
   {
     inputPath: z.string(),
-    format: z.enum(["auto", "step", "iges", "stl", "obj"]).optional(),
+    format: z.enum(["auto", "step", "iges", "stl", "obj", "brep"]).optional(),
     idPrefix: z.string().optional(),
     preserveAssembly: z
       .boolean()
