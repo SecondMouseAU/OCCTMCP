@@ -1,7 +1,7 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "OCCTMCP",
-  "description": "MCP server that lets LLMs author, inspect, measure and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family. 59 typed MCP tools (Swift, primary) + a 37-tool Node subset: execute_script for arbitrary Swift CAD, plus scene reads, mutation, construction (booleans / features / patterns), introspection & measurement (metrics, distance, surface-deviation Hausdorff), selection & history remap, annotations & dimensions, mesh & drawings, STEP/IGES/STL/glTF I/O, topology-graph, and reconstruction-graph tools.",
+  "description": "MCP server letting LLMs author, inspect, measure and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family. 59 typed MCP tools (Swift, primary) + 37-tool Node subset, plus execute_script.",
   "folders": [
     "docs",
     "Sources/OCCTMCPCore",
@@ -16,14 +16,14 @@
     ".build"
   ],
   "rules": [
-    "OCCTMCP is an MCP server, not a library — clients call typed tools over stdio MCP. Two interchangeable servers read/write the same manifest.json scene: the Swift binary (occtmcp-server, 59 tools, primary) and the Node server (dist/index.js, 37-tool subset).",
-    "Prefer a typed tool over execute_script: boolean_op / transform_body / compute_metrics / measure_deviation / render_preview / generate_drawing etc. cover most flows. Drop to execute_script (arbitrary Swift against the full OCCTSwift API) only for geometry the typed tools don't author.",
+    "OCCTMCP is an MCP server, not a library — clients call typed tools over stdio MCP. Two interchangeable servers read/write the same manifest.json scene: the Swift binary (occtmcp-server, 59 tools, primary) and the Node server (dist/index.js, 37-tool).",
+    "Prefer a typed tool over execute_script: boolean_op / transform_body / compute_metrics / measure_deviation / render_preview / generate_drawing etc. cover most flows. Drop to execute_script (arbitrary Swift on OCCTSwift) for geometry they can't make.",
     "The scene is a manifest.json + per-body BREP files in the output directory; every tool resolves a body by its string `bodyId` from that manifest. execute_script (re)builds the scene; the other tools read or mutate it.",
     "Tools take a single JSON object argument and return JSON text. Fallible inputs (missing bodyId, invalid path) come back as an error result, not a crash.",
     "measure_distance is the MINIMUM gap (≈0 for overlapping bodies); use measure_deviation for one-sided / symmetric surface Hausdorff when certifying a reconstruction against a source mesh.",
     "compute_metrics `boundingBox` is the default Bnd_Box (over-reports curved B-spline faces); request `boundingBoxOptimal` for a tight AddOptimal extent.",
-    "Swift-only tools (absent from the Node server): the selection/remap family (select_topology, remap_selection, find_correspondences, select_by_feature, list/clear_selections), annotations (add_dimension, add_scene_primitive, auto_dimension, show_bounding_box, diff_overlay, remove_scene_annotation, list_annotations), the reconstruct_* group, graph_select, pick_surface_point, and ping.",
+    "Swift-only tools (absent from Node): selection/remap (select_topology, remap_selection, find_correspondences, select_by_feature, list/clear_selections), annotations (add_dimension, add_scene_primitive, auto_dimension, show_bounding_box), reconstruct_*.",
     "read_brep / import_file gate on shape validity by default; pass `allowInvalid: true` to load a loose-face / invalid in-progress reconstruction so compute_metrics / measure_deviation / validate_geometry can measure it.",
-    "import_file is the single entry point for STEP / IGES / OBJ / BREP (`.brep` / `.brp`, auto-detected by extension or `format: \"brep\"`). On the Node server BREP is routed to the occtkit load-brep verb (occtkit `import` has no BREP loader); on Swift it loads in-process — so you needn't fall back to read_brep for BREP."
+    "import_file is the single entry point for STEP / IGES / OBJ / BREP (`.brep` / `.brp`, auto-detected by extension or `format: \"brep\"`). On Node, BREP routes to the occtkit load-brep verb (occtkit `import` lacks a BREP loader); on Swift it loads in-process."
   ]
 }
