@@ -23,6 +23,7 @@
     "measure_distance is the MINIMUM gap (≈0 for overlapping bodies); use measure_deviation for one-sided / symmetric surface Hausdorff when certifying a reconstruction against a source mesh.",
     "compute_metrics `boundingBox` is the default Bnd_Box (over-reports curved B-spline faces); request `boundingBoxOptimal` for a tight AddOptimal extent.",
     "Swift-only tools (absent from the Node server): the selection/remap family (select_topology, remap_selection, find_correspondences, select_by_feature, list/clear_selections), annotations (add_dimension, add_scene_primitive, auto_dimension, show_bounding_box, diff_overlay, remove_scene_annotation, list_annotations), the reconstruct_* group, graph_select, pick_surface_point, and ping.",
-    "read_brep / import_file gate on shape validity by default; pass `allowInvalid: true` to load a loose-face / invalid in-progress reconstruction so compute_metrics / measure_deviation / validate_geometry can measure it."
+    "read_brep / import_file gate on shape validity by default; pass `allowInvalid: true` to load a loose-face / invalid in-progress reconstruction so compute_metrics / measure_deviation / validate_geometry can measure it.",
+    "import_file is the single entry point for STEP / IGES / OBJ / BREP (`.brep` / `.brp`, auto-detected by extension or `format: \"brep\"`). On the Node server BREP is routed to the occtkit load-brep verb (occtkit `import` has no BREP loader); on Swift it loads in-process — so you needn't fall back to read_brep for BREP."
   ]
 }

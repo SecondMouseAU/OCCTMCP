@@ -13,7 +13,7 @@ remote_theme: just-the-docs/just-the-docs@v0.3.3
 search_enabled: true
 heading_anchors: true
 aux_links:
-  "GitHub": ["https://github.com/gsdali/OCCTMCP"]
+  "GitHub": ["https://github.com/SecondMouseAU/OCCTMCP"]
 aux_links_new_tab: true
 
 exclude:

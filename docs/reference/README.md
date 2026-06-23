@@ -17,7 +17,7 @@ notes its Node availability.
 
 This complements the other docs:
 - [Cookbook](../guides/cookbook/) — *task-oriented* recipes that chain these tools.
-- [README tool table](https://github.com/gsdali/OCCTMCP#mcp-tools) — the one-line catalog.
+- [README tool table](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools) — the one-line catalog.
 
 ## Page layout
 
@@ -82,7 +82,7 @@ nav_order: <n>
 4. **Examples must be schema-faithful** — only real parameters, correct types. Keep them minimal and
    realistic (a `bodyId` like `"part"`, a path under the output dir). Mark illustrative result JSON as
    an example; don't over-specify exact numbers you can't know.
-5. **No invention.** Behaviour comes from the schema `description`, the [README](https://github.com/gsdali/OCCTMCP#mcp-tools),
+5. **No invention.** Behaviour comes from the schema `description`, the [README](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools),
    and the architecture notes in your prompt. If a detail is unclear, state it briefly — don't fabricate.
 6. **Concise.** Reference, not prose: one summary line, a parameter table, returns, one example.
 
