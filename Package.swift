@@ -24,6 +24,17 @@ func occtDep(_ name: String, from version: String) -> Package.Dependency {
     return .package(url: "https://github.com/SecondMouseAU/\(name).git", from: Version(version)!)
 }
 
+// As occtDep, but pins to the package's minor line (`.upToNextMinor`) instead of
+// the major. Used to cap a transitive dependency whose newer minors pull deps we
+// don't want in the graph — see the OCCTSwiftIO note in `dependencies` below.
+func occtDepUpToNextMinor(_ name: String, from version: String) -> Package.Dependency {
+    let manifestDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+    if FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift") {
+        return .package(path: "../\(name)")
+    }
+    return .package(url: "https://github.com/SecondMouseAU/\(name).git", .upToNextMinor(from: Version(version)!))
+}
+
 let package = Package(
     name: "OCCTMCP",
     platforms: [
@@ -78,8 +89,11 @@ let package = Package(
         // convexity-attributed faceAdjacency (OCCTSwiftScripts #54/#55).
         // v1.4.0 = measure-deviation verb + metrics boundingBoxOptimal (#44) +
         // load-brep/import --allow-invalid (#41), used by the Node server.
-        occtDep("OCCTSwiftScripts", from: "1.4.0"),
-        occtDep("OCCTSwiftTools", from: "1.1.2"),
+        // v1.4.1 / Tools v1.2.1 = SecondMouseAU org migration: their manifests now
+        // declare OCCTSwiftIO at SecondMouseAU, so the transitive pin re-homes
+        // without a root-level OCCTSwiftIO override here (#53).
+        occtDep("OCCTSwiftScripts", from: "1.4.1"),
+        occtDep("OCCTSwiftTools", from: "1.2.1"),
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server
         // during render-preview; 1.0.4 makes the package dependency-free;
@@ -88,6 +102,15 @@ let package = Package(
         // surface-point reconstruction that respects the body transform.
         occtDep("OCCTSwiftViewport", from: "1.1.20"),
         occtDep("OCCTSwiftAIS", from: "1.0.3"),
+        // OCCTSwiftIO is a transitive dependency of OCCTSwiftScripts / OCCTSwiftTools,
+        // declared open-endedly (`from: 1.0.x`) in their manifests. After the
+        // SecondMouseAU migration its 1.1.0+ releases became reachable, and those
+        // pull a heavy mesh-IO stack (SwiftPMX / SwiftGLTF / ThreeMF / SwiftJWW /
+        // SwiftX) that doesn't resolve in this graph — OCCTMCP only needs the
+        // BREP/STEP core. Cap it to the compatible 1.0.x line, which is the version
+        // OCCTMCP has always built against. Also re-homes the pin to SecondMouseAU
+        // (root URL wins), so no gsdali/OCCTSwiftIO leaks into the lockfile (#53).
+        occtDepUpToNextMinor("OCCTSwiftIO", from: "1.0.1"),
     ],
     targets: [
         .target(
