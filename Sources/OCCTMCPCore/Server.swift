@@ -1664,7 +1664,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
               let toId = arguments["toBodyId"]?.stringValue else {
             return ToolText("measure_deviation requires `fromBodyId` and `toBodyId`.", isError: true).asCallToolResult()
         }
-        let deflection = arguments["deflection"]?.doubleValue
+        let deflection = arguments["deflection"]?.numberValue
         let maxSamples = arguments["maxSamples"]?.intValue ?? 20_000
         var sectionAxis: SIMD3<Double>? = nil
         if let arr = arguments["sectionAxis"]?.arrayValue, arr.count == 3,
@@ -1685,10 +1685,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         return await DeviationHistogramTool.deviationHistogram(
             fromBodyId: fromId,
             referenceBodyId: refId,
-            deflection: arguments["deflection"]?.doubleValue,
+            deflection: arguments["deflection"]?.numberValue,
             bins: arguments["bins"]?.intValue ?? 40,
             maxSamples: arguments["maxSamples"]?.intValue ?? 50_000,
-            tolerance: arguments["tolerance"]?.doubleValue,
+            tolerance: arguments["tolerance"]?.numberValue,
             outputPath: arguments["outputPath"]?.stringValue
         ).asCallToolResult()
 
@@ -1710,7 +1710,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             axis: SIMD3(ax, ay, az),
             stations: arguments["stations"]?.intValue ?? 12,
             through: through,
-            deflection: arguments["deflection"]?.doubleValue,
+            deflection: arguments["deflection"]?.numberValue,
             outputDir: arguments["outputDir"]?.stringValue,
             imagePrefix: arguments["imagePrefix"]?.stringValue ?? "section"
         ).asCallToolResult()
@@ -1725,9 +1725,9 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             fromBodyId: fromId,
             referenceBodyId: refId,
             outputPath: outputPath,
-            deflection: arguments["deflection"]?.doubleValue,
+            deflection: arguments["deflection"]?.numberValue,
             bands: arguments["bands"]?.intValue ?? 11,
-            clamp: arguments["clamp"]?.doubleValue,
+            clamp: arguments["clamp"]?.numberValue,
             options: parseRenderOptions(arguments["options"])
         ).asCallToolResult()
 
@@ -1741,7 +1741,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             solidBodyId: solidId,
             meshBodyId: meshId,
             outputPath: outputPath,
-            transparency: arguments["transparency"]?.doubleValue ?? 0.5,
+            transparency: arguments["transparency"]?.numberValue ?? 0.5,
             options: parseRenderOptions(arguments["options"])
         ).asCallToolResult()
 
