@@ -51,3 +51,8 @@ OpenCASCADE upstream, and the ecosystem map.
 - SemVer-stable from v1.0.0 (Swift port reached v1.0.0 on 2026-05-09). Tracked on the Swift
   Package Index. LGPL-2.1-or-later, same as OCCTSwift.
 - OCCT 8.0.0p1 cohort: deps floored at OCCTSwift 1.8.0 and the matching p1 sibling pins.
+
+## Policies
+
+- [Query `context` first for OCCT / OCCTSwift docs](policies/context-first.md)
+- [Documentation updates are mandatory](policies/docs-current.md)
