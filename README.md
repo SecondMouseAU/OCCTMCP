@@ -7,7 +7,7 @@ MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD
 
 Part of the [OCCTSwift ecosystem](https://github.com/gsdali/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
 
-The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 59 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, and dimension overlays.
+The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 63 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, and dimension overlays.
 
 ## How It Works
 
@@ -22,7 +22,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 ## Tools
 
-59 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
+63 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
 
 ### Authoring
 
@@ -57,7 +57,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 | `compute_metrics` | Volume, area, centroid, bounding box, principal axes |
 | `query_topology` | Find faces / edges / vertices matching criteria, return stable IDs |
 | `measure_distance` | Min distance + contacts between two bodies |
-| `measure_deviation` | Directed + symmetric surface deviation (Hausdorff) between two bodies — worst / RMS / mean each way + worstPoint. The certify-a-reconstruction metric (`measure_distance` is min-only) |
+| `measure_deviation` | Signed, spatially-resolved surface deviation between two bodies — max / rms / mean / p95 / `signedMean` (systematic proud(+)/shy(−) bias) each way + worstPoint, plus an optional per-section signedMean sweep along an axis. The certify-a-reconstruction metric (`measure_distance` is min-only) |
 | `recognize_features` | Pockets and holes via AAG heuristics |
 | `inspect_assembly` | Walk an XCAF assembly tree (STEP / IGES / XBF) |
 
@@ -77,6 +77,17 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 | `check_thickness` | Wall-thickness analysis with thin-region flags |
 | `analyze_clearance` | Pairwise interference / minimum clearance |
 | `heal_shape` | Heal imported / non-watertight geometry; before/after stats |
+
+### Deviation & reconstruction QA
+
+Signed, spatially-resolved comparison of a reconstruction against its source mesh. Where `measure_deviation`'s scalars can hide a *systematic* shape error (a wrong cross-section that averages out), these expose **where** and **which way** the candidate departs. Pure-Swift rendering — no Python/matplotlib.
+
+| Tool | Purpose |
+|------|---------|
+| `deviation_histogram` | Signed point-to-surface deviation distribution: μ / σ / median / p95 / proud-shy extremes, percent within ±tolerance, bucket histogram + optional PNG. A non-zero mean or bimodal shape ⇒ systematic error |
+| `cross_section_compare` | Slice both bodies at N stations along a shared axis; per-section signed-mean / RMS / area-ratio / centroid-offset + a pose-robust radial shape scalar, with overlay PNGs. The highest-leverage detector of a wrong-shape section |
+| `signed_deviation_heatmap` | Render the candidate surface coloured by signed distance (proud = red, shy = blue) through a diverging colormap with a colorbar legend |
+| `overlay_render` | Render the reference mesh semi-transparent over the opaque candidate solid — see the departure in 3D |
 
 ### Selection & remap
 
@@ -148,7 +159,7 @@ LLM read/write over an attributed reconstruction graph — annotate per-node dec
 
 This repo ships two implementations side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 59 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
+- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 63 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
 
 Both speak stdio MCP and read/write the same manifest format.

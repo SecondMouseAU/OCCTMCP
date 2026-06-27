@@ -796,7 +796,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "measure_deviation",
-            description: "Surface deviation (one-sided + symmetric Hausdorff) between two scene bodies — the metric for certifying a reconstruction against its source mesh. Unlike measure_distance (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface and reports the worst / RMS / mean distance to the other in BOTH directions: `fromToTo` (from's surface vs to — over-extension) and `toToFrom` (under-coverage), each with a worstPoint, plus `symmetricHausdorff`. Mesh-based; fidelity scales with `deflection` (default 0.5% of the from-body bbox diagonal). `maxSamples` (default 20000) stride-subsamples the source surface per direction.",
+            description: "Signed, spatially-resolved surface deviation between two scene bodies — the metric for certifying a reconstruction against its source mesh. Unlike measure_distance (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface and reports, in BOTH directions (`fromToTo` = from's surface vs to / over-extension, `toToFrom` = under-coverage): max, rms, mean, p95 (robust worst-case), `signedMean` (≠0 ⇒ a systematic proud(+)/shy(−) bias a Hausdorff hides), signedMin/signedMax, and a worstPoint — plus `symmetricHausdorff`. Optional `sectionAxis`+`sections` bins the forward samples along an axis into per-station signedMean (a near-constant non-zero value across stations ⇒ systematic section-shape error). Mesh-based; fidelity scales with `deflection` (default 0.5% of the from-body bbox diagonal). `maxSamples` (default 20000) stride-subsamples per direction.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -810,8 +810,89 @@ func catalogTools() -> [Tool] {
                         "type": .string("integer"),
                         "description": .string("Max source surface samples per direction (stride-subsampled). Default 20000."),
                     ]),
+                    "sectionAxis": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("number")]),
+                        "minItems": .int(3), "maxItems": .int(3),
+                        "description": .string("[x,y,z] axis to bin the forward (from→to) samples along. When set with `sections`, the report gains a per-station signedMean array."),
+                    ]),
+                    "sections": .object([
+                        "type": .string("integer"),
+                        "description": .string("Number of along-axis bins for the per-section signedMean sweep (≥2). Requires sectionAxis."),
+                    ]),
                 ]),
                 "required": .array([.string("fromBodyId"), .string("toBodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "deviation_histogram",
+            description: "Signed point-to-surface deviation DISTRIBUTION of `fromBodyId` vs `referenceBodyId`: μ (mean — non-zero ⇒ systematic bias), σ, median, p95 (of |dev|), proud/shy extremes, percent within ±tolerance, and a bucket histogram — plus an optional PNG. A tight unimodal histogram on 0 is honest noise; a non-zero mean or two humps is a systematic shape error even when the headline mean looks small.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "fromBodyId": .object(["type": .string("string")]),
+                    "referenceBodyId": .object(["type": .string("string")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
+                    "bins": .object(["type": .string("integer"), "description": .string("Histogram bucket count. Default 40.")]),
+                    "maxSamples": .object(["type": .string("integer"), "description": .string("Max from-surface vertices sampled (stride-subsampled). Default 50000.")]),
+                    "tolerance": .object(["type": .string("number"), "description": .string("± band (model units); report fraction of samples within it + shade it on the PNG.")]),
+                    "outputPath": .object(["type": .string("string"), "description": .string("PNG path for the histogram image. Omit to return stats only.")]),
+                ]),
+                "required": .array([.string("fromBodyId"), .string("referenceBodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "cross_section_compare",
+            description: "Slice BOTH bodies at N stations along a shared axis, overlay the two 2D profiles, and report per-section signed-mean (the direct detector of a systematic section offset), RMS, area ratio, centroid offset, and a pose-robust radial shape scalar (catches wrong-shape a Hausdorff misses). The highest-leverage tool for a reconstruction whose cross-section is the wrong shape everywhere yet whose 3D mean looks fine. Optional per-station overlay PNGs.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "fromBodyId": .object(["type": .string("string"), "description": .string("Candidate body (e.g. the reconstruction).")]),
+                    "referenceBodyId": .object(["type": .string("string"), "description": .string("Reference body (e.g. the source mesh).")]),
+                    "axis": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("[x,y,z] section sweep axis (e.g. the carbody longitudinal axis).")]),
+                    "stations": .object(["type": .string("integer"), "description": .string("Number of evenly-spaced cut planes across the bodies' shared overlap. Default 12.")]),
+                    "through": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("A point the axis passes through. Default: from-body bbox centre.")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
+                    "outputDir": .object(["type": .string("string"), "description": .string("Directory for per-station overlay PNGs. Omit to return numbers only.")]),
+                    "imagePrefix": .object(["type": .string("string"), "description": .string("Filename prefix for station PNGs. Default \"section\".")]),
+                ]),
+                "required": .array([.string("fromBodyId"), .string("referenceBodyId"), .string("axis")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "signed_deviation_heatmap",
+            description: "Render `fromBodyId`'s surface coloured by SIGNED distance to `referenceBodyId` — proud (over-build) red, on-target near-white, shy (under-build) blue — via a diverging colormap, with a colorbar legend. Shows exactly WHERE a reconstruction departs, which a scalar deviation can't. Per-triangle bands; pure-Swift offscreen render to PNG.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "fromBodyId": .object(["type": .string("string")]),
+                    "referenceBodyId": .object(["type": .string("string")]),
+                    "outputPath": .object(["type": .string("string")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
+                    "bands": .object(["type": .string("integer"), "description": .string("Colormap band count. Default 11.")]),
+                    "clamp": .object(["type": .string("number"), "description": .string("|signed| ≥ clamp saturates to full red/blue. Default: p95 of |signed|.")]),
+                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                ]),
+                "required": .array([.string("fromBodyId"), .string("referenceBodyId"), .string("outputPath")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "overlay_render",
+            description: "Render the reference mesh (`meshBodyId`, semi-transparent amber) superimposed over the opaque candidate solid (`solidBodyId`, steel-grey) — see in 3D exactly where the reconstruction departs from the source mesh. Pure-Swift offscreen render to PNG.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "solidBodyId": .object(["type": .string("string"), "description": .string("Opaque body (the candidate solid).")]),
+                    "meshBodyId": .object(["type": .string("string"), "description": .string("Translucent body (the reference mesh).")]),
+                    "outputPath": .object(["type": .string("string")]),
+                    "transparency": .object(["type": .string("number"), "description": .string("Reference-mesh opacity 0.05–0.95. Default 0.5.")]),
+                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options.")]),
+                ]),
+                "required": .array([.string("solidBodyId"), .string("meshBodyId"), .string("outputPath")]),
                 "additionalProperties": .bool(false),
             ])
         ),
@@ -1585,8 +1666,83 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         }
         let deflection = arguments["deflection"]?.doubleValue
         let maxSamples = arguments["maxSamples"]?.intValue ?? 20_000
+        var sectionAxis: SIMD3<Double>? = nil
+        if let arr = arguments["sectionAxis"]?.arrayValue, arr.count == 3,
+           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+            sectionAxis = SIMD3(x, y, z)
+        }
+        let sectionCount = arguments["sections"]?.intValue ?? 0
         return await DeviationTools.measureDeviation(
-            fromBodyId: fromId, toBodyId: toId, deflection: deflection, maxSamples: maxSamples
+            fromBodyId: fromId, toBodyId: toId, deflection: deflection, maxSamples: maxSamples,
+            sectionAxis: sectionAxis, sectionCount: sectionCount
+        ).asCallToolResult()
+
+    case "deviation_histogram":
+        guard let fromId = arguments["fromBodyId"]?.stringValue,
+              let refId = arguments["referenceBodyId"]?.stringValue else {
+            return ToolText("deviation_histogram requires `fromBodyId` and `referenceBodyId`.", isError: true).asCallToolResult()
+        }
+        return await DeviationHistogramTool.deviationHistogram(
+            fromBodyId: fromId,
+            referenceBodyId: refId,
+            deflection: arguments["deflection"]?.doubleValue,
+            bins: arguments["bins"]?.intValue ?? 40,
+            maxSamples: arguments["maxSamples"]?.intValue ?? 50_000,
+            tolerance: arguments["tolerance"]?.doubleValue,
+            outputPath: arguments["outputPath"]?.stringValue
+        ).asCallToolResult()
+
+    case "cross_section_compare":
+        guard let fromId = arguments["fromBodyId"]?.stringValue,
+              let refId = arguments["referenceBodyId"]?.stringValue,
+              let axisArr = arguments["axis"]?.arrayValue, axisArr.count == 3,
+              let ax = axisArr[0].numberValue, let ay = axisArr[1].numberValue, let az = axisArr[2].numberValue else {
+            return ToolText("cross_section_compare requires `fromBodyId`, `referenceBodyId`, and `axis` [x,y,z].", isError: true).asCallToolResult()
+        }
+        var through: SIMD3<Double>? = nil
+        if let t = arguments["through"]?.arrayValue, t.count == 3,
+           let tx = t[0].numberValue, let ty = t[1].numberValue, let tz = t[2].numberValue {
+            through = SIMD3(tx, ty, tz)
+        }
+        return await CrossSectionCompareTool.crossSectionCompare(
+            fromBodyId: fromId,
+            referenceBodyId: refId,
+            axis: SIMD3(ax, ay, az),
+            stations: arguments["stations"]?.intValue ?? 12,
+            through: through,
+            deflection: arguments["deflection"]?.doubleValue,
+            outputDir: arguments["outputDir"]?.stringValue,
+            imagePrefix: arguments["imagePrefix"]?.stringValue ?? "section"
+        ).asCallToolResult()
+
+    case "signed_deviation_heatmap":
+        guard let fromId = arguments["fromBodyId"]?.stringValue,
+              let refId = arguments["referenceBodyId"]?.stringValue,
+              let outputPath = arguments["outputPath"]?.stringValue else {
+            return ToolText("signed_deviation_heatmap requires `fromBodyId`, `referenceBodyId`, and `outputPath`.", isError: true).asCallToolResult()
+        }
+        return await HeatmapTools.signedDeviationHeatmap(
+            fromBodyId: fromId,
+            referenceBodyId: refId,
+            outputPath: outputPath,
+            deflection: arguments["deflection"]?.doubleValue,
+            bands: arguments["bands"]?.intValue ?? 11,
+            clamp: arguments["clamp"]?.doubleValue,
+            options: parseRenderOptions(arguments["options"])
+        ).asCallToolResult()
+
+    case "overlay_render":
+        guard let solidId = arguments["solidBodyId"]?.stringValue,
+              let meshId = arguments["meshBodyId"]?.stringValue,
+              let outputPath = arguments["outputPath"]?.stringValue else {
+            return ToolText("overlay_render requires `solidBodyId`, `meshBodyId`, and `outputPath`.", isError: true).asCallToolResult()
+        }
+        return await HeatmapTools.overlayRender(
+            solidBodyId: solidId,
+            meshBodyId: meshId,
+            outputPath: outputPath,
+            transparency: arguments["transparency"]?.doubleValue ?? 0.5,
+            options: parseRenderOptions(arguments["options"])
         ).asCallToolResult()
 
     case "transform_body":

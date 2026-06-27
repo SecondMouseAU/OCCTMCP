@@ -84,6 +84,8 @@ struct IntegrationTests {
             "pick_surface_point",
             "compute_metrics", "measure_deviation", "boolean_op", "set_assembly_metadata",
             "check_thickness",
+            "deviation_histogram", "cross_section_compare",
+            "signed_deviation_heatmap", "overlay_render",
         ] {
             #expect(names.contains(expected), "missing tool: \(expected)")
         }

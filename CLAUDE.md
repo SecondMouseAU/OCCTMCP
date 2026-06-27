@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family. Two implementations live side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 59 typed tools. macOS 15+.
+- **Swift** (`Sources/`, `Package.swift`) — the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 63 typed tools. macOS 15+.
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI via `OCCTSwiftScripts`. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only).
 
 Both speak stdio MCP and read/write the same `manifest.json` + `annotations.json` files in the output directory. Pick whichever fits the host: the Swift binary eliminates JSONL marshalling and per-call subprocess spawn; the Node server runs anywhere a Node 18+ runtime exists, but needs `occtkit` on `$PATH`.
@@ -20,7 +20,7 @@ The Swift port reached **v1.0.0** on 2026-05-09 and is published on the [Swift P
 ```bash
 swift build -c release         # debug build is `swift build`
 swift run occtmcp-server       # stdio transport
-swift test                     # 39 swift-testing cases under SwiftTests/OCCTMCPCoreTests
+swift test                     # 47 swift-testing cases under SwiftTests/OCCTMCPCoreTests
 ```
 
 `swift test` runs unit + integration tests against a tempdir. Integration tests spawn the built `occtmcp-server` binary and drive it over stdio (so a `swift build` must precede them; the harness itself does this).
@@ -41,13 +41,17 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
 
 `Sources/OCCTMCPCore/` (library) + `Sources/OCCTMCPServer/` (executable that connects stdio).
 
-- `Server.swift` — `createServer()` factory: registers all 59 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
+- `Server.swift` — `createServer()` factory: registers all 63 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
 - `Tools/` — one file per tool family:
   - `CoreTools.swift` — `get_scene`, `get_script`, `export_model`, `get_api_reference`
   - `ExecuteScriptTool.swift` — `execute_script` (writes Swift to tempfile, `occtkit run` via the resolved binary, parses manifest)
   - `SceneTools.swift` — `remove_body`, `clear_scene`, `rename_body`, `set_appearance`, `compare_versions`, `export_scene` (pure manifest manipulation; `export_scene` runs a templated script via occtkit)
   - `IntrospectionTools.swift` — `validate_geometry`, `compute_metrics`, `query_topology`, `measure_distance` (in-process via OCCTSwift)
-  - `DeviationTools.swift` — `measure_deviation` (directed + symmetric surface Hausdorff between two bodies; meshes both, KD-tree nearest-vertex → exact point-to-triangle distance, both directions. The certify-a-reconstruction metric `measure_distance` can't give since it's min-only — #41)
+  - `DeviationTools.swift` — `measure_deviation` (meshes both bodies, KD-tree → exact point-to-triangle distance both directions. As of #62 the report is a *vector*: max / rms / mean / p95 / `signedMean` (sign from the nearest target triangle's outward face normal — + proud / − shy) / signedMin/Max, plus an optional per-section signedMean sweep when `sectionAxis`+`sections` is given. Also the shared signed-distance engine (`TriMesh`, `signedQuery`, `signedDistances`, `closestPointOnTriangle`) reused by the new diagnostics. The certify-a-reconstruction metric `measure_distance` can't give since it's min-only — #41/#62)
+  - `DeviationHistogramTool.swift` — `deviation_histogram` (#62): signed point-to-surface distribution (μ/σ/median/p95/extremes, percent-within-±tol, buckets) + optional histogram PNG
+  - `CrossSectionCompareTool.swift` — `cross_section_compare` (#61): slices BOTH bodies (meshed) with the SAME `OCCTSwiftMesh.Mesh.crossSection` `CutPlane` at N stations along a shared axis — identical (u,v) basis ⇒ directly comparable 2D profiles — per-section signedMean/RMS/area-ratio/centroid-offset + a pose-robust radial-signature shape scalar, with overlay PNGs. The detector for a systematic wrong-section
+  - `HeatmapTools.swift` — `signed_deviation_heatmap` + `overlay_render` (#63): the heatmap colours per-triangle signed distance via the diverging colormap by grouping a band's triangles into one flat-coloured `ViewportBody` (OffscreenRenderer has no per-triangle/per-vertex *surface* colour pass — only the point pass reads `vertexColors`), then composites a colorbar legend; `overlay_render` draws the reference mesh translucent (OffscreenRenderer's transparent pass: effective opacity < 1) over the opaque solid
+  - `ChartRenderer.swift` — pure-Swift Core Graphics + Core Text PNG helper (histogram, 2D profile overlay, colorbar legend) and the shared diverging colormap. Headless; no Python/matplotlib, no AppKit
   - `FeatureTools.swift` — `recognize_features`, `apply_feature`
   - `ConstructionTools.swift` — `transform_body`, `boolean_op`, `mirror_or_pattern` (record history into `HistoryRegistry`)
   - `EngineeringTools.swift` — `check_thickness`, `analyze_clearance`
@@ -157,7 +161,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ## MCP Tools
 
-59 tools in Swift; 37 in Node (no selection / remap / annotations / history / reconstruct). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
+63 tools in Swift; 37 in Node (no selection / remap / annotations / history / reconstruct). See README.md for the categorized table — that's the LLM-facing surface and stays canonical.
 
 ## Script Template
 
