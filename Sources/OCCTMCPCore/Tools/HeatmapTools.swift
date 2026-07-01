@@ -135,9 +135,19 @@ public enum HeatmapTools {
                 let base = UInt32(indices.count)
                 indices.append(base); indices.append(base + 1); indices.append(base + 2)
             }
-            bodies.append(ViewportBody.directMesh(
+            // ViewportBody.directMesh (positions/normals as separate arrays) no longer exists —
+            // ViewportBody's init takes a single interleaved vertexData ([px,py,pz,nx,ny,nz,...],
+            // stride 6), so zip the two flat per-vertex arrays together here (same idiom the
+            // OCCTSwiftViewport primitive factories, e.g. .box, use internally).
+            var vertexData: [Float] = []
+            vertexData.reserveCapacity(positions.count * 2)
+            for i in stride(from: 0, to: positions.count, by: 3) {
+                vertexData.append(positions[i]); vertexData.append(positions[i + 1]); vertexData.append(positions[i + 2])
+                vertexData.append(bnormals[i]); vertexData.append(bnormals[i + 1]); vertexData.append(bnormals[i + 2])
+            }
+            bodies.append(ViewportBody(
                 id: "\(fromBodyId)#band\(b)",
-                positions: positions, normals: bnormals, indices: indices, color: color
+                vertexData: vertexData, indices: indices, edges: [], color: color
             ))
         }
         guard !bodies.isEmpty else { return .init("No coloured surface produced.", isError: true) }
