@@ -845,7 +845,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "cross_section_compare",
-            description: "Slice BOTH bodies at N stations along a shared axis, overlay the two 2D profiles, and report per-section signed-mean (the direct detector of a systematic section offset), RMS, area ratio, centroid offset, and a pose-robust radial shape scalar (catches wrong-shape a Hausdorff misses). The highest-leverage tool for a reconstruction whose cross-section is the wrong shape everywhere yet whose 3D mean looks fine. Optional per-station overlay PNGs.",
+            description: "Slice BOTH bodies at N stations across their shared axis overlap, overlay the two 2D profiles, and report per-station signed-mean (the direct detector of a systematic section offset), RMS, area ratio, centroid offset, and a pose-robust radial shape scalar (catches wrong-shape a Hausdorff misses). Default `outerEnvelope` mode compares against the reference's OUTER boundary per angular direction, so inner window-return / frame paths of a thin-wall / scanned part don't pollute the aggregate. Each station reports `axisCoord` (world position along the axis). The highest-leverage tool for a reconstruction whose cross-section is the wrong shape everywhere yet whose 3D mean looks fine. Optional per-station overlay PNGs.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -855,6 +855,7 @@ func catalogTools() -> [Tool] {
                     "stations": .object(["type": .string("integer"), "description": .string("Number of evenly-spaced cut planes across the bodies' shared overlap. Default 12.")]),
                     "through": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("A point the axis passes through. Default: from-body bbox centre.")]),
                     "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
+                    "outerEnvelope": .object(["type": .string("boolean"), "description": .string("Compare against the reference's OUTER boundary per angular direction (default true) so inner window-return / frame paths don't pollute the metric. Set false for raw point-to-main-loop comparison.")]),
                     "outputDir": .object(["type": .string("string"), "description": .string("Directory for per-station overlay PNGs. Omit to return numbers only.")]),
                     "imagePrefix": .object(["type": .string("string"), "description": .string("Filename prefix for station PNGs. Default \"section\".")]),
                 ]),
@@ -1039,14 +1040,15 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "import_file",
-            description: "Multi-format CAD import (STEP / IGES / BREP). Adds the imported shape as a single body.",
+            description: "Multi-format CAD import (STEP / IGES / BREP / STL / OBJ). Mesh formats (STL / OBJ) land as a raw triangulated shell — the reference scan the deviation / cross-section tools compare against. Adds the imported shape as a single body.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "inputPath": .object(["type": .string("string")]),
                     "format": .object([
                         "type": .string("string"),
-                        "enum": .array([.string("auto"), .string("step"), .string("iges"), .string("obj"), .string("brep")]),
+                        "description": .string("Explicit format overrides extension sniffing. `auto` sniffs the extension."),
+                        "enum": .array([.string("auto"), .string("step"), .string("iges"), .string("obj"), .string("brep"), .string("stl")]),
                     ]),
                     "idPrefix": .object(["type": .string("string")]),
                     "allowInvalid": .object([
@@ -1711,6 +1713,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             stations: arguments["stations"]?.intValue ?? 12,
             through: through,
             deflection: arguments["deflection"]?.numberValue,
+            outerEnvelope: arguments["outerEnvelope"]?.boolValue ?? true,
             outputDir: arguments["outputDir"]?.stringValue,
             imagePrefix: arguments["imagePrefix"]?.stringValue ?? "section"
         ).asCallToolResult()

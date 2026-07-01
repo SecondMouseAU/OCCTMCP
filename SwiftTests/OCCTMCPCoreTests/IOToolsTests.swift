@@ -50,4 +50,47 @@ struct IOToolsTests {
         #expect(bodies.contains { $0.id == "x" })
         #expect(FileManager.default.fileExists(atPath: "\(dir)/x.brep"))
     }
+
+    // ── #69: mesh import regression (STL dropped from the enum) ──────────
+
+    @Test("import_file imports STL (auto + explicit format) and OBJ")
+    func importsMesh() async throws {
+        let dir = NSTemporaryDirectory() + "occtmcp-mesh-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let store = ManifestStore(path: "\(dir)/manifest.json")
+        try store.write(ScriptManifest(description: "io", bodies: []))
+
+        let sphere = Shape.sphere(radius: 5)!
+        let stl = "\(dir)/ref.stl"
+        try Exporter.writeSTL(shape: sphere, to: URL(fileURLWithPath: stl))
+
+        // Auto-detect from the .stl extension (the regression: 'stl' was dropped).
+        let auto = await IOTools.importFile(inputPath: stl, format: .auto,
+                                            store: store, history: SceneHistory())
+        #expect(!auto.isError, "STL auto import failed: \(auto.text)")
+        var bodies = (try store.read())?.bodies ?? []
+        #expect(bodies.count == 1)
+        if let id = bodies.first?.id {
+            let loaded = try IntrospectionTools.loadShape(bodyId: id, store: store).shape
+            let b = loaded.bounds
+            #expect(b.max.x - b.min.x > 8)   // ~diameter 10
+        }
+
+        // Explicit `format` must be authoritative over a non-matching extension.
+        let noext = "\(dir)/ref.dat"
+        try FileManager.default.copyItem(atPath: stl, toPath: noext)
+        let explicit = await IOTools.importFile(inputPath: noext, format: .stl,
+                                                store: store, history: SceneHistory())
+        #expect(!explicit.isError, "explicit STL import failed: \(explicit.text)")
+        #expect(((try store.read())?.bodies.count ?? 0) == 2)
+
+        // OBJ (was enum-listed but unimplemented).
+        let obj = "\(dir)/ref.obj"
+        try Exporter.writeOBJ(shape: sphere, to: URL(fileURLWithPath: obj))
+        let objRes = await IOTools.importFile(inputPath: obj, format: .obj,
+                                              store: store, history: SceneHistory())
+        #expect(!objRes.isError, "OBJ import failed: \(objRes.text)")
+        #expect(((try store.read())?.bodies.count ?? 0) == 3)
+    }
 }
