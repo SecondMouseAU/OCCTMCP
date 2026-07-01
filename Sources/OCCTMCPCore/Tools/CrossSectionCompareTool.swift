@@ -15,6 +15,15 @@
 // which derives its (u, v) plane basis deterministically from the plane normal —
 // so slicing both with the SAME `CutPlane` puts the two profiles in the SAME 2D
 // frame, directly comparable with no pose alignment.
+//
+// Stations are placed across the OVERLAP of the two bodies' axis-extents (one
+// shared world point + axis for both), so every station should cut both. A
+// section can be a closed contour OR — for an open shell such as a raw-scan /
+// STL skin — an open polyline; #66 originally consumed only closed contours, so
+// an open reference read as un-sliced (`referenceContours: 0`) at most stations.
+// Now the longest open path is used as the profile when no closed loop exists,
+// and stations that sliced only one body are surfaced as `registrationSmell` /
+// `warnings` rather than silently skewing the aggregate.
 
 import Foundation
 import OCCTSwift
@@ -27,8 +36,23 @@ public enum CrossSectionCompareTool {
         public let station: Int
         /// Offset of the cut plane along the axis from the overlap-range start.
         public let offset: Double
+        /// Closed loops the plane cut in each body.
         public let fromContours: Int
         public let referenceContours: Int
+        /// Open polylines the plane cut (an open shell / raw scan section yields
+        /// these instead of a closed contour). A station with a non-zero open
+        /// count but zero closed count still slices the body — it just isn't
+        /// closed. Counting only `*Contours` is what made open reference meshes
+        /// look un-sliced (#66).
+        public let fromOpenPaths: Int
+        public let referenceOpenPaths: Int
+        /// True when exactly ONE body yielded any section (closed or open) at
+        /// this station — a registration / axis-extent smell.
+        public let registrationSmell: Bool
+        /// True when the comparison profile used at this station was an open
+        /// polyline (so signedMean uses the radial-from-centroid sign convention
+        /// rather than inside/outside containment).
+        public let openProfile: Bool
         public let fromArea: Double
         public let referenceArea: Double
         public let areaRatio: Double
@@ -51,11 +75,20 @@ public enum CrossSectionCompareTool {
         public let axis: [Double]
         public let deflection: Double
         public let stations: Int
+        /// Shared axis-extent overlap `[lo, hi]` (signed distance from `through`
+        /// along the axis) that the stations were placed across — both bodies
+        /// span this range, so every station should cut both.
+        public let overlap: [Double]
         /// Mean of the per-section signedMean — a non-zero value across the whole
-        /// stack is the systematic-offset fingerprint.
+        /// stack is the systematic-offset fingerprint. Averaged over stations that
+        /// actually produced a comparison.
         public let meanSignedAcrossSections: Double
         public let maxAbsSignedSection: Double
         public let worstStation: Int
+        /// Human-readable warnings — e.g. stations where only one body sliced
+        /// (a registration smell), so the caller doesn't trust an aggregate that
+        /// a handful of one-sided stations skewed (#66).
+        public let warnings: [String]
         public let sections: [SectionResult]
     }
 
@@ -120,9 +153,17 @@ public enum CrossSectionCompareTool {
 
             let fromLoops = (fromSec?.contours ?? []).map { $0.points }
             let refLoops = (refSec?.contours ?? []).map { $0.points }
+            let fromOpen = fromSec?.openPaths ?? []
+            let refOpen = refSec?.openPaths ?? []
 
-            let fromMain = mainLoop(fromSec?.contours ?? [])
-            let refMain = mainLoop(refSec?.contours ?? [])
+            // Prefer a closed contour; fall back to the longest open polyline so an
+            // open shell (raw scan / STL skin) still yields a comparable profile.
+            let fromMain = mainProfile(closed: fromSec?.contours ?? [], open: fromOpen)
+            let refMain = mainProfile(closed: refSec?.contours ?? [], open: refOpen)
+
+            let fromHit = !fromLoops.isEmpty || !fromOpen.isEmpty
+            let refHit = !refLoops.isEmpty || !refOpen.isEmpty
+            let smell = fromHit != refHit
 
             var imagePath: String? = nil
             if let outputDir {
@@ -130,8 +171,8 @@ public enum CrossSectionCompareTool {
                 do {
                     try ChartRenderer.profileOverlay(
                         layers: [
-                            .init(loops: refLoops, color: SIMD4(0.18, 0.42, 0.86, 1), label: "reference (\(referenceBodyId))"),
-                            .init(loops: fromLoops, color: SIMD4(0.86, 0.20, 0.18, 1), label: "from (\(fromBodyId))"),
+                            .init(loops: refLoops, openPaths: refOpen, color: SIMD4(0.18, 0.42, 0.86, 1), label: "reference (\(referenceBodyId))"),
+                            .init(loops: fromLoops, openPaths: fromOpen, color: SIMD4(0.86, 0.20, 0.18, 1), label: "from (\(fromBodyId))"),
                         ],
                         title: "station \(s)  offset \(String(format: "%.3g", t - lo))",
                         to: URL(fileURLWithPath: path)
@@ -143,15 +184,22 @@ public enum CrossSectionCompareTool {
                 }
             }
 
-            // Numeric comparison needs both main loops.
-            if let fromMain, let refMain, fromMain.count >= 3, refMain.count >= 3 {
-                let (signedMean, rms, maxAbs) = signedProfileDeviation(from: fromMain, reference: refMain)
-                let shapeL2 = radialShapeL2(fromMain, refMain, samples: 180)
-                let fa = abs(shoelace(fromMain)), ra = abs(shoelace(refMain))
-                let cFrom = centroid(fromMain), cRef = centroid(refMain)
+            // Numeric comparison needs a usable profile from BOTH bodies (a closed
+            // loop ≥3 pts, or an open polyline ≥2 pts).
+            if let fromMain, let refMain, fromMain.usable, refMain.usable {
+                let (signedMean, rms, maxAbs) = signedProfileDeviation(from: fromMain.points, reference: refMain.points, referenceClosed: refMain.closed)
+                // Radial-signature shape scalar assumes a closed ring; skip it
+                // (report 0) when either profile is open.
+                let shapeL2 = (fromMain.closed && refMain.closed) ? radialShapeL2(fromMain.points, refMain.points, samples: 180) : 0
+                let fa = fromMain.closed ? abs(shoelace(fromMain.points)) : 0
+                let ra = refMain.closed ? abs(shoelace(refMain.points)) : 0
+                let cFrom = centroid(fromMain.points), cRef = centroid(refMain.points)
                 results.append(SectionResult(
                     station: s, offset: t - lo,
                     fromContours: fromLoops.count, referenceContours: refLoops.count,
+                    fromOpenPaths: fromOpen.count, referenceOpenPaths: refOpen.count,
+                    registrationSmell: smell,
+                    openProfile: !(fromMain.closed && refMain.closed),
                     fromArea: fa, referenceArea: ra,
                     areaRatio: ra > 1e-12 ? fa / ra : 0,
                     centroidOffset: simd_distance(cFrom, cRef),
@@ -162,6 +210,8 @@ public enum CrossSectionCompareTool {
                 results.append(SectionResult(
                     station: s, offset: t - lo,
                     fromContours: fromLoops.count, referenceContours: refLoops.count,
+                    fromOpenPaths: fromOpen.count, referenceOpenPaths: refOpen.count,
+                    registrationSmell: smell, openProfile: false,
                     fromArea: 0, referenceArea: 0, areaRatio: 0, centroidOffset: 0,
                     signedMean: 0, rms: 0, maxAbs: 0, shapeL2: 0, imagePath: imagePath
                 ))
@@ -171,12 +221,24 @@ public enum CrossSectionCompareTool {
         let valid = results.filter { $0.rms > 0 || $0.maxAbs > 0 }
         let meanSigned = valid.isEmpty ? 0 : valid.reduce(0) { $0 + $1.signedMean } / Double(valid.count)
         let worst = results.enumerated().max(by: { abs($0.element.signedMean) < abs($1.element.signedMean) })
+
+        var warnings: [String] = []
+        let smellStations = results.filter { $0.registrationSmell }.map { $0.station }
+        if !smellStations.isEmpty {
+            warnings.append("\(smellStations.count)/\(results.count) stations sliced only one body (stations \(smellStations.map(String.init).joined(separator: ","))) — possible mis-registration or the bodies' axis-extents differ; aggregates exclude them.")
+        }
+        if valid.count < results.count {
+            warnings.append("\(results.count - valid.count)/\(results.count) stations lacked a comparable profile in both bodies; aggregates are over the \(valid.count) that did.")
+        }
+
         let report = CompareReport(
             from: fromBodyId, reference: referenceBodyId,
             axis: [axis.x, axis.y, axis.z], deflection: defl, stations: results.count,
+            overlap: [lo, hi],
             meanSignedAcrossSections: meanSigned,
             maxAbsSignedSection: worst.map { abs($0.element.signedMean) } ?? 0,
             worstStation: worst?.offset ?? 0,
+            warnings: warnings,
             sections: results
         )
         return IntrospectionTools.encode(report)
@@ -210,11 +272,37 @@ public enum CrossSectionCompareTool {
 
     // MARK: - 2D contour math
 
+    /// The best comparable profile a section offers: a closed loop when present,
+    /// else the longest open polyline. `usable` gates the numeric comparison.
+    struct Profile {
+        let points: [SIMD2<Double>]
+        let closed: Bool
+        var usable: Bool { closed ? points.count >= 3 : points.count >= 2 }
+    }
+
+    /// Prefer the largest-area outermost closed contour; if the section is only
+    /// open polylines (an open shell / raw scan), fall back to the longest one so
+    /// the station still contributes a profile (#66).
+    static func mainProfile(closed contours: [MeshContour], open openPaths: [[SIMD2<Double>]]) -> Profile? {
+        if let ring = mainLoop(contours) { return Profile(points: ring, closed: true) }
+        if let path = openPaths.max(by: { polylineLength($0) < polylineLength($1) }), path.count >= 2 {
+            return Profile(points: path, closed: false)
+        }
+        return nil
+    }
+
     /// Largest-area outermost (depth 0) loop of a section.
     static func mainLoop(_ contours: [MeshContour]) -> [SIMD2<Double>]? {
         let outer = contours.filter { $0.depth == 0 }
         let pool = outer.isEmpty ? contours : outer
         return pool.max(by: { $0.area < $1.area })?.points
+    }
+
+    static func polylineLength(_ path: [SIMD2<Double>]) -> Double {
+        guard path.count >= 2 else { return 0 }
+        var sum = 0.0
+        for i in 0..<(path.count - 1) { sum += simd_distance(path[i], path[i + 1]) }
+        return sum
     }
 
     static func shoelace(_ ring: [SIMD2<Double>]) -> Double {
@@ -249,9 +337,11 @@ public enum CrossSectionCompareTool {
         return inside
     }
 
-    static func pointToLoopDistance(_ p: SIMD2<Double>, _ loop: [SIMD2<Double>]) -> Double {
+    static func pointToLoopDistance(_ p: SIMD2<Double>, _ loop: [SIMD2<Double>], closed: Bool = true) -> Double {
+        guard loop.count >= 2 else { return loop.first.map { simd_distance(p, $0) } ?? .greatestFiniteMagnitude }
         var best = Double.greatestFiniteMagnitude
-        for i in loop.indices {
+        let segs = closed ? loop.count : loop.count - 1
+        for i in 0..<segs {
             let a = loop[i], b = loop[(i + 1) % loop.count]
             best = min(best, pointSegmentDistance(p, a, b))
         }
@@ -268,14 +358,30 @@ public enum CrossSectionCompareTool {
     }
 
     /// Signed point-to-profile deviation of `from` vs `reference`. Sign is + when
-    /// the `from` point lies OUTSIDE the reference loop (proud), − inside (shy).
-    static func signedProfileDeviation(from: [SIMD2<Double>], reference: [SIMD2<Double>])
+    /// the `from` point lies OUTSIDE the reference profile (proud), − inside (shy).
+    ///
+    /// When the reference is a closed loop the sign is inside/outside containment.
+    /// When it is an OPEN polyline (open shell / raw scan) containment is
+    /// undefined, so the sign falls back to a radial test against the reference
+    /// centroid: a `from` point farther from the centroid than the reference
+    /// boundary in its direction is proud (+), nearer is shy (−). For the roughly
+    /// convex sections this tool targets the two conventions agree.
+    static func signedProfileDeviation(from: [SIMD2<Double>], reference: [SIMD2<Double>], referenceClosed: Bool = true)
         -> (signedMean: Double, rms: Double, maxAbs: Double)
     {
+        let cRef = referenceClosed ? .zero : centroid(reference)
         var sum = 0.0, sumSq = 0.0, maxAbs = 0.0
         for p in from {
-            let d = pointToLoopDistance(p, reference)
-            let signed = contains(reference, p) ? -d : d
+            let d = pointToLoopDistance(p, reference, closed: referenceClosed)
+            let signed: Double
+            if referenceClosed {
+                signed = contains(reference, p) ? -d : d
+            } else {
+                // Nearest reference vertex approximates the boundary radius in p's
+                // direction; compare radii for a proud/shy sign.
+                let nearest = reference.min(by: { simd_distance($0, p) < simd_distance($1, p) }) ?? cRef
+                signed = simd_distance(p, cRef) >= simd_distance(nearest, cRef) ? d : -d
+            }
             sum += signed
             sumSq += signed * signed
             if abs(signed) > maxAbs { maxAbs = abs(signed) }

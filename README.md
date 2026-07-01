@@ -85,7 +85,7 @@ Signed, spatially-resolved comparison of a reconstruction against its source mes
 | Tool | Purpose |
 |------|---------|
 | `deviation_histogram` | Signed point-to-surface deviation distribution: μ / σ / median / p95 / proud-shy extremes, percent within ±tolerance, bucket histogram + optional PNG. A non-zero mean or bimodal shape ⇒ systematic error |
-| `cross_section_compare` | Slice both bodies at N stations along a shared axis; per-section signed-mean / RMS / area-ratio / centroid-offset + a pose-robust radial shape scalar, with overlay PNGs. The highest-leverage detector of a wrong-shape section |
+| `cross_section_compare` | Slice both bodies at N stations across their shared axis-extent overlap; per-section signed-mean / RMS / area-ratio / centroid-offset + a pose-robust radial shape scalar, with overlay PNGs. Handles open-shell references (raw scan / STL skin) whose sections are open arcs, reports the `overlap` range used, and warns on stations that sliced only one body. The highest-leverage detector of a wrong-shape section |
 | `signed_deviation_heatmap` | Render the candidate surface coloured by signed distance (proud = red, shy = blue) through a diverging colormap with a colorbar legend |
 | `overlay_render` | Render the reference mesh semi-transparent over the opaque candidate solid — see the departure in 3D |
 

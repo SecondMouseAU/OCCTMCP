@@ -52,6 +52,35 @@ struct SignedSpatialDeviationTests {
         return try scene([("inner", inner), ("outer", outer)])
     }
 
+    /// An OPEN half-cylinder shell (reference) + a solid cylinder (from). Slicing
+    /// the shell perpendicular to Z yields an OPEN arc — a `MeshCrossSection`
+    /// `openPath`, not a closed contour — the exact shape a raw scan / STL skin
+    /// takes, and the case #66 dropped (referenceContours: 0 at every station).
+    func openShellVsSolid() throws -> ManifestStore {
+        let R = 5.0, H = 20.0, M = 24
+        var verts: [SIMD3<Float>] = []
+        var idx: [UInt32] = []
+        for j in 0...M {
+            let a = Double.pi * Double(j) / Double(M)     // half turn: 0…π (open)
+            let x = Float(R * cos(a)), y = Float(R * sin(a))
+            verts.append(SIMD3(x, y, 0))                  // bottom  (2j)
+            verts.append(SIMD3(x, y, Float(H)))           // top     (2j+1)
+        }
+        for j in 0..<M {
+            let b0 = UInt32(2 * j), t0 = UInt32(2 * j + 1)
+            let b1 = UInt32(2 * (j + 1)), t1 = UInt32(2 * (j + 1) + 1)
+            idx += [b0, b1, t1, b0, t1, t0]
+        }
+        guard let mesh = OCCTSwift.Mesh(vertices: verts, indices: idx),
+              let shell = mesh.toShape() else {
+            throw TestError.fixture("failed to build open half-cylinder shell")
+        }
+        let solid = Shape.cylinder(radius: 4.8, height: H)!   // z∈[0,H], overlaps fully
+        return try scene([("from", solid), ("reference", shell)])
+    }
+
+    enum TestError: Error { case fixture(String) }
+
     // ── decode mirrors ──────────────────────────────────────────────────
 
     struct DevReport: Decodable {
@@ -74,8 +103,11 @@ struct SignedSpatialDeviationTests {
         struct Section: Decodable {
             let station: Int; let offset, fromArea, referenceArea, areaRatio: Double
             let centroidOffset, signedMean, rms, maxAbs, shapeL2: Double
+            let fromContours, referenceContours, fromOpenPaths, referenceOpenPaths: Int
+            let registrationSmell, openProfile: Bool
         }
         let meanSignedAcrossSections, maxAbsSignedSection: Double
+        let overlap: [Double]; let warnings: [String]
         let sections: [Section]
     }
 
@@ -166,6 +198,32 @@ struct SignedSpatialDeviationTests {
             #expect(s.shapeL2 < 0.1)                            // same circular shape
         }
         #expect(r.meanSignedAcrossSections < -0.2)
+    }
+
+    // ── #66: open-shell reference must not read as un-sliced ──────────────
+
+    @Test("cross_section_compare: open reference shell still produces sections")
+    func openShellReference() async throws {
+        let store = try openShellVsSolid()
+        defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
+
+        let result = await CrossSectionCompareTool.crossSectionCompare(
+            fromBodyId: "from", referenceBodyId: "reference", axis: SIMD3(0, 0, 1),
+            stations: 8, deflection: 0.2, store: store)
+        #expect(!result.isError, "unexpected error: \(result.text)")
+        let r = try JSONDecoder().decode(CompareReport.self, from: Data(result.text.utf8))
+
+        // The bodies overlap fully along Z, so the stations span a real range.
+        #expect(r.overlap.count == 2)
+        #expect(r.overlap[1] - r.overlap[0] > 10)
+
+        // The reference is an OPEN shell: its sections are open arcs, not closed
+        // contours. Before #66 these were dropped → referenceContours: 0 and no
+        // numeric comparison. Now the open paths drive the comparison.
+        let openSections = r.sections.filter { $0.referenceOpenPaths >= 1 }
+        #expect(!openSections.isEmpty, "no station picked up the open reference arc")
+        // At least one interior station must yield a real, open-profile comparison.
+        #expect(openSections.contains { $0.referenceContours == 0 && $0.openProfile && $0.rms > 0 })
     }
 
     // ── #63: heatmap + overlay (render; skip if no Metal device) ──────────

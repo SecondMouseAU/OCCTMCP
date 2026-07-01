@@ -195,8 +195,19 @@ enum ChartRenderer {
 
     struct ProfileLayer {
         let loops: [[SIMD2<Double>]]
+        /// Open polylines (e.g. slicing an open shell) — drawn WITHOUT a closing
+        /// segment, unlike `loops`.
+        let openPaths: [[SIMD2<Double>]]
         let color: SIMD4<Float>
         let label: String
+
+        init(loops: [[SIMD2<Double>]], openPaths: [[SIMD2<Double>]] = [],
+             color: SIMD4<Float>, label: String) {
+            self.loops = loops
+            self.openPaths = openPaths
+            self.color = color
+            self.label = label
+        }
     }
 
     /// Overlay two (or more) sets of 2D loops in a shared plane frame.
@@ -217,6 +228,9 @@ enum ChartRenderer {
         for layer in layers {
             for loop in layer.loops {
                 for p in loop { any = true; lo = simd_min(lo, p); hi = simd_max(hi, p) }
+            }
+            for path in layer.openPaths {
+                for p in path { any = true; lo = simd_min(lo, p); hi = simd_max(hi, p) }
             }
         }
         guard any else {
@@ -249,6 +263,12 @@ enum ChartRenderer {
                 for p in loop.dropFirst() { ctx.addLine(to: map(p)) }
                 ctx.closePath()
                 ctx.strokePath()
+            }
+            for path in layer.openPaths where path.count >= 2 {
+                ctx.beginPath()
+                ctx.move(to: map(path[0]))
+                for p in path.dropFirst() { ctx.addLine(to: map(p)) }
+                ctx.strokePath()   // open: no closePath
             }
         }
 
