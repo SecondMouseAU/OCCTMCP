@@ -93,18 +93,24 @@ public enum IOTools {
     // ── import_file ────────────────────────────────────────────────────
 
     public enum ImportFormat: String {
-        case auto, step, iges, obj, brep
-        // STL deferred — Shape.loadSTL is not in OCCTSwift; STL is a mesh
-        // format and would round-trip via OCCTSwiftMesh.
+        case auto, step, iges, obj, brep, stl
+
+        /// Mesh formats (STL / OBJ) load as a raw triangulated shell — open,
+        /// often non-manifold, and not a valid solid. They must round-trip
+        /// through BREP with the validity gate off, or `writeBREP` rejects them
+        /// (which is exactly what the deviation / cross-section tools want in
+        /// the scene: a raw scan / STL skin as the reference — #69).
+        var isMesh: Bool { self == .stl || self == .obj }
 
         static func resolve(path: String, hint: ImportFormat) -> ImportFormat? {
-            if hint != .auto { return hint }
+            if hint != .auto { return hint }   // explicit format is authoritative
             let ext = (path as NSString).pathExtension.lowercased()
             switch ext {
             case "step", "stp": return .step
             case "iges", "igs": return .iges
             case "obj": return .obj
             case "brep", "brp": return .brep
+            case "stl": return .stl
             default: return nil
             }
         }
@@ -141,8 +147,13 @@ public enum IOTools {
                 shape = try Shape.loadIGES(fromPath: inputPath)
             case .brep:
                 shape = try Shape.loadBREP(fromPath: inputPath)
+            case .stl:
+                // Raw triangulated shell (no sew/heal) — preserves the scan
+                // skin the comparison tools re-mesh; healing could fail or
+                // distort an open scan.
+                shape = try Shape.loadSTL(fromPath: inputPath)
             case .obj:
-                return .init("OBJ import goes through Document.loadOBJ; use the Document-aware path (TBD).")
+                shape = try Shape.loadOBJ(fromPath: inputPath)
             case .auto:
                 return .init("Format auto-detection failed.")
             }
@@ -160,7 +171,10 @@ public enum IOTools {
         let outFile = "\(id).brep"
         let outPath = "\(outputDir)/\(outFile)"
         do {
-            try Exporter.writeBREP(shape: shape, to: URL(fileURLWithPath: outPath), allowInvalid: allowInvalid)
+            // Mesh shells aren't valid solids — always skip the write-gate for
+            // them so the raw scan lands in the scene.
+            try Exporter.writeBREP(shape: shape, to: URL(fileURLWithPath: outPath),
+                                   allowInvalid: allowInvalid || resolved.isMesh)
         } catch {
             return .init("Failed to write BREP: \(error.localizedDescription)", isError: true)
         }

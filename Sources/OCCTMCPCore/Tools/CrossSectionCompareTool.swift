@@ -36,6 +36,11 @@ public enum CrossSectionCompareTool {
         public let station: Int
         /// Offset of the cut plane along the axis from the overlap-range start.
         public let offset: Double
+        /// World coordinate of the cut plane ALONG the axis (signed projection of
+        /// the plane point onto the axis direction). For a Z sweep through a body
+        /// centred near the origin this is the plane's z — so "worst at z=+54"
+        /// needs no mental math (#70).
+        public let axisCoord: Double
         /// Closed loops the plane cut in each body.
         public let fromContours: Int
         public let referenceContours: Int
@@ -58,13 +63,16 @@ public enum CrossSectionCompareTool {
         public let areaRatio: Double
         /// Distance between the two main loops' centroids, in the plane.
         public let centroidOffset: Double
-        /// Signed mean point-to-profile deviation of the `from` loop vs the
-        /// `reference` loop (+ = from is outside reference / proud).
+        /// Signed mean deviation (+ = from is proud / outside the reference). In
+        /// the default `envelope` mode this is candidate-vs-reference OUTER
+        /// boundary per angular direction, so inner window-return / frame paths
+        /// don't pollute it (#70); in `profile` mode it's point-to-main-loop.
         public let signedMean: Double
         public let rms: Double
         public let maxAbs: Double
         /// Pose-robust radial-signature L2 (0 = same shape). Independent of size
-        /// and centre, so it flags a wrong shape even when areas match.
+        /// and centre. In `envelope` mode it is defined for OPEN profiles too
+        /// (the outer-envelope radial function needs no closed ring — #70).
         public let shapeL2: Double
         public let imagePath: String?
     }
@@ -85,6 +93,11 @@ public enum CrossSectionCompareTool {
         public let meanSignedAcrossSections: Double
         public let maxAbsSignedSection: Double
         public let worstStation: Int
+        /// World axis coordinate of `worstStation` (see `SectionResult.axisCoord`).
+        public let worstAxisCoord: Double
+        /// Which comparison basis was used: `"envelope"` (outer boundary per
+        /// angular direction — default) or `"profile"` (point-to-main-loop).
+        public let referenceMode: String
         /// Human-readable warnings — e.g. stations where only one body sliced
         /// (a registration smell), so the caller doesn't trust an aggregate that
         /// a handful of one-sided stations skewed (#66).
@@ -99,6 +112,7 @@ public enum CrossSectionCompareTool {
         stations: Int = 12,
         through: SIMD3<Double>? = nil,
         deflection: Double? = nil,
+        outerEnvelope: Bool = true,
         outputDir: String? = nil,
         imagePrefix: String = "section",
         store: ManifestStore = ManifestStore()
@@ -144,6 +158,8 @@ public enum CrossSectionCompareTool {
         let span = max(1e-9, end - start)
         let step = stations > 1 ? span / Double(stations - 1) : 0
 
+        let axisBase = simd_dot(pt, n)   // world axis coord of `through`
+
         var results: [SectionResult] = []
         for s in 0..<stations {
             let t = stations > 1 ? start + Double(s) * step : (start + end) / 2
@@ -187,15 +203,27 @@ public enum CrossSectionCompareTool {
             // Numeric comparison needs a usable profile from BOTH bodies (a closed
             // loop ≥3 pts, or an open polyline ≥2 pts).
             if let fromMain, let refMain, fromMain.usable, refMain.usable {
-                let (signedMean, rms, maxAbs) = signedProfileDeviation(from: fromMain.points, reference: refMain.points, referenceClosed: refMain.closed)
-                // Radial-signature shape scalar assumes a closed ring; skip it
-                // (report 0) when either profile is open.
-                let shapeL2 = (fromMain.closed && refMain.closed) ? radialShapeL2(fromMain.points, refMain.points, samples: 180) : 0
+                let signedMean: Double, rms: Double, maxAbs: Double, shapeL2: Double
+                if outerEnvelope {
+                    // Compare against the reference's OUTER boundary per angular
+                    // direction — inner window-return / frame paths (smaller radius)
+                    // are excluded, so a thin-wall section stops polluting the
+                    // aggregate. All section geometry feeds the envelope.
+                    let candPts = fromLoops.flatMap { $0 } + fromOpen.flatMap { $0 }
+                    let refPts = refLoops.flatMap { $0 } + refOpen.flatMap { $0 }
+                    let e = envelopeDeviation(candidate: candPts, reference: refPts)
+                    (signedMean, rms, maxAbs, shapeL2) = (e.signedMean, e.rms, e.maxAbs, e.shapeL2)
+                } else {
+                    (signedMean, rms, maxAbs) = signedProfileDeviation(
+                        from: fromMain.points, reference: refMain.points, referenceClosed: refMain.closed)
+                    shapeL2 = (fromMain.closed && refMain.closed)
+                        ? radialShapeL2(fromMain.points, refMain.points, samples: 180) : 0
+                }
                 let fa = fromMain.closed ? abs(shoelace(fromMain.points)) : 0
                 let ra = refMain.closed ? abs(shoelace(refMain.points)) : 0
                 let cFrom = centroid(fromMain.points), cRef = centroid(refMain.points)
                 results.append(SectionResult(
-                    station: s, offset: t - lo,
+                    station: s, offset: t - lo, axisCoord: axisBase + t,
                     fromContours: fromLoops.count, referenceContours: refLoops.count,
                     fromOpenPaths: fromOpen.count, referenceOpenPaths: refOpen.count,
                     registrationSmell: smell,
@@ -208,7 +236,7 @@ public enum CrossSectionCompareTool {
                 ))
             } else {
                 results.append(SectionResult(
-                    station: s, offset: t - lo,
+                    station: s, offset: t - lo, axisCoord: axisBase + t,
                     fromContours: fromLoops.count, referenceContours: refLoops.count,
                     fromOpenPaths: fromOpen.count, referenceOpenPaths: refOpen.count,
                     registrationSmell: smell, openProfile: false,
@@ -238,6 +266,8 @@ public enum CrossSectionCompareTool {
             meanSignedAcrossSections: meanSigned,
             maxAbsSignedSection: worst.map { abs($0.element.signedMean) } ?? 0,
             worstStation: worst?.offset ?? 0,
+            worstAxisCoord: worst?.element.axisCoord ?? 0,
+            referenceMode: outerEnvelope ? "envelope" : "profile",
             warnings: warnings,
             sections: results
         )
@@ -303,6 +333,81 @@ public enum CrossSectionCompareTool {
         var sum = 0.0
         for i in 0..<(path.count - 1) { sum += simd_distance(path[i], path[i + 1]) }
         return sum
+    }
+
+    // MARK: - Outer-envelope comparison (#70)
+
+    /// Signed deviation of the candidate's outer boundary vs the reference's
+    /// outer boundary, both sampled as a radial function about the REFERENCE
+    /// centroid so a lateral offset shows up as an asymmetric (proud one side /
+    /// shy the other) signature rather than cancelling. Inner window-return /
+    /// frame paths have a smaller radius per direction and are dropped by the
+    /// max, so they no longer pollute the aggregate.
+    static func envelopeDeviation(candidate candPts: [SIMD2<Double>],
+                                  reference refPts: [SIMD2<Double>],
+                                  bins: Int = 360)
+        -> (signedMean: Double, rms: Double, maxAbs: Double, shapeL2: Double)
+    {
+        guard candPts.count >= 3, refPts.count >= 3 else { return (0, 0, 0, 0) }
+        let c = centroid(refPts)
+        let refEnv = outerEnvelope(points: refPts, center: c, bins: bins)
+        let candEnv = outerEnvelope(points: candPts, center: c, bins: bins)
+        var sum = 0.0, sumSq = 0.0, maxAbs = 0.0, count = 0.0
+        for b in 0..<bins where refEnv[b] > 0 && candEnv[b] > 0 {
+            let d = candEnv[b] - refEnv[b]           // + = candidate proud
+            sum += d; sumSq += d * d
+            if abs(d) > maxAbs { maxAbs = abs(d) }
+            count += 1
+        }
+        guard count > 0 else { return (0, 0, 0, 0) }
+        return (sum / count, (sumSq / count).squareRoot(), maxAbs,
+                envelopeShapeL2(candEnv, refEnv))
+    }
+
+    /// Outer silhouette as a radial function: for each of `bins` angular sectors
+    /// about `center`, the MAX point radius. Empty sectors (an open section /
+    /// window cut) are filled by circular interpolation across their nearest
+    /// occupied neighbours, so the envelope spans the opening at the outer skin.
+    static func outerEnvelope(points: [SIMD2<Double>], center: SIMD2<Double>, bins: Int) -> [Double] {
+        var env = [Double](repeating: 0, count: bins)
+        var filled = [Bool](repeating: false, count: bins)
+        let twoPi = 2.0 * Double.pi
+        for p in points {
+            let d = p - center
+            let r = simd_length(d)
+            guard r > 1e-12 else { continue }
+            var a = atan2(d.y, d.x); if a < 0 { a += twoPi }
+            var b = Int(a / twoPi * Double(bins))
+            if b >= bins { b = bins - 1 }
+            if !filled[b] || r > env[b] { env[b] = r; filled[b] = true }
+        }
+        fillGapsCircular(&env, filled)
+        return env
+    }
+
+    static func fillGapsCircular(_ env: inout [Double], _ filled: [Bool]) {
+        let n = env.count
+        guard filled.contains(true), filled.contains(false) else { return }
+        for i in 0..<n where !filled[i] {
+            var df = 1; while !filled[(i + df) % n] { df += 1 }
+            var db = 1; while !filled[(i - db + n) % n] { db += 1 }
+            let fwd = env[(i + df) % n], bwd = env[(i - db + n) % n]
+            env[i] = bwd + (fwd - bwd) * Double(db) / Double(db + df)
+        }
+    }
+
+    /// Size- and pose-invariant shape distance between two radial envelopes:
+    /// normalise each by its own mean radius, RMS of the per-sector difference.
+    /// 0 ⇒ same silhouette. Works for open sections (the envelope is defined
+    /// everywhere after gap-fill), unlike the closed-ring `radialShapeL2`.
+    static func envelopeShapeL2(_ a: [Double], _ b: [Double]) -> Double {
+        guard a.count == b.count, !a.isEmpty else { return 0 }
+        let ma = a.reduce(0, +) / Double(a.count)
+        let mb = b.reduce(0, +) / Double(b.count)
+        guard ma > 1e-12, mb > 1e-12 else { return 0 }
+        var s = 0.0
+        for i in a.indices { let d = a[i] / ma - b[i] / mb; s += d * d }
+        return (s / Double(a.count)).squareRoot()
     }
 
     static func shoelace(_ ring: [SIMD2<Double>]) -> Double {

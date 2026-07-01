@@ -101,12 +101,13 @@ struct SignedSpatialDeviationTests {
 
     struct CompareReport: Decodable {
         struct Section: Decodable {
-            let station: Int; let offset, fromArea, referenceArea, areaRatio: Double
+            let station: Int; let offset, axisCoord, fromArea, referenceArea, areaRatio: Double
             let centroidOffset, signedMean, rms, maxAbs, shapeL2: Double
             let fromContours, referenceContours, fromOpenPaths, referenceOpenPaths: Int
             let registrationSmell, openProfile: Bool
         }
-        let meanSignedAcrossSections, maxAbsSignedSection: Double
+        let meanSignedAcrossSections, maxAbsSignedSection, worstAxisCoord: Double
+        let referenceMode: String
         let overlap: [Double]; let warnings: [String]
         let sections: [Section]
     }
@@ -198,6 +199,44 @@ struct SignedSpatialDeviationTests {
             #expect(s.shapeL2 < 0.1)                            // same circular shape
         }
         #expect(r.meanSignedAcrossSections < -0.2)
+        // #70: default is the outer-envelope basis; stations carry a world axisCoord.
+        #expect(r.referenceMode == "envelope")
+        let coords = r.sections.map { $0.axisCoord }
+        #expect(zip(coords, coords.dropFirst()).allSatisfy { $0 < $1 })   // increasing along Z
+        // axisCoord is the WORLD z — cylinders span z∈[0,20], so it lands inside that
+        // (NOT the overlap-relative `offset`). This is the #70 localisation fix.
+        #expect(coords.allSatisfy { $0 > 0 && $0 < 20 })
+    }
+
+    // ── #70: outer-envelope excludes inner structure; open-profile shapeL2 ──
+
+    @Test("outer-envelope drops inner window-return paths; shapeL2 defined for open")
+    func outerEnvelope() {
+        func arc(_ rx: Double, _ ry: Double, from a0: Double, to a1: Double, _ n: Int) -> [SIMD2<Double>] {
+            (0...n).map { let a = a0 + (a1 - a0) * Double($0) / Double(n); return SIMD2(rx * cos(a), ry * sin(a)) }
+        }
+        func circle(_ r: Double, _ n: Int) -> [SIMD2<Double>] { arc(r, r, from: 0, to: 2 * .pi - (2 * .pi / Double(n)), n) }
+
+        // Reference = outer skin r=5 PLUS an inner window-return ring r=2.
+        let ref = circle(5, 160) + circle(2, 160)
+
+        // Candidate matches the OUTER envelope: the inner ring must not pollute.
+        let ok = CrossSectionCompareTool.envelopeDeviation(candidate: circle(5, 160), reference: ref)
+        #expect(abs(ok.signedMean) < 0.15)
+        #expect(ok.rms < 0.15)
+        #expect(ok.shapeL2 < 0.03)
+
+        // A uniformly smaller candidate reads shy (≈ −1) — sign is meaningful.
+        let shy = CrossSectionCompareTool.envelopeDeviation(candidate: circle(4, 160), reference: ref)
+        #expect(shy.signedMean < -0.8 && shy.signedMean > -1.2)
+
+        // OPEN profiles (half arcs): shapeL2 is DEFINED (not forced 0) — same shape ≈ 0,
+        // a squashed shape clearly > 0.
+        let openRef = arc(5, 5, from: 0, to: .pi, 80)
+        let same = CrossSectionCompareTool.envelopeDeviation(candidate: arc(5, 5, from: 0, to: .pi, 80), reference: openRef)
+        #expect(same.shapeL2 < 0.05)
+        let squashed = CrossSectionCompareTool.envelopeDeviation(candidate: arc(6, 2, from: 0, to: .pi, 80), reference: openRef)
+        #expect(squashed.shapeL2 > 0.05)
     }
 
     // ── #66: open-shell reference must not read as un-sliced ──────────────
