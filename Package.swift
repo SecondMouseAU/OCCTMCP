@@ -15,10 +15,13 @@ import Foundation
 // Prefer a local sibling checkout (../<name>) when present, else the published URL — so the whole
 // OCCT ecosystem SHARES the single OCCTSwift/Libraries/OCCT.xcframework instead of each repo
 // extracting its own 1.3 GB copy. CI / fresh clones (no sibling) use the URL pin. `#filePath`-relative
-// so it's independent of build CWD.
+// so it's independent of build CWD. Guarded against SwiftPM's own checkout layout: a transitively-
+// resolved checkout under a consumer's .build/ must never be treated as a local dev sibling
+// (ecosystem issue OCCTSwiftScripts#69 / #70).
 func occtDep(_ name: String, from version: String) -> Package.Dependency {
     let manifestDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-    if FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift") {
+    if !manifestDir.contains("/.build/"),
+       FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift") {
         return .package(path: "../\(name)")
     }
     return .package(url: "https://github.com/SecondMouseAU/\(name).git", from: Version(version)!)
@@ -27,9 +30,11 @@ func occtDep(_ name: String, from version: String) -> Package.Dependency {
 // As occtDep, but pins to the package's minor line (`.upToNextMinor`) instead of
 // the major. Used to cap a transitive dependency whose newer minors pull deps we
 // don't want in the graph — see the OCCTSwiftIO note in `dependencies` below.
+// Same checkout-layout guard as occtDep (ecosystem issue OCCTSwiftScripts#69 / #70).
 func occtDepUpToNextMinor(_ name: String, from version: String) -> Package.Dependency {
     let manifestDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-    if FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift") {
+    if !manifestDir.contains("/.build/"),
+       FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift") {
         return .package(path: "../\(name)")
     }
     return .package(url: "https://github.com/SecondMouseAU/\(name).git", .upToNextMinor(from: Version(version)!))
