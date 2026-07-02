@@ -48,16 +48,16 @@ Add a `.brep` file from disk to the scene as a new body.
 
 ## `import_file`
 
-Multi-format CAD import (STEP / IGES / BREP / OBJ). Adds the imported shape as a single body.
+Multi-format CAD import (STEP / IGES / BREP / STL / OBJ). Adds the imported shape as a single body.
 
-**Server:** Swift + Node
+**Server:** Swift (STL / OBJ mesh formats are Swift-only)
 
 **Parameters**
 
 | name | type | required | description |
 |------|------|:--------:|-------------|
 | `inputPath` | string | yes | Path to the file to import. |
-| `format` | `"auto"` \| `"step"` \| `"iges"` \| `"obj"` \| `"brep"` | no | File format; defaults to `"auto"`, inferred from extension (`.step`/`.stp`, `.iges`/`.igs`, `.obj`, `.brep`/`.brp`). |
+| `format` | `"auto"` \| `"step"` \| `"iges"` \| `"brep"` \| `"stl"` \| `"obj"` | no | File format; defaults to `"auto"`, inferred from extension (`.step`/`.stp`, `.iges`/`.igs`, `.brep`/`.brp`, `.stl`, `.obj`). An explicit `format` **overrides** the extension sniff. |
 | `idPrefix` | string | no | Prefix for auto-generated body IDs when the file contains multiple parts. |
 | `allowInvalid` | boolean | no | Import a topologically invalid / loose-face shape as-is (skip the validity write-gate) so the analysis tools can measure an in-progress reconstruction. Default `false`. |
 
@@ -77,6 +77,8 @@ Multi-format CAD import (STEP / IGES / BREP / OBJ). Adds the imported shape as a
 **Notes** — Like `read_brep`, `allowInvalid: true` bypasses the write-gate so you can load a loose-face or open-shell STEP file produced by a reconstruction tool and immediately measure it with `measure_deviation` or `validate_geometry`. STEP assemblies with multiple solids produce one body per solid, each prefixed with `idPrefix`.
 
 BREP (`.brep` / `.brp`) is a single shape, so it imports as one body. On the **Swift** server it loads in-process via `Shape.loadBREP`. On the **Node** server it is routed to the occtkit `load-brep` verb — occtkit's `import` verb itself has no BREP loader — so `import_file` is a single entry point for every format on both servers (you don't need to fall back to `read_brep` for BREP).
+
+**Mesh formats (STL / OBJ)** load in-process on the Swift server as a *raw triangulated shell* (`Shape.loadSTL` / `Shape.loadOBJ`, no sew/heal so an open scan skin isn't distorted). Because a mesh shell isn't a valid solid, the write-gate is skipped automatically for these formats (you don't need `allowInvalid`). This is the front door for a **reference scan / STL skin** — import it, then certify a reconstruction against it with [`measure_deviation`](introspection.md#measure_deviation) or [`cross_section_compare`](introspection.md#cross_section_compare).
 
 ---
 

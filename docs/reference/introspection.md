@@ -10,7 +10,9 @@ These tools read the current scene without modifying it: validating geometry, qu
 
 ## Tools
 
-[`validate_geometry`](#validate_geometry) · [`compute_metrics`](#compute_metrics) · [`query_topology`](#query_topology) · [`measure_distance`](#measure_distance) · [`measure_deviation`](#measure_deviation) · [`recognize_features`](#recognize_features) · [`inspect_assembly`](#inspect_assembly)
+[`validate_geometry`](#validate_geometry) · [`compute_metrics`](#compute_metrics) · [`query_topology`](#query_topology) · [`measure_distance`](#measure_distance) · [`measure_deviation`](#measure_deviation) · [`deviation_histogram`](#deviation_histogram) · [`cross_section_compare`](#cross_section_compare) · [`recognize_features`](#recognize_features) · [`inspect_assembly`](#inspect_assembly)
+
+Signed / spatially-resolved surface comparison — the certify-a-reconstruction toolset (#61–#63, #66, #70) — also renders to PNG via [`signed_deviation_heatmap`](mesh-visualization.md#signed_deviation_heatmap) and [`overlay_render`](mesh-visualization.md#overlay_render).
 
 ---
 
@@ -152,7 +154,7 @@ Minimum distance between two scene bodies. Returns ≈0 if the bodies overlap or
 
 ## `measure_deviation`
 
-Surface deviation (directed + symmetric Hausdorff) between two scene bodies — the primary metric for certifying a reconstruction against its source mesh.
+Signed, spatially-resolved surface deviation between two scene bodies — the primary metric for certifying a reconstruction against its source mesh. As of #62 the report is a full vector (not just a min gap), with an optional per-station sweep along an axis.
 
 **Server:** Swift + Node
 
@@ -164,30 +166,79 @@ Surface deviation (directed + symmetric Hausdorff) between two scene bodies — 
 | `toBodyId` | string | yes | Reference body (e.g. the input mesh). |
 | `deflection` | number | no | Mesh linear deflection in model units. Smaller = finer tessellation = tighter bound. Default: 0.5% of the from-body bbox diagonal. |
 | `maxSamples` | integer | no | Max source surface samples per direction (stride-subsampled). Default 20000. |
+| `sectionAxis` | number[3] | no | `[x,y,z]` axis to bin the forward samples along. With `sections`, adds a per-station `signedMean` sweep. |
+| `sections` | integer | no | Number of along-axis bins for the per-section sweep (≥2). Requires `sectionAxis`. |
 
-**Returns** — JSON object with three top-level keys:
-- `fromToTo` — directed deviation from `from`'s surface to `to`: `{ max, rms, mean, worstPoint }`. Measures over-extension.
-- `toToFrom` — directed deviation from `to`'s surface to `from`: `{ max, rms, mean, worstPoint }`. Measures under-coverage.
-- `symmetricHausdorff` — `max(fromToTo.max, toToFrom.max)`: the single worst-case surface distance in either direction.
+**Returns** — JSON object:
+- `fromToTo` / `toToFrom` — directed deviation each way: `{ max, rms, mean, p95, signedMean, signedMin, signedMax, worstPoint, samples }`. `signedMean ≠ 0` reveals a systematic proud(+) / shy(−) bias a Hausdorff hides; `fromToTo` catches over-extension, `toToFrom` under-coverage.
+- `symmetricHausdorff` — the single worst-case surface distance in either direction.
+- `sections` (optional) — when `sectionAxis`+`sections` given, an array of `{ offset, signedMean, rms, samples }` per station; a near-constant non-zero `signedMean` across stations is the systematic section-error fingerprint.
 
-All distances are in model units.
+All distances are in model units. Sign convention: **+ proud** (from outside the reference), **− shy**.
 
 **Example**
 
 ```json
 // tool call arguments
-{ "fromBodyId": "recon", "toBodyId": "source_mesh", "deflection": 0.1 }
+{ "fromBodyId": "recon", "toBodyId": "source_mesh", "deflection": 0.1, "sectionAxis": [0,0,1], "sections": 6 }
 ```
 ```json
-// example result
+// example result (abridged)
 {
-  "fromToTo": { "max": 0.18, "rms": 0.06, "mean": 0.04, "worstPoint": [42.1, 7.3, 0.0] },
-  "toToFrom": { "max": 0.22, "rms": 0.08, "mean": 0.05, "worstPoint": [41.9, 7.1, 0.0] },
-  "symmetricHausdorff": 0.22
+  "fromToTo": { "max": 0.18, "rms": 0.06, "mean": 0.04, "p95": 0.15, "signedMean": -0.03, "signedMin": -0.18, "signedMax": 0.05, "worstPoint": [42.1, 7.3, 0.0], "samples": 17230 },
+  "toToFrom": { "max": 0.22, "rms": 0.08, "mean": 0.05, "p95": 0.19, "signedMean": 0.02, "signedMin": -0.06, "signedMax": 0.22, "worstPoint": [41.9, 7.1, 0.0], "samples": 17230 },
+  "symmetricHausdorff": 0.22,
+  "sections": [ { "offset": 5.0, "signedMean": -0.03, "rms": 0.05, "samples": 2900 } ]
 }
 ```
 
-**Notes** — Unlike [`measure_distance`](#measure_distance) (minimum gap, ≈0 for overlapping bodies), `measure_deviation` samples each body's tessellated surface and reports worst/RMS/mean deviation in both directions. `fromToTo` catches over-extension (the reconstruction sticks out beyond the reference); `toToFrom` catches under-coverage (the reference has surface the reconstruction misses). Fidelity scales with `deflection` — reduce it for tighter bounds at higher compute cost. Load invalid in-progress reconstructions with [`read_brep`](io.md#read_brep)`(allowInvalid: true)` before calling this tool.
+**Notes** — Unlike [`measure_distance`](#measure_distance) (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface. Fidelity scales with `deflection`. Import the reference mesh with [`import_file`](io.md#import_file)`(format: "stl")` or load an invalid in-progress reconstruction with [`read_brep`](io.md#read_brep)`(allowInvalid: true)` before calling.
+
+---
+
+## `deviation_histogram`
+
+Signed point-to-surface deviation *distribution* between two bodies — the statistical companion to `measure_deviation`, with an optional histogram PNG (#62). Swift-only.
+
+**Server:** Swift
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `fromBodyId` | string | yes | Candidate body. |
+| `referenceBodyId` | string | yes | Reference body. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the from-body bbox diagonal. |
+| `tolerance` | number | no | If set, the report includes `withinTolerance` (fraction of samples with `|dev| ≤ tolerance`). |
+| `outputPath` | string | no | Write a histogram PNG here. Omit for numbers only. |
+
+**Returns** — `{ mean, std, median, p95, signedMin, signedMax, maxAbs, withinTolerance?, buckets: [{ lo, hi, count }], samples }`. Sign convention: + proud, − shy.
+
+---
+
+## `cross_section_compare`
+
+Slice **both** bodies at N stations across their shared axis-extent overlap and compare the 2D profiles — the highest-leverage detector of a reconstruction whose cross-section is the wrong shape everywhere yet whose 3D mean looks fine (#61, #66, #70). Swift-only.
+
+**Server:** Swift
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `fromBodyId` | string | yes | Candidate body (e.g. the reconstruction). |
+| `referenceBodyId` | string | yes | Reference body (e.g. the source mesh). |
+| `axis` | number[3] | yes | `[x,y,z]` section sweep axis (e.g. the carbody longitudinal axis). |
+| `stations` | integer | no | Number of evenly-spaced cut planes across the shared overlap. Default 12. |
+| `through` | number[3] | no | A point the axis passes through. Default: from-body bbox centre. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the from-body bbox diagonal. |
+| `outerEnvelope` | boolean | no | Compare against the reference's **outer boundary per angular direction** (default `true`) so inner window-return / frame paths of a thin-wall or scanned part don't pollute the metric. `false` = raw point-to-main-loop. |
+| `outputDir` | string | no | Directory for per-station overlay PNGs. Omit for numbers only. |
+| `imagePrefix` | string | no | Filename prefix for station PNGs. Default `"section"`. |
+
+**Returns** — a report with `overlap` (`[lo,hi]` shared axis extent), `referenceMode` (`"envelope"` | `"profile"`), `meanSignedAcrossSections`, `maxAbsSignedSection`, `worstStation` / `worstAxisCoord`, `warnings[]`, and a `sections[]` array. Each section carries `station`, `axisCoord` (**world** position along the axis), `offset` (overlap-relative), `signedMean` / `rms` / `maxAbs`, `centroidOffset`, `areaRatio`, `shapeL2` (pose-invariant shape scalar — defined for open profiles too), `fromContours` / `referenceContours` / `fromOpenPaths` / `referenceOpenPaths`, `openProfile`, `registrationSmell`, and `imagePath`.
+
+**Notes** — Handles open-shell references (raw scan / STL skin) whose sections are open arcs. `registrationSmell` flags a station that sliced only one body (mis-registration / differing extents). Pair with [`import_file`](io.md#import_file)`(format: "stl")` to get the reference mesh into the scene.
 
 ---
 

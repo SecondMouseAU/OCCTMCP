@@ -26,7 +26,11 @@ public enum ExecuteScriptTool {
     /// against a different (older) kernel than the server's own tools.
     /// A `from: "0.x"` floor caps below 1.0.0 (SPM "up to next major"),
     /// which stranded scripts on pre-GA OCCTSwift 0.171.0 (#42).
-    static let scriptsPin = "1.4.0"
+    /// Floored at 1.4.2: 1.4.0/1.4.1 leave OCCTSwiftIO uncapped, which now
+    /// floats to the heavy 1.5.0 and makes the script workspace fail to
+    /// resolve (SecondMouseAU/OCCTSwiftScripts#69, ecosystem#14). 1.4.2 caps
+    /// it to the lean 1.0.x line.
+    static let scriptsPin = "1.4.2"
 
     public static func execute(
         code: String,
@@ -90,7 +94,7 @@ public enum ExecuteScriptTool {
             name: "OCCTMCPUserScript",
             platforms: [.macOS(.v15)],
             dependencies: [
-                .package(url: "https://github.com/gsdali/OCCTSwiftScripts.git", from: "\(scriptsPin)"),
+                .package(url: "https://github.com/SecondMouseAU/OCCTSwiftScripts.git", from: "\(scriptsPin)"),
             ],
             targets: [
                 .executableTarget(
