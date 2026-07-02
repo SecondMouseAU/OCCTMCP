@@ -10,7 +10,7 @@ Tools for converting B-rep bodies into triangle meshes, decimating those meshes,
 
 ## Tools
 
-[`generate_mesh`](#generate_mesh) · [`simplify_mesh`](#simplify_mesh) · [`render_preview`](#render_preview) · [`pick_surface_point`](#pick_surface_point) · [`generate_drawing`](#generate_drawing)
+[`generate_mesh`](#generate_mesh) · [`simplify_mesh`](#simplify_mesh) · [`render_preview`](#render_preview) · [`signed_deviation_heatmap`](#signed_deviation_heatmap) · [`overlay_render`](#overlay_render) · [`pick_surface_point`](#pick_surface_point) · [`generate_drawing`](#generate_drawing)
 
 ---
 
@@ -151,6 +151,48 @@ Headless Metal render of the current scene (or a named subset of bodies) to a PN
 **Notes** — Pass the same `options.camera` / `width` / `height` values to `pick_surface_point` so pixel coordinates map to the same ray. Annotation overlays read from `annotations.json` in the output directory.
 
 **Drives** — `OCCTSwiftViewport` `OffscreenRenderer`; `OCCTSwiftTools` Shape → `ViewportBody` bridge; `AnnotationsRenderer` for sidecar overlays.
+
+---
+
+## `signed_deviation_heatmap`
+
+Render `fromBodyId`'s surface coloured by **signed** distance to `referenceBodyId` — proud (over-build) red, on-target near-white, shy (under-build) blue — via a diverging colormap with a colorbar legend (#63). Shows exactly *where* a reconstruction departs, which a scalar deviation can't. Swift-only.
+
+**Server:** Swift
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `fromBodyId` | string | yes | Body whose surface is coloured. |
+| `referenceBodyId` | string | yes | Body measured against. |
+| `outputPath` | string | yes | PNG output path. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the from-body bbox diagonal. |
+| `bands` | integer | no | Colormap band count. Default 11. |
+| `clamp` | number | no | `|signed| ≥ clamp` saturates to full red/blue. Default: p95 of `|signed|`. |
+| `options` | object | no | Render options — same shape as [`render_preview`](#render_preview)'s `options` (camera, width, height, background). |
+
+**Returns** — `{ outputPath, bands, triangles, clamp, signedMin, signedMax, signedMean }`.
+
+---
+
+## `overlay_render`
+
+Render the reference mesh (`meshBodyId`, semi-transparent amber) superimposed over the opaque candidate solid (`solidBodyId`, steel-grey) — see in 3D exactly where the reconstruction departs from the source mesh (#63). Swift-only.
+
+**Server:** Swift
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `solidBodyId` | string | yes | Opaque candidate solid. |
+| `meshBodyId` | string | yes | Translucent reference mesh, drawn over the solid. |
+| `outputPath` | string | yes | PNG output path. |
+| `transparency` | number | no | Mesh overlay transparency (0 = opaque, 1 = invisible). |
+| `options` | object | no | Render options — same shape as [`render_preview`](#render_preview)'s `options`. |
+
+**Returns** — `{ outputPath }` (plus render metadata). Pairs naturally with [`import_file`](io.md#import_file)`(format: "stl")` to bring the reference mesh in first.
 
 ---
 
