@@ -62,8 +62,9 @@ public enum RayPickTool {
                 let shape = try Shape.loadBREP(fromPath: path)
                 let color = RenderPreviewTool.bodyColor(body)
                 let bid = body.id ?? UUID().uuidString
-                let (vb, _) = CADFileLoader.shapeToBodyAndMetadata(shape, id: bid, color: color)
-                if let vb = vb { bodies.append(vb) }
+                if let vb = RenderPreviewTool.viewportBody(for: shape, id: bid, color: color) {
+                    bodies.append(vb)
+                }
             } catch {
                 return .init(
                     "Failed to load body \(body.id ?? body.file): \(error.localizedDescription)",

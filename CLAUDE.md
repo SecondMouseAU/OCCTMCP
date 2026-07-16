@@ -58,7 +58,7 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
   - `HealingTools.swift` — `heal_shape` (records identity history if topology preserved)
   - `IOTools.swift` — `read_brep`, `import_file`, `inspect_assembly`, `set_assembly_metadata`
   - `MeshTools.swift` — `generate_mesh`, `simplify_mesh`
-  - `RenderPreviewTool.swift` — `render_preview` (depends on Tools+Viewport per the layered architecture; reads annotations sidecar and overlays measurements / primitives via `AnnotationsRenderer`)
+  - `RenderPreviewTool.swift` — `render_preview` (depends on Tools+Viewport per the layered architecture; reads annotations sidecar and overlays measurements / primitives via `AnnotationsRenderer`). #75: shapes above `meshDirectEdgeThreshold` (10k edges — an STL lands as one face per facet, so a 442k-tri scan is ~1.3M edges) bypass `shapeToBodyAndMetadata`, whose per-edge polyline extraction is O(edges²) (the bridge rebuilds the full edge map per query — hours at scan scale), and take `meshDirectBody` instead: tessellation-only, crease-smoothed, no edge overlays, linear. `pick_surface_point` and `overlay_render` route through the same `viewportBody(for:)` guard
   - `DrawingTools.swift` — `generate_drawing`
   - `AnalysisTools.swift` — graph-level: `graph_validate`, `graph_compact`, `graph_dedup`, `graph_ml`, `feature_recognize`
   - `SelectionTools.swift` — `select_topology`

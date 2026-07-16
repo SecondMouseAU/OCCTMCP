@@ -210,10 +210,13 @@ public enum HeatmapTools {
         let alpha = Float(max(0.05, min(0.95, transparency)))
 
         // Opaque candidate solid (steel-grey), translucent reference mesh (amber).
-        let (solidVBopt, _) = CADFileLoader.shapeToBodyAndMetadata(
-            solidShape, id: solidBodyId, color: SIMD4(0.66, 0.69, 0.74, 1))
-        let (meshVBopt, _) = CADFileLoader.shapeToBodyAndMetadata(
-            meshShape, id: meshBodyId, color: SIMD4(0.95, 0.65, 0.20, alpha))
+        // Routed through the mesh-scale guard (#75): the reference is typically a
+        // raw scan / STL skin whose one-face-per-facet structure would hang the
+        // O(edges²) B-rep edge extraction.
+        let solidVBopt = RenderPreviewTool.viewportBody(
+            for: solidShape, id: solidBodyId, color: SIMD4(0.66, 0.69, 0.74, 1))
+        let meshVBopt = RenderPreviewTool.viewportBody(
+            for: meshShape, id: meshBodyId, color: SIMD4(0.95, 0.65, 0.20, alpha))
         guard var solidVB = solidVBopt, var meshVB = meshVBopt else {
             return .init("Failed to build renderable bodies.", isError: true)
         }
