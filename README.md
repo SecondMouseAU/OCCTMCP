@@ -127,7 +127,7 @@ Signed, spatially-resolved comparison of a reconstruction against its source mes
 |------|---------|
 | `generate_mesh` | Tessellate to triangles + quality metrics |
 | `simplify_mesh` | QEM mesh decimation to .stl/.obj — wraps OCCTSwiftMesh's `Mesh.simplified` (vendored meshoptimizer) |
-| `render_preview` | One-shot PNG render with measurement labels and primitive overlays |
+| `render_preview` | One-shot PNG render with measurement labels and primitive overlays. Mesh-scale bodies (imported scans, >10k edges) render surface-only — no B-rep edge overlays — in seconds |
 | `pick_surface_point` | Cast a render_preview-framed ray through a pixel → world surface point + selectionId (usable as an `add_dimension` anchor) |
 | `generate_drawing` | Multi-view ISO 128-30 DXF technical drawing — `bodyId` for a single part, or `bodyIds` (2+) for a general-arrangement assembly sheet with a parts list + balloons |
 

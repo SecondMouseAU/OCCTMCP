@@ -140,10 +140,9 @@ public enum RenderPreviewTool {
                 let shape = try Shape.loadBREP(fromPath: path)
                 let color = bodyColor(body)
                 let id = body.id ?? UUID().uuidString
-                let (vb, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    shape, id: id, color: color
-                )
-                if let vb = vb { bodies.append(vb) }
+                if let vb = viewportBody(for: shape, id: id, color: color) {
+                    bodies.append(vb)
+                }
             } catch {
                 return .init(
                     "Failed to load body \(body.id ?? body.file): \(error.localizedDescription)",
@@ -195,6 +194,58 @@ public enum RenderPreviewTool {
         } catch {
             return .init("Render failed: \(error.localizedDescription)", isError: true)
         }
+    }
+
+    // MARK: - Shape → ViewportBody (mesh-scale guard, #75)
+
+    /// Above this many edges, `shapeToBodyAndMetadata`'s B-rep extraction is
+    /// skipped in favour of `meshDirectBody`. The per-edge polyline bridge call
+    /// rebuilds an indexed map of ALL edges on every query, so extraction is
+    /// O(edges²) — fine for a genuine B-rep solid (hundreds of edges), fatal for
+    /// a mesh import: OCCT's StlAPI_Reader lands an STL as one face per facet,
+    /// so a 442k-triangle scan is ~1.3M edges ≈ days of extraction (#75). At
+    /// this threshold the legacy path worst-cases around a couple of seconds.
+    static let meshDirectEdgeThreshold = 10_000
+
+    /// Bridge a scene shape to a renderable body, routing mesh-scale shapes
+    /// (edge count above `meshDirectEdgeThreshold`) around the O(edges²) B-rep
+    /// edge/vertex extraction. Mesh-scale bodies render without edge overlays
+    /// or B-rep vertex pick data — at hundreds of thousands of facets those
+    /// would be visual noise anyway.
+    static func viewportBody(for shape: Shape, id: String, color: SIMD4<Float>) -> ViewportBody? {
+        if shape.edgeCount > meshDirectEdgeThreshold {
+            return meshDirectBody(for: shape, id: id, color: color)
+        }
+        let (vb, _) = CADFileLoader.shapeToBodyAndMetadata(shape, id: id, color: color)
+        return vb
+    }
+
+    /// Tessellation-only bridge: mesh the shape, interleave positions+normals,
+    /// crease-smooth (welds the per-facet vertices STL faces don't share), and
+    /// return a body with no edge polylines. Linear in triangle count.
+    static func meshDirectBody(for shape: Shape, id: String, color: SIMD4<Float>) -> ViewportBody? {
+        guard let mesh = shape.mesh(parameters: CADFileLoader.highQualityMeshParams) else { return nil }
+        let vertexCount = mesh.vertexCount
+        let indices = mesh.indices
+        guard vertexCount > 0, indices.count >= 3 else { return nil }
+
+        let positions = mesh.vertices
+        let normals = mesh.normals
+        var vertexData: [Float] = []
+        vertexData.reserveCapacity(vertexCount * 6)
+        for i in 0..<vertexCount {
+            let p = positions[i], n = normals[i]
+            vertexData.append(contentsOf: [p.x, p.y, p.z, n.x, n.y, n.z])
+        }
+        NormalSmoothing.smoothNormals(vertexData: &vertexData, indices: indices)
+
+        // `vertices` feeds combinedBoundsSphere (camera framing) and the CPU
+        // pick fallback — mesh positions serve both.
+        return ViewportBody(
+            id: id, vertexData: vertexData, indices: indices, edges: [],
+            vertices: positions,
+            color: color
+        )
     }
 
     // MARK: - Helpers
