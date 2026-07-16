@@ -451,7 +451,11 @@ public enum AnnotationsRenderer {
     }
 
     private static func makeViewportBody(_ shape: Shape, id: String, color: SIMD4<Float>) -> ViewportBody? {
-        let (vb, _) = CADFileLoader.shapeToBodyAndMetadata(shape, id: id, color: color)
+        // Every caller passes a synthesized B-rep primitive (trihedron cones,
+        // axis cylinders, plane/box slabs, leader spheres) — analytic normals,
+        // never a facet shell — so the direct-mesh bridge is unconditionally
+        // safe here (#76 step 3).
+        let (vb, _) = CADFileLoader.shapeToBodyAndMetadata(shape, id: id, color: color, directMesh: true)
         return vb
     }
 }

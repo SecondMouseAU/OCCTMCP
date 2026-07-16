@@ -231,8 +231,31 @@ public enum RenderPreviewTool {
             return meshDirectBody(for: shape, id: id, color: color,
                                   withEdgeOverlays: edgeCount <= edgeOverlayCap)
         }
-        let (vb, _) = CADFileLoader.shapeToBodyAndMetadata(shape, id: id, color: color)
+        // #76 step 3: B-rep bodies take Tools' direct-mesh bridge — OCCT's
+        // per-vertex normals off a fine B-rep mesh are analytic-quality, so
+        // skipping the interleave + NormalSmoothing pass changes nothing
+        // visually and drops a full CPU copy per body. The one class that
+        // MUST stay interleaved (the issue's own caveat) is a facet shell,
+        // whose planar per-face normals only shade smoothly because
+        // NormalSmoothing welds them by position.
+        let direct = !isLikelyFacetShell(faceCount: shape.faces().count, edgeCount: edgeCount)
+        let (vb, _) = CADFileLoader.shapeToBodyAndMetadata(
+            shape, id: id, color: color, directMesh: direct)
         return vb
+    }
+
+    /// Facet-shell heuristic for the sub-threshold path. Triangle soups sit at
+    /// a distinctive edges-per-face ratio: ~1.5 sewn (each interior edge shared
+    /// by two triangles), ~3.0 unsewn (nothing shared). Genuine B-reps at any
+    /// real face count live between — prismatic/quad-dominant faces ≈ 2.0–2.5.
+    /// Below 64 faces nothing is a scan; ratios there are meaningless (a
+    /// cylinder is 3 faces / 3 edges) and analytic normals make direct safe.
+    /// False positives are harmless: an interleaved body renders identically,
+    /// it just keeps the smoothing pass it didn't need.
+    static func isLikelyFacetShell(faceCount: Int, edgeCount: Int) -> Bool {
+        guard faceCount >= 64 else { return false }
+        let ratio = Double(edgeCount) / Double(faceCount)
+        return !(1.85...2.55).contains(ratio)
     }
 
     /// Tessellation-only bridge: mesh the shape, interleave positions+normals,

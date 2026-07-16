@@ -80,6 +80,43 @@ struct RenderPreviewMeshDirectTests {
         #expect(!small.edges.isEmpty)
     }
 
+    // ── #76 step 3: sub-threshold B-reps take the Tools direct-mesh bridge ──
+
+    @Test("sub-threshold routing: B-reps go direct-mesh, facet shells keep smoothing")
+    func directMeshCallsites() throws {
+        // B-rep solids (analytic normals) → direct bridge, edge overlays intact.
+        for shape in [Shape.box(width: 10, height: 10, depth: 10)!,
+                      Shape.cylinder(radius: 5, height: 20)!] {
+            let body = try #require(RenderPreviewTool.viewportBody(
+                for: shape, id: "brep", color: SIMD4(1, 1, 1, 1)))
+            #expect(body.usesDirectMesh, "B-rep should take the direct-mesh bridge")
+            #expect(body.vertexData.isEmpty)
+            #expect(!body.edges.isEmpty, "edge overlays survive the direct path")
+        }
+
+        // A sub-threshold sewn facet shell (planar per-face normals) must stay
+        // interleaved so NormalSmoothing can weld its shading — the #76 caveat.
+        let shell = try meshShell(rows: 40)          // 3,200 tris, ~4.9k edges
+        #expect(shell.edgeCount <= RenderPreviewTool.meshDirectEdgeThreshold)
+        let shellBody = try #require(RenderPreviewTool.viewportBody(
+            for: shell, id: "shell", color: SIMD4(1, 1, 1, 1)))
+        #expect(!shellBody.usesDirectMesh, "facet shell must keep the smoothing path")
+        #expect(!shellBody.vertexData.isEmpty)
+    }
+
+    @Test("facet-shell heuristic: ratio bands classify soups vs B-reps")
+    func facetShellHeuristic() {
+        // Sewn triangle soup: E/F ≈ 1.5.
+        #expect(RenderPreviewTool.isLikelyFacetShell(faceCount: 3200, edgeCount: 4880))
+        // Unsewn triangle compound: E/F = 3.0.
+        #expect(RenderPreviewTool.isLikelyFacetShell(faceCount: 3200, edgeCount: 9600))
+        // Prismatic assembly: E/F ≈ 2.0 (boxes) — genuine B-rep, direct-safe.
+        #expect(!RenderPreviewTool.isLikelyFacetShell(faceCount: 600, edgeCount: 1200))
+        // Small shapes are never scans; ratio is meaningless (cylinder: 3/3).
+        #expect(!RenderPreviewTool.isLikelyFacetShell(faceCount: 3, edgeCount: 3))
+        #expect(!RenderPreviewTool.isLikelyFacetShell(faceCount: 6, edgeCount: 12))
+    }
+
     @MainActor
     @Test("render_preview completes on a mesh-scale body")
     func renderCompletes() async throws {
