@@ -223,6 +223,11 @@ public enum RenderPreviewTool {
     /// Tessellation-only bridge: mesh the shape, interleave positions+normals,
     /// crease-smooth (welds the per-facet vertices STL faces don't share), and
     /// return a body with no edge polylines. Linear in triangle count.
+    ///
+    /// Deliberately NOT `ViewportBody.directMesh` (#76): the direct path uses
+    /// normals verbatim, but a facet-per-face STL import needs the
+    /// `NormalSmoothing` pass here to shade smoothly — smoothing only runs on
+    /// the interleaved layout.
     static func meshDirectBody(for shape: Shape, id: String, color: SIMD4<Float>) -> ViewportBody? {
         guard let mesh = shape.mesh(parameters: CADFileLoader.highQualityMeshParams) else { return nil }
         let vertexCount = mesh.vertexCount

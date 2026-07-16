@@ -105,7 +105,7 @@ let package = Package(
         // 1.1.20 adds tap-to-measure (Viewport #68) and
         // ViewportBody.worldHitPoint(ray:triangleIndex:) — ray → world
         // surface-point reconstruction that respects the body transform.
-        occtDep("OCCTSwiftViewport", from: "1.1.20"),
+        occtDep("OCCTSwiftViewport", from: "1.1.23"),   // ≥1.1.23: ViewportBody.directMesh (#76)
         occtDep("OCCTSwiftAIS", from: "1.0.3"),
         // OCCTSwiftIO is a transitive dependency of OCCTSwiftScripts / OCCTSwiftTools,
         // declared open-endedly (`from: 1.0.x`) in their manifests. After the
