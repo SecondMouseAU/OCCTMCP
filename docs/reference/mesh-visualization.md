@@ -174,7 +174,9 @@ Render `fromBodyId`'s surface coloured by **signed** distance to `referenceBodyI
 | `clamp` | number | no | `|signed| ≥ clamp` saturates to full red/blue. Default: p95 of `|signed|`. |
 | `options` | object | no | Render options — same shape as [`render_preview`](#render_preview)'s `options` (camera, width, height, background). |
 
-**Returns** — `{ outputPath, bands, triangles, clamp, signedMin, signedMax, signedMean }`.
+**Returns** — `{ outputPath, bands, triangles, clamp, signedMin, signedMax, signedMean, ambiguousTriangles, ambiguousFraction }`.
+
+**Notes** — The sign channel is only trustworthy against a watertight / single-surface reference. Against an **open, thin-walled** reference (a raw scan / STL skin whose outer skin and inner wall sit a small gap apart) the nearest-triangle sign can flip per sample with no positional meaning. Triangles where a comparably-close reference triangle disagrees on sign render **grey** instead of red/blue, are excluded from `signedMin` / `signedMax` / `signedMean`, and are counted in `ambiguousTriangles` / `ambiguousFraction` ([#72](https://github.com/SecondMouseAU/OCCTMCP/issues/72)). A mostly-grey render means trust the magnitude (or [`cross_section_compare`](introspection.md#cross_section_compare)), not this tool's sign.
 
 ---
 
