@@ -221,7 +221,8 @@ public enum DeviationTools {
         var i = 0
         while i < n {
             let p = source.vertices[i]
-            if let signed = signedQuery(p, target: target, k: k, stamp: &stamp, stampToken: i) {
+            if let hit = signedQuery(p, target: target, k: k, stamp: &stamp, stampToken: i) {
+                let signed = hit.distance
                 let d = abs(signed)
                 if d > maxD { maxD = d; worst = p }
                 sumSq += d * d
@@ -252,22 +253,42 @@ public enum DeviationTools {
         return (stat, samples)
     }
 
+    /// Result of a signed-distance query: the signed distance itself, plus
+    /// whether the SIGN is trustworthy.
+    ///
+    /// The sign comes from a single "winning" nearest triangle's face normal.
+    /// Against an open, thin-walled reference (both an outer skin and an inner
+    /// wall a small gap apart — the raw-scan/STL-skin case in #72) the winner
+    /// can be either surface depending on sub-deflection noise, so the sign
+    /// flips per-sample with no real positional meaning even though the
+    /// *magnitude* stays correct. `ambiguous` is set when another candidate
+    /// triangle comparably close to the winner disagrees on which side of the
+    /// surface `p` sits — callers should grey out / exclude the sign channel
+    /// (not the magnitude) wherever this is true.
+    struct SignedHit {
+        let distance: Double
+        let ambiguous: Bool
+    }
+
     /// Signed distance from `p` to the target surface, using a shared `stamp`
     /// array for incident-triangle dedup across the k nearest candidates.
     /// `stampToken` must be unique per query (the source sample index works).
     static func signedQuery(
         _ p: SIMD3<Double>, target: TriMesh, k: Int,
         stamp: inout [Int], stampToken: Int
-    ) -> Double? {
+    ) -> SignedHit? {
         var best = Double.greatestFiniteMagnitude
         var bestClosest = SIMD3<Double>(0, 0, 0)
         var bestTri = -1
+        // Every candidate triangle's (distance, side) — used below to check
+        // whether comparably-close candidates agree with the winner's sign.
+        var candidates: [(distance: Double, positive: Bool)] = []
 
         let neighbours = target.kd.kNearest(to: p, k: k)
         if neighbours.isEmpty {
             if let nv = target.kd.nearest(to: p) {
                 // No triangle context — report unsigned (sign 0).
-                return nv.distance
+                return SignedHit(distance: nv.distance, ambiguous: false)
             }
             return nil
         }
@@ -279,27 +300,38 @@ public enum DeviationTools {
                                                 target.vertices[Int(b)],
                                                 target.vertices[Int(c)])
                 let d = simd_length(p - cp)
+                let positive = simd_dot(p - cp, target.faceNormal(ti)) >= 0
+                candidates.append((d, positive))
                 if d < best { best = d; bestClosest = cp; bestTri = ti }
             }
         }
         if bestTri < 0 {
             // Nearest vertex had no incident triangles (isolated) — fall back.
-            if let nv = target.kd.nearest(to: p) { return nv.distance }
+            if let nv = target.kd.nearest(to: p) { return SignedHit(distance: nv.distance, ambiguous: false) }
             return nil
         }
         let nrm = target.faceNormal(bestTri)
-        let side = simd_dot(p - bestClosest, nrm)
-        return side >= 0 ? best : -best
+        let side = simd_dot(p - bestClosest, nrm) >= 0
+        let signedDist = side ? best : -best
+
+        // Tie band: candidates within 15% of the winning distance are "comparably
+        // close" — if any of them disagree on side, the winner was a coin flip.
+        let tieBand = best * 1.15 + 1e-9
+        let ambiguous = candidates.contains { $0.distance <= tieBand && $0.positive != side }
+
+        return SignedHit(distance: signedDist, ambiguous: ambiguous)
     }
 
     /// Per-vertex signed-distance field for an arbitrary mesh's vertices against
     /// a reference `TriMesh`. Used by the heatmap (per-triangle centroid) and the
     /// histogram. No subsampling — every supplied point is queried.
-    static func signedDistances(of points: [SIMD3<Double>], to target: TriMesh) -> [Double] {
+    static func signedDistances(of points: [SIMD3<Double>], to target: TriMesh) -> [SignedHit] {
         var stamp = [Int](repeating: -1, count: target.triangles.count)
-        var out = [Double](repeating: 0, count: points.count)
+        var out = [SignedHit](repeating: SignedHit(distance: 0, ambiguous: false), count: points.count)
         for (i, p) in points.enumerated() {
-            out[i] = signedQuery(p, target: target, k: 6, stamp: &stamp, stampToken: i) ?? 0
+            if let hit = signedQuery(p, target: target, k: 6, stamp: &stamp, stampToken: i) {
+                out[i] = hit
+            }
         }
         return out
     }
