@@ -81,7 +81,7 @@ public enum DeviationHistogramTool {
         var i = 0
         while i < all.count { points.append(all[i]); i += stride }
 
-        let signed = DeviationTools.signedDistances(of: points, to: refTris)
+        let signed = DeviationTools.signedDistances(of: points, to: refTris).map { $0.distance }
         guard !signed.isEmpty else { return .init("No samples produced.", isError: true) }
 
         // Aggregate stats.

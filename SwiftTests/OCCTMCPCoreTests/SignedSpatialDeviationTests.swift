@@ -79,6 +79,35 @@ struct SignedSpatialDeviationTests {
         return try scene([("from", solid), ("reference", shell)])
     }
 
+    /// Two disconnected, near-parallel quads 0.1 apart, BOTH with outward (+z)
+    /// face normals — an outer-skin-plus-inner-wall sandwich a small gap apart,
+    /// the open thin-wall shape from #72. A point sitting in the gap is exactly
+    /// equidistant to both patches, and the two candidate signs disagree (the
+    /// upper patch reads it as shy, the lower as proud), so `signedQuery` must
+    /// flag it `ambiguous` rather than pick a coin-flip winner.
+    func thinWallSandwichReference() throws -> Shape {
+        func quad(z: Float, xOffset: Float) -> ([SIMD3<Float>], [UInt32]) {
+            let v: [SIMD3<Float>] = [
+                SIMD3(-5 + xOffset, -5, z), SIMD3(5 + xOffset, -5, z),
+                SIMD3(5 + xOffset, 5, z), SIMD3(-5 + xOffset, 5, z),
+            ]
+            return (v, [0, 1, 2, 0, 2, 3])   // CCW from +z ⇒ normal (0,0,1)
+        }
+        func patch(z: Float, xOffset: Float) throws -> Shape {
+            let (v, i) = quad(z: z, xOffset: xOffset)
+            guard let mesh = OCCTSwift.Mesh(vertices: v, indices: i), let shape = mesh.toShape() else {
+                throw TestError.fixture("failed to build sandwich patch at z=\(z)")
+            }
+            return shape
+        }
+        let upper = try patch(z: 0.05, xOffset: 0)
+        let lower = try patch(z: -0.05, xOffset: 0.5)   // offset so the two patches share no vertex
+        guard let combined = Shape.compound([upper, lower]) else {
+            throw TestError.fixture("failed to compound sandwich patches")
+        }
+        return combined
+    }
+
     enum TestError: Error { case fixture(String) }
 
     // ── decode mirrors ──────────────────────────────────────────────────
@@ -296,5 +325,27 @@ struct SignedSpatialDeviationTests {
         if result.isError && result.text.contains("Metal") { return }
         #expect(!result.isError, "unexpected error: \(result.text)")
         #expect(FileManager.default.fileExists(atPath: png))
+    }
+
+    // ── #72: sign ambiguity against an open thin-wall reference ─────────
+
+    @Test("signedQuery flags sign-ambiguous samples between two close near-parallel patches")
+    func signAmbiguityFlagged() throws {
+        let refShape = try thinWallSandwichReference()
+        let refTris = try #require(DeviationTools.TriMesh(shape: refShape, deflection: 0.05))
+
+        // Equidistant (0.05) to both patches; the upper patch's normal reads it
+        // shy (−), the lower patch's reads it proud (+) — a coin-flip winner.
+        var stamp = [Int](repeating: -1, count: refTris.triangles.count)
+        let hit = try #require(DeviationTools.signedQuery(
+            SIMD3(0, 0, 0), target: refTris, k: 6, stamp: &stamp, stampToken: 0))
+        #expect(hit.ambiguous)
+        #expect(abs(abs(hit.distance) - 0.05) < 0.01)
+
+        // Far below both patches, only the lower one is in reach ⇒ unambiguous.
+        var stamp2 = [Int](repeating: -1, count: refTris.triangles.count)
+        let clear = try #require(DeviationTools.signedQuery(
+            SIMD3(0, 0, -5), target: refTris, k: 6, stamp: &stamp2, stampToken: 0))
+        #expect(!clear.ambiguous)
     }
 }

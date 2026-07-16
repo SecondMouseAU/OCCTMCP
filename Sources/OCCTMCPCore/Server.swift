@@ -867,7 +867,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "signed_deviation_heatmap",
-            description: "Render `fromBodyId`'s surface coloured by SIGNED distance to `referenceBodyId` — proud (over-build) red, on-target near-white, shy (under-build) blue — via a diverging colormap, with a colorbar legend. Shows exactly WHERE a reconstruction departs, which a scalar deviation can't. Per-triangle bands; pure-Swift offscreen render to PNG.",
+            description: "Render `fromBodyId`'s surface coloured by SIGNED distance to `referenceBodyId` — proud (over-build) red, on-target near-white, shy (under-build) blue — via a diverging colormap, with a colorbar legend. Shows exactly WHERE a reconstruction departs, which a scalar deviation can't. Per-triangle bands; pure-Swift offscreen render to PNG. CAVEAT: the sign is only trustworthy when `referenceBodyId` is a watertight/single-surface solid. Against an OPEN, thin-walled reference (a raw scan/STL skin where an outer and inner surface are a small gap apart) the nearest-triangle sign can flip per sample with no real positional meaning; those triangles render GREY instead of red/blue and are counted in the response's `ambiguousTriangles`/`ambiguousFraction`. A mostly-grey render means trust the magnitude (or `cross_section_compare`), not this tool's sign.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
