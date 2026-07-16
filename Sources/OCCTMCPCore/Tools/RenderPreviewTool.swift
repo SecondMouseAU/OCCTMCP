@@ -198,13 +198,14 @@ public enum RenderPreviewTool {
 
     // MARK: - Shape → ViewportBody (mesh-scale guard, #75)
 
-    /// Above this many edges, `shapeToBodyAndMetadata`'s B-rep extraction is
-    /// skipped in favour of `meshDirectBody`. Tools' per-edge polyline loop
-    /// rebuilds an indexed map of ALL edges on every query, so its extraction is
-    /// O(edges²) — fine for a genuine B-rep solid (hundreds of edges), fatal for
-    /// a mesh import: OCCT's StlAPI_Reader lands an STL as one face per facet,
-    /// so a 442k-triangle scan is ~1.3M edges ≈ days of extraction (#75). At
-    /// this threshold the legacy path worst-cases around a couple of seconds.
+    /// Above this many edges, `shapeToBodyAndMetadata`'s full B-rep extraction
+    /// is skipped in favour of `meshDirectBody`. Historically this guarded an
+    /// O(edges²) hang (#75) — since OCCTSwift 1.10.0 / OCCTSwiftTools 1.3.1
+    /// both paths are linear (OCCTSwift#275), so the threshold now guards
+    /// weight, not correctness: a mesh import (StlAPI_Reader = one face per
+    /// facet; a 442k-tri scan is ~1.3M edges) would still pay for per-segment
+    /// edge-pick indices, B-rep vertex pick arrays, and per-edge polyline
+    /// allocations that render/raycast never consume at that scale.
     static let meshDirectEdgeThreshold = 10_000
 
     /// Above this many edges, `meshDirectBody` omits edge overlays outright.

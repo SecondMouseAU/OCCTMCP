@@ -84,7 +84,7 @@ let package = Package(
         // TopologyGraph model. All sibling deps below are re-pinned to the
         // matching p1 cohort. 1.8.0 adds Exporter.writeBREP(allowInvalid:) for
         // read_brep / import_file `allowInvalid` (#41).
-        occtDep("OCCTSwift", from: "1.9.0"),   // ≥1.9.0: O(edges) bulk allEdgePolylines (OCCTSwift#275)
+        occtDep("OCCTSwift", from: "1.10.0"),  // ≥1.10.0: O(edges) bulk allEdgePolylines(Indexed) (OCCTSwift#275)
         occtDep("OCCTSwiftMesh", from: "1.1.1"),
         // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
         // Composer.render(spec:components:) / render(spec:document:) — multi-body
@@ -98,7 +98,7 @@ let package = Package(
         // declare OCCTSwiftIO at SecondMouseAU, so the transitive pin re-homes
         // without a root-level OCCTSwiftIO override here (#53).
         occtDep("OCCTSwiftScripts", from: "1.4.1"),
-        occtDep("OCCTSwiftTools", from: "1.2.1"),
+        occtDep("OCCTSwiftTools", from: "1.3.1"),  // ≥1.3.1: linear extractEdgePolylines (OCCTSwift#275 Tools half)
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server
         // during render-preview; 1.0.4 makes the package dependency-free;
