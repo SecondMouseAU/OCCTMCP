@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag — clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.15.0"
+    public static let serverVersion = "1.16.0"
 }
 
 /// Build a fully-configured MCP server with every OCCTMCP tool registered.
