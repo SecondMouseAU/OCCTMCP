@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag — clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.14.0"
+    public static let serverVersion = "1.15.0"
 }
 
 /// Build a fully-configured MCP server with every OCCTMCP tool registered.
@@ -342,7 +342,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "render_preview",
-            description: "Headless Metal render of the current scene (or a subset) to PNG. Uses OCCTSwiftViewport's OffscreenRenderer + OCCTSwiftTools' Shape→ViewportBody bridge. Mesh-scale bodies (imported STL/OBJ scans; >10k edges) render surface-only — no B-rep edge overlays — so large scans return in seconds instead of hanging.",
+            description: "Headless Metal render of the current scene (or a subset) to PNG. Uses OCCTSwiftViewport's OffscreenRenderer + OCCTSwiftTools' Shape→ViewportBody bridge. Mesh-scale bodies (imported STL/OBJ scans; >10k edges) render via a linear tessellation path — edge overlays kept up to 100k edges (bulk wireframe), surface-only beyond — so large scans return in seconds instead of hanging.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([

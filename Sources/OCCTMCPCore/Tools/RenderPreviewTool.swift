@@ -198,23 +198,38 @@ public enum RenderPreviewTool {
 
     // MARK: - Shape → ViewportBody (mesh-scale guard, #75)
 
-    /// Above this many edges, `shapeToBodyAndMetadata`'s B-rep extraction is
-    /// skipped in favour of `meshDirectBody`. The per-edge polyline bridge call
-    /// rebuilds an indexed map of ALL edges on every query, so extraction is
-    /// O(edges²) — fine for a genuine B-rep solid (hundreds of edges), fatal for
-    /// a mesh import: OCCT's StlAPI_Reader lands an STL as one face per facet,
-    /// so a 442k-triangle scan is ~1.3M edges ≈ days of extraction (#75). At
-    /// this threshold the legacy path worst-cases around a couple of seconds.
+    /// Above this many edges, `shapeToBodyAndMetadata`'s full B-rep extraction
+    /// is skipped in favour of `meshDirectBody`. Historically this guarded an
+    /// O(edges²) hang (#75) — since OCCTSwift 1.10.0 / OCCTSwiftTools 1.3.1
+    /// both paths are linear (OCCTSwift#275), so the threshold now guards
+    /// weight, not correctness: a mesh import (StlAPI_Reader = one face per
+    /// facet; a 442k-tri scan is ~1.3M edges) would still pay for per-segment
+    /// edge-pick indices, B-rep vertex pick arrays, and per-edge polyline
+    /// allocations that render/raycast never consume at that scale.
     static let meshDirectEdgeThreshold = 10_000
 
+    /// Above this many edges, `meshDirectBody` omits edge overlays outright.
+    /// Below it they come from OCCTSwift ≥1.9.0's bulk `allEdgePolylines`
+    /// (O(edges), OCCTSwift#275 — ~0.02s at 12k edges), so mid-size mesh
+    /// imports keep their wireframe; past it, hundreds of thousands of facet
+    /// edges are wireframe noise and pure memory churn.
+    static let edgeOverlayCap = 100_000
+
     /// Bridge a scene shape to a renderable body, routing mesh-scale shapes
-    /// (edge count above `meshDirectEdgeThreshold`) around the O(edges²) B-rep
-    /// edge/vertex extraction. Mesh-scale bodies render without edge overlays
-    /// or B-rep vertex pick data — at hundreds of thousands of facets those
-    /// would be visual noise anyway.
-    static func viewportBody(for shape: Shape, id: String, color: SIMD4<Float>) -> ViewportBody? {
-        if shape.edgeCount > meshDirectEdgeThreshold {
-            return meshDirectBody(for: shape, id: id, color: color)
+    /// (edge count above `meshDirectEdgeThreshold`) around Tools'
+    /// O(edges²) B-rep edge/vertex extraction. Mesh-scale bodies up to
+    /// `edgeOverlayCap` edges keep edge overlays via the linear bulk API
+    /// (dense — no per-edge pick identity, which render/raycast never used);
+    /// beyond the cap they render surface-only.
+    static func viewportBody(
+        for shape: Shape, id: String, color: SIMD4<Float>,
+        meshDirectEdgeThreshold: Int = RenderPreviewTool.meshDirectEdgeThreshold,
+        edgeOverlayCap: Int = RenderPreviewTool.edgeOverlayCap
+    ) -> ViewportBody? {
+        let edgeCount = shape.edgeCount
+        if edgeCount > meshDirectEdgeThreshold {
+            return meshDirectBody(for: shape, id: id, color: color,
+                                  withEdgeOverlays: edgeCount <= edgeOverlayCap)
         }
         let (vb, _) = CADFileLoader.shapeToBodyAndMetadata(shape, id: id, color: color)
         return vb
@@ -222,13 +237,18 @@ public enum RenderPreviewTool {
 
     /// Tessellation-only bridge: mesh the shape, interleave positions+normals,
     /// crease-smooth (welds the per-facet vertices STL faces don't share), and
-    /// return a body with no edge polylines. Linear in triangle count.
+    /// return a body whose edge overlays (when requested) come from the bulk
+    /// O(edges) `allEdgePolylines` instead of Tools' per-index loop. Linear in
+    /// triangle count.
     ///
     /// Deliberately NOT `ViewportBody.directMesh` (#76): the direct path uses
     /// normals verbatim, but a facet-per-face STL import needs the
     /// `NormalSmoothing` pass here to shade smoothly — smoothing only runs on
     /// the interleaved layout.
-    static func meshDirectBody(for shape: Shape, id: String, color: SIMD4<Float>) -> ViewportBody? {
+    static func meshDirectBody(
+        for shape: Shape, id: String, color: SIMD4<Float>,
+        withEdgeOverlays: Bool = false
+    ) -> ViewportBody? {
         guard let mesh = shape.mesh(parameters: CADFileLoader.highQualityMeshParams) else { return nil }
         let vertexCount = mesh.vertexCount
         let indices = mesh.indices
@@ -244,10 +264,20 @@ public enum RenderPreviewTool {
         }
         NormalSmoothing.smoothNormals(vertexData: &vertexData, indices: indices)
 
+        // Dense polylines suffice here: the offscreen renderer draws them and
+        // SceneRaycast picks triangles — nothing consumes per-edge indices.
+        // 0.005 matches OCCTSwiftTools' defaultEdgeDeflection so the wireframe
+        // reads the same as the sub-threshold Tools path.
+        var edges: [[SIMD3<Float>]] = []
+        if withEdgeOverlays {
+            edges = shape.allEdgePolylines(deflection: 0.005, maxPointsPerEdge: 1000)
+                .map { $0.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) } }
+        }
+
         // `vertices` feeds combinedBoundsSphere (camera framing) and the CPU
         // pick fallback — mesh positions serve both.
         return ViewportBody(
-            id: id, vertexData: vertexData, indices: indices, edges: [],
+            id: id, vertexData: vertexData, indices: indices, edges: edges,
             vertices: positions,
             color: color
         )

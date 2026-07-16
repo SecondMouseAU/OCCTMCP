@@ -48,18 +48,30 @@ struct RenderPreviewMeshDirectTests {
 
     enum TestError: Error { case fixture(String) }
 
-    @Test("mesh-scale shape routes around edge extraction; B-rep solid keeps edges")
+    @Test("mesh-scale routing: mid-size keeps linear edge overlays, huge goes surface-only")
     func routing() throws {
-        // 63 rows → 7,938 triangular faces, ~12k edges — above the threshold.
+        // 63 rows → 7,938 triangular faces, ~12k edges — above the mesh-direct
+        // threshold, below the edge-overlay cap: linear bulk wireframe (#275).
         let shell = try meshShell(rows: 63)
-        #expect(shell.edgeCount > RenderPreviewTool.meshDirectEdgeThreshold)
+        let edgeCount = shell.edgeCount
+        #expect(edgeCount > RenderPreviewTool.meshDirectEdgeThreshold)
+        #expect(edgeCount <= RenderPreviewTool.edgeOverlayCap)
 
-        let big = try #require(RenderPreviewTool.viewportBody(
+        let mid = try #require(RenderPreviewTool.viewportBody(
             for: shell, id: "scan", color: SIMD4(1, 1, 1, 1)))
-        #expect(big.edges.isEmpty)                       // no O(edges²) extraction
-        #expect(big.indices.count / 3 >= 7938)           // every facet made it
-        #expect(!big.vertices.isEmpty)                    // camera framing works
-        #expect(big.vertexData.count == (big.vertexData.count / 6) * 6)
+        #expect(!mid.edges.isEmpty)                       // wireframe restored via bulk API
+        #expect(mid.edges.count <= edgeCount)             // dense: skips allowed, no invention
+        #expect(mid.indices.count / 3 >= 7938)            // every facet made it
+        #expect(!mid.vertices.isEmpty)                     // camera framing works
+        #expect(mid.vertexData.count == (mid.vertexData.count / 6) * 6)
+
+        // Past the overlay cap (forced low here), the same shape renders
+        // surface-only — facet wireframe at scan scale is noise + memory churn.
+        let huge = try #require(RenderPreviewTool.viewportBody(
+            for: shell, id: "scan2", color: SIMD4(1, 1, 1, 1),
+            edgeOverlayCap: 1_000))
+        #expect(huge.edges.isEmpty)
+        #expect(huge.indices == mid.indices)              // surface identical either way
 
         // A plain solid stays on the full B-rep path, edge overlays intact.
         let box = Shape.box(width: 10, height: 10, depth: 10)!

@@ -124,7 +124,7 @@ Headless Metal render of the current scene (or a named subset of bodies) to a PN
 
 **Returns** — Path to the written PNG and image dimensions. Returns an error if the scene is empty or Metal is unavailable.
 
-**Notes** — Mesh-scale bodies (imported STL/OBJ scans; more than 10k B-rep edges) render surface-only: no per-edge overlays, regardless of `displayMode`. An STL lands as one face per facet, and extracting a scan's ~million edge polylines is quadratic in edge count — the render would take hours instead of seconds ([#75](https://github.com/SecondMouseAU/OCCTMCP/issues/75)). At that facet density edge overlays are visual noise anyway. `pick_surface_point` and `overlay_render` apply the same rule.
+**Notes** — Mesh-scale bodies (imported STL/OBJ scans; more than 10k B-rep edges) take a linear tessellation path ([#75](https://github.com/SecondMouseAU/OCCTMCP/issues/75)): an STL lands as one face per facet, and the standard bridge's per-edge extraction is quadratic in edge count — hours at scan scale. Edge overlays are kept up to 100k edges via OCCTSwift's bulk `allEdgePolylines` (O(edges), [OCCTSwift#275](https://github.com/SecondMouseAU/OCCTSwift/issues/275)); beyond that, bodies render surface-only regardless of `displayMode` — at that facet density wireframe is visual noise anyway. `pick_surface_point` and `overlay_render` apply the same rule.
 
 **Example**
 
