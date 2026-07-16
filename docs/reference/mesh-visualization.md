@@ -124,6 +124,8 @@ Headless Metal render of the current scene (or a named subset of bodies) to a PN
 
 **Returns** — Path to the written PNG and image dimensions. Returns an error if the scene is empty or Metal is unavailable.
 
+**Notes** — Mesh-scale bodies (imported STL/OBJ scans; more than 10k B-rep edges) render surface-only: no per-edge overlays, regardless of `displayMode`. An STL lands as one face per facet, and extracting a scan's ~million edge polylines is quadratic in edge count — the render would take hours instead of seconds ([#75](https://github.com/SecondMouseAU/OCCTMCP/issues/75)). At that facet density edge overlays are visual noise anyway. `pick_surface_point` and `overlay_render` apply the same rule.
+
 **Example**
 
 ```json
