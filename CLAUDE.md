@@ -149,7 +149,7 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 - **OCCTSwiftMesh** ≥ 1.0.0 — mesh-domain algorithms (QEM decimation today; smoothing / repair / remeshing in roadmap)
 - **OCCTSwiftScripts** ≥ 1.4.2 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process. `ExecuteScriptTool.scriptsPin` must track this pin (#42) and points at the SecondMouseAU URL; 1.4.2 caps its transitive OCCTSwiftIO to the lean 1.0.x line so the `execute_script` workspace resolves (1.4.0/1.4.1 float OCCTSwiftIO to the heavy 1.5.0 and fail — SecondMouseAU/OCCTSwiftScripts#69, ecosystem#14)
 - **OCCTSwiftTools** ≥ 1.1.0 — Shape↔ViewportBody bridge; ships `PointConverter` and wires `pointRadius` / `vertexColors` through to `ViewportBody`
-- **OCCTSwiftViewport** ≥ 1.0.2 — Metal viewport + offscreen renderer; v1.0.2 added the point-sprite pipeline that makes `pointCloud` overlays actually render
+- **OCCTSwiftViewport** ≥ 1.1.23 — Metal viewport + offscreen renderer; v1.0.2 added the point-sprite pipeline that makes `pointCloud` overlays actually render; v1.1.23 adds the opt-in `ViewportBody.directMesh` path (de-interleaved position/normal GPU buffers, normals verbatim — no NormalSmoothing) used by `HeatmapTools`' band bodies (#76). `RenderPreviewTool.meshDirectBody` stays on the interleaved layout on purpose: facet-per-face STL imports need the smoothing pass
 - **OCCTSwiftAIS** ≥ 1.0.1 — selection, manipulators, dimensions
 - **modelcontextprotocol/swift-sdk** ≥ 0.11.0 — MCP transport + types
 

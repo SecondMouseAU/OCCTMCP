@@ -135,11 +135,11 @@ public enum HeatmapTools {
             bandTris[b].append(t)
         }
 
-        // Build one flat-coloured ViewportBody per non-empty group. ViewportBody's
-        // init takes a single interleaved vertexData ([px,py,pz,nx,ny,nz,…], stride
-        // 6), so the per-triangle position/normal arrays are zipped together here
-        // (same idiom the OCCTSwiftViewport primitive factories, e.g. .box, use
-        // internally).
+        // Build one flat-coloured direct-mesh ViewportBody per non-empty group
+        // (OCCTSwiftViewport ≥1.1.23, #76): positions/bnormals are de-interleaved
+        // arrays the renderer uploads as separate GPU buffers — no stride-6 zip
+        // pass, no duplicate copy. Normals are used verbatim (no NormalSmoothing),
+        // which is what a heatmap wants: the per-group normals are already correct.
         func buildBody(id: String, tris: [Int], color: SIMD4<Float>) -> ViewportBody {
             var positions: [Float] = []
             var bnormals: [Float] = []
@@ -166,13 +166,8 @@ public enum HeatmapTools {
                 let base = UInt32(indices.count)
                 indices.append(base); indices.append(base + 1); indices.append(base + 2)
             }
-            var vertexData: [Float] = []
-            vertexData.reserveCapacity(positions.count * 2)
-            for i in stride(from: 0, to: positions.count, by: 3) {
-                vertexData.append(positions[i]); vertexData.append(positions[i + 1]); vertexData.append(positions[i + 2])
-                vertexData.append(bnormals[i]); vertexData.append(bnormals[i + 1]); vertexData.append(bnormals[i + 2])
-            }
-            return ViewportBody(id: id, vertexData: vertexData, indices: indices, edges: [], color: color)
+            return ViewportBody.directMesh(
+                id: id, positions: positions, normals: bnormals, indices: indices, color: color)
         }
 
         var bodies: [ViewportBody] = []
