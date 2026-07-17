@@ -168,11 +168,13 @@ Signed, spatially-resolved surface deviation between two scene bodies — the pr
 | `maxSamples` | integer | no | Max source surface samples per direction (stride-subsampled). Default 20000. |
 | `sectionAxis` | number[3] | no | `[x,y,z]` axis to bin the forward samples along. With `sections`, adds a per-station `signedMean` sweep. |
 | `sections` | integer | no | Number of along-axis bins for the per-section sweep (≥2). Requires `sectionAxis`. |
+| `signMode` | string | no | `robust` (default) or `nearest` — see [Which way is out?](#which-way-is-out-signmode). |
 
 **Returns** — JSON object:
-- `fromToTo` / `toToFrom` — directed deviation each way: `{ max, rms, mean, p95, signedMean, signedMin, signedMax, worstPoint, samples }`. `signedMean ≠ 0` reveals a systematic proud(+) / shy(−) bias a Hausdorff hides; `fromToTo` catches over-extension, `toToFrom` under-coverage.
-- `symmetricHausdorff` — the single worst-case surface distance in either direction.
-- `sections` (optional) — when `sectionAxis`+`sections` given, an array of `{ offset, signedMean, rms, samples }` per station; a near-constant non-zero `signedMean` across stations is the systematic section-error fingerprint.
+- `fromToTo` / `toToFrom` — directed deviation each way: `{ max, rms, mean, p95, signedMean, signedMin, signedMax, worstPoint, samples, signedSamples, ambiguousSamples, ambiguousFraction }`. `signedMean ≠ 0` reveals a systematic proud(+) / shy(−) bias a Hausdorff hides; `fromToTo` catches over-extension, `toToFrom` under-coverage. The signed trio is **`null`** when no sample had a trustworthy sign (`signedSamples: 0`) — read that as *unavailable*, never as *no bias*.
+- `symmetricHausdorff` — the single worst-case **nearest-surface** distance in either direction. Unaffected by `signMode`.
+- `signMode` — which correspondence rule ran.
+- `sections` (optional) — when `sectionAxis`+`sections` given, an array of `{ offset, signedMean, rms, samples }` per station; a near-constant non-zero `signedMean` across stations is the systematic section-error fingerprint. Sign-ambiguous samples are excluded from a station's figures but still define the axis span, so `offset` always measures from the body's minimum projection.
 
 All distances are in model units. Sign convention: **+ proud** (from outside the reference), **− shy**.
 
@@ -185,9 +187,10 @@ All distances are in model units. Sign convention: **+ proud** (from outside the
 ```json
 // example result (abridged)
 {
-  "fromToTo": { "max": 0.18, "rms": 0.06, "mean": 0.04, "p95": 0.15, "signedMean": -0.03, "signedMin": -0.18, "signedMax": 0.05, "worstPoint": [42.1, 7.3, 0.0], "samples": 17230 },
-  "toToFrom": { "max": 0.22, "rms": 0.08, "mean": 0.05, "p95": 0.19, "signedMean": 0.02, "signedMin": -0.06, "signedMax": 0.22, "worstPoint": [41.9, 7.1, 0.0], "samples": 17230 },
+  "fromToTo": { "max": 0.18, "rms": 0.06, "mean": 0.04, "p95": 0.15, "signedMean": -0.03, "signedMin": -0.18, "signedMax": 0.05, "worstPoint": [42.1, 7.3, 0.0], "samples": 17230, "signedSamples": 17230, "ambiguousSamples": 0, "ambiguousFraction": 0.0 },
+  "toToFrom": { "max": 0.22, "rms": 0.08, "mean": 0.05, "p95": 0.19, "signedMean": 0.02, "signedMin": -0.06, "signedMax": 0.22, "worstPoint": [41.9, 7.1, 0.0], "samples": 17230, "signedSamples": 17230, "ambiguousSamples": 0, "ambiguousFraction": 0.0 },
   "symmetricHausdorff": 0.22,
+  "signMode": "robust",
   "sections": [ { "offset": 5.0, "signedMean": -0.03, "rms": 0.05, "samples": 2900 } ]
 }
 ```
@@ -209,10 +212,37 @@ Signed point-to-surface deviation *distribution* between two bodies — the stat
 | `fromBodyId` | string | yes | Candidate body. |
 | `referenceBodyId` | string | yes | Reference body. |
 | `deflection` | number | no | Mesh linear deflection. Default 0.5% of the from-body bbox diagonal. |
-| `tolerance` | number | no | If set, the report includes `withinTolerance` (fraction of samples with `|dev| ≤ tolerance`). |
+| `tolerance` | number | no | If set, the report includes `withinTolerance` (fraction of samples within `tolerance` of the nearest reference surface). |
+| `signMode` | string | no | `robust` (default) or `nearest` — see [Which way is out?](#which-way-is-out-signmode). |
 | `outputPath` | string | no | Write a histogram PNG here. Omit for numbers only. |
 
-**Returns** — `{ mean, std, median, p95, signedMin, signedMax, maxAbs, withinTolerance?, buckets: [{ lo, hi, count }], samples }`. Sign convention: + proud, − shy.
+**Returns** — `{ mean, std, median, p95, signedMin, signedMax, maxAbs, withinTolerance?, buckets: [{ lo, hi, count }], samples, signedSamples, ambiguousSamples, ambiguousFraction, signMode }`. Sign convention: + proud, − shy.
+
+The distribution — `mean` / `std` / `median` / `signedMin` / `signedMax` / `buckets` — is built from sign-reliable samples only, because one flipped sign plants a mirror hump at −d and reads as exactly the bimodal systematic error this tool exists to spot. They come back **`null`** (and `buckets` empty, and no PNG) when nothing had a trustworthy sign. `p95` / `maxAbs` / `withinTolerance` are magnitudes to the **nearest** surface and keep every sample, so `maxAbs` can be *smaller* than `|signedMin|` against an open thin-walled reference — see below.
+
+---
+
+## Which way is out? (`signMode`)
+
+`measure_deviation`, `deviation_histogram` and [`signed_deviation_heatmap`](mesh-visualization.md#signed_deviation_heatmap) share one signed-distance engine, so they share a `signMode` knob.
+
+A deviation's **sign** depends on which reference triangle a sample is judged against, and against an **open, thin-walled** reference (a raw scan / STL skin) the nearest one is often the wrong one. A candidate flank sitting 4.5 mm inside a 2 mm wall is only 2.5 mm from that wall's *inner* surface, so that surface wins on proximity and — its outward normal facing the cavity — reports **+2.5 proud for a part that is 4.5 shy**. Wrong side, wrong magnitude, and nothing ties, so no coin-flip check catches it ([#72](https://github.com/SecondMouseAU/OCCTMCP/issues/72)).
+
+| mode | behaviour |
+|------|-----------|
+| `robust` *(default, v1.17.0+)* | Rejects reference triangles whose outward normal opposes the sample's own before the nearest survivor wins, recovering both the side and the magnitude. Samples with no compatible surface in reach are reported `ambiguous` and withheld from the signed statistics rather than guessed. |
+| `nearest` | The nearest triangle wins, whatever it is — the pre-v1.17 rule. Correct against a watertight / single-surface reference. |
+
+**Two families of number, and `signMode` moves only one:**
+
+| family | measures to | moved by `signMode`? |
+|--------|-------------|:--------------------:|
+| `max` / `rms` / `mean` / `p95` / `worstPoint` / `symmetricHausdorff` / `maxAbs` / `withinTolerance` | the **nearest** reference surface | no — same meaning as pre-v1.17 |
+| `signedMean` / `signedMin` / `signedMax` / `sections` / histogram buckets / heatmap colours | the surface the sample **corresponds to** | yes |
+
+Against a watertight reference these are the same surface and the two families agree. Against an open thin-walled one they diverge on purpose: `max: 2.5` next to `signedMin: -4.5` says the nearest reference geometry is an inner wall 2.5 away while the skin that flank belongs to is 4.5 above it. Both true. **A gap between them is itself the tell that the reference is thin-walled.**
+
+An `ambiguousFraction` near 1.0 means the reference's winding is likely inverted relative to the sampled body; the signed figures then come back `null` rather than a zero that would read as *perfectly centred*.
 
 ---
 
