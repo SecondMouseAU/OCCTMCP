@@ -329,7 +329,13 @@ enum ChartRenderer {
             let zy = barY + CGFloat(-minValue / (maxValue - minValue)) * barH
             drawText("0", at: CGPoint(x: lx, y: zy - 4), fontSize: 11, color: ink, in: ctx)
         }
-        drawText(label, at: CGPoint(x: barX, y: barY + barH + 6), fontSize: 11, color: ink, in: ctx)
+        // Right-anchored at the image margin, not left-anchored at the bar: the
+        // caption can be wider than the 96px the bar leaves, and left-anchoring
+        // ran it off the edge — a mostly-grey #72 heatmap lost the very legend
+        // that explains what its grey means. Growing leftward spends empty
+        // background instead.
+        drawText(label, at: CGPoint(x: CGFloat(w) - 8, y: barY + barH + 6),
+                 fontSize: 11, color: ink, in: ctx, anchor: .right)
 
         try finalize(ctx, to: pngURL)
     }

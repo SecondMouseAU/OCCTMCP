@@ -8,17 +8,24 @@
 //    grouped and tinted with the band colour. A colorbar legend is composited
 //    onto the PNG so + (proud / red) and − (shy / blue) read at a glance.
 //
-//    CAVEAT (#72): the sign comes from the reference's single nearest triangle's
-//    face normal, which is only trustworthy against a watertight/single-surface
-//    reference. Against an OPEN, thin-walled reference (a raw scan / STL skin
-//    whose outer skin and inner wall are a small gap apart) the nearest triangle
-//    can be either surface from one sample to the next, so the sign flips with
-//    no real positional meaning — it looks like a dramatic proud/shy split that
-//    isn't there. Triangles where a comparably-close candidate disagrees on
-//    sign are rendered GREY (not red/blue) and counted in `ambiguousTriangles` /
-//    `ambiguousFraction`; a heatmap that's mostly grey means trust the
-//    magnitude (or `cross_section_compare`'s overlap-robust comparison), not
-//    this tool's sign.
+//    SIGN (#72): against an OPEN, thin-walled reference (a raw scan / STL skin
+//    whose outer skin and inner wall are a wall-thickness apart) the nearest
+//    reference triangle is not always the surface a sample corresponds to. A
+//    flank sitting 4.5mm inside a 2mm wall is only 2.5mm from the INNER surface,
+//    so that surface wins on proximity and — its outward normal facing the
+//    cavity — renders the flank confidently +2.5 proud/red when the truth is
+//    −4.5 shy/blue. Nothing ties, so no coin-flip check catches it.
+//    `signMode: .robust` (the default) gates the correspondence on normal
+//    agreement: a reference triangle whose outward normal opposes the sampled
+//    triangle's own is the far side of a wall and is rejected before the nearest
+//    survivor wins, recovering both the magnitude and the side. Where no
+//    compatible surface is in reach at all, or comparably-close compatible
+//    candidates still disagree, the triangle renders GREY and is counted in
+//    `ambiguousTriangles`/`ambiguousFraction` (and excluded from signedMin/Max/
+//    Mean) rather than guessed. A mostly-grey render means the sign channel
+//    isn't meaningful for this pair — trust the magnitude, or
+//    `cross_section_compare`'s overlap-robust comparison. `signMode: .nearest`
+//    restores the raw nearest-triangle sign.
 //
 //  • overlay_render — the reference mesh drawn semi-transparent over the opaque
 //    candidate solid, so you can see in 3D exactly where the reconstruction
@@ -45,15 +52,20 @@ public enum HeatmapTools {
         /// Colormap saturation bound: |signed| ≥ clamp maps to full red/blue.
         public let clamp: Double
         public let triangles: Int
-        public let signedMin: Double
-        public let signedMax: Double
-        public let signedMean: Double
+        /// Signed extremes / mean over the COLOURED (sign-reliable) triangles.
+        /// nil when every triangle rendered grey — there's no signed statistic to
+        /// report, and 0 would read as a dead-centre model.
+        public let signedMin: Double?
+        public let signedMax: Double?
+        public let signedMean: Double?
         /// Triangles whose sign disagreed with a comparably-close candidate on
         /// the reference surface (#72) — rendered grey, excluded from the
         /// red/blue bands. A high fraction means the reference is open/thin-
         /// walled and the SIGN channel (not the magnitude) isn't trustworthy here.
         public let ambiguousTriangles: Int
         public let ambiguousFraction: Double
+        /// Which correspondence rule chose each triangle's reference triangle.
+        public let signMode: String
         public let mimeType: String
     }
 
@@ -65,6 +77,7 @@ public enum HeatmapTools {
         deflection: Double? = nil,
         bands: Int = 11,
         clamp: Double? = nil,
+        signMode: DeviationTools.SignMode = .robust,
         options: RenderPreviewTool.Options = .init(),
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
@@ -92,31 +105,47 @@ public enum HeatmapTools {
         guard idx.count >= 3 else { return .init("Body '\(fromBodyId)' has no triangles to colour.", isError: true) }
         let hasNormals = normals.count == verts.count
 
-        // Per-triangle signed distance, sampled at the centroid.
+        // Per-triangle signed distance, sampled at the centroid. Each centroid
+        // carries its own triangle's outward normal (from the winding, matching
+        // the convention TriMesh.faceNormal reads on the reference side) so
+        // `.robust` can reject the far side of a thin wall as its counterpart —
+        // otherwise a flank that sits inside an open reference's wall corresponds
+        // to the inner surface and renders confidently proud when it's shy (#72).
         let triCount = idx.count / 3
         var centroids: [SIMD3<Double>] = []
+        var triNormals: [SIMD3<Double>] = []
         centroids.reserveCapacity(triCount)
+        triNormals.reserveCapacity(triCount)
         for t in 0..<triCount {
             let a = verts[Int(idx[t * 3])], b = verts[Int(idx[t * 3 + 1])], c = verts[Int(idx[t * 3 + 2])]
             let ctr = (a + b + c) / 3
             centroids.append(SIMD3<Double>(Double(ctr.x), Double(ctr.y), Double(ctr.z)))
+            let n = simd_cross(b - a, c - a)
+            let len = simd_length(n)
+            triNormals.append(len > 1e-12
+                ? SIMD3<Double>(Double(n.x), Double(n.y), Double(n.z)) / Double(len)
+                : SIMD3<Double>(0, 0, 0))
         }
-        let hits = DeviationTools.signedDistances(of: centroids, to: refTris)
+        let hits = DeviationTools.signedDistances(
+            of: centroids, normals: triNormals, to: refTris, signMode: signMode)
 
         // Aggregate stats from sign-RELIABLE triangles only (#72): an open/thin-
         // walled reference's ambiguous-sign triangles are noise on signedMin/Max/
         // Mean too, not just on the render, since a flipped sign among otherwise-
-        // uniform samples skews the mean and can masquerade as the extreme.
-        let reliableDistances = hits.filter { !$0.ambiguous }.map { $0.distance }
-        let statsSource = reliableDistances.isEmpty ? hits.map { $0.distance } : reliableDistances
-        let signedMin = statsSource.min() ?? 0
-        let signedMax = statsSource.max() ?? 0
-        let signedMean = statsSource.isEmpty ? 0 : statsSource.reduce(0, +) / Double(statsSource.count)
-        let ambiguousCount = hits.filter { $0.ambiguous }.count
+        // uniform samples skews the mean and can masquerade as the extreme. All
+        // grey ⇒ nil rather than 0, which would read as a dead-centre model.
+        let reliable = hits.filter { !$0.ambiguous }.map { $0.signed }
+        let signedMin = reliable.min()
+        let signedMax = reliable.max()
+        let signedMean = reliable.isEmpty ? nil : reliable.reduce(0, +) / Double(reliable.count)
+        let ambiguousCount = hits.count - reliable.count
         let ambiguousFraction = hits.isEmpty ? 0 : Double(ambiguousCount) / Double(hits.count)
 
-        // Colormap bound: explicit clamp, else robust p95 of |signed| over reliable samples.
-        let absSorted = statsSource.map { abs($0) }.sorted()
+        // Colormap bound: explicit clamp, else robust p95 of |signed| over the
+        // reliable samples — the ones that actually get a colour. Falls back to
+        // every sample's magnitude when none are reliable, so an all-grey render
+        // still gets a sane legend.
+        let absSorted = (reliable.isEmpty ? hits.map { $0.nearest } : reliable.map { abs($0) }).sorted()
         let autoClamp = DeviationTools.percentile(absSorted, 0.95)
         let bound = (clamp ?? autoClamp) > 1e-12 ? (clamp ?? autoClamp) : max(1e-9, absSorted.last ?? 1)
 
@@ -128,7 +157,7 @@ public enum HeatmapTools {
         var ambiguousTris: [Int] = []
         for t in 0..<triCount {
             guard !hits[t].ambiguous else { ambiguousTris.append(t); continue }
-            let norm = max(-1.0, min(1.0, hits[t].distance / bound))     // -1..1
+            let norm = max(-1.0, min(1.0, hits[t].signed / bound))     // -1..1
             var b = Int((norm + 1) / 2 * Double(nb))              // 0..nb
             if b >= nb { b = nb - 1 }
             if b < 0 { b = 0 }
@@ -154,9 +183,13 @@ public enum HeatmapTools {
                 if hasNormals {
                     fn = SIMD3<Float>(0, 0, 0)  // use per-vertex below
                 } else {
-                    let n = simd_cross(pb - pa, pc - pa)
-                    let l = simd_length(n)
-                    fn = l > 1e-12 ? n / l : SIMD3<Float>(0, 0, 1)
+                    // Reuse the winding normal already computed for the query
+                    // above; it's the same cross product. Zero means degenerate,
+                    // where the renderer still needs *some* direction.
+                    let n = triNormals[t]
+                    fn = simd_length(n) > 1e-12
+                        ? SIMD3<Float>(Float(n.x), Float(n.y), Float(n.z))
+                        : SIMD3<Float>(0, 0, 1)
                 }
                 for (vi, p) in [(ia, pa), (ib, pb), (ic, pc)] {
                     positions.append(p.x); positions.append(p.y); positions.append(p.z)
@@ -206,7 +239,7 @@ public enum HeatmapTools {
             bands: nb, clamp: bound, triangles: triCount,
             signedMin: signedMin, signedMax: signedMax, signedMean: signedMean,
             ambiguousTriangles: ambiguousCount, ambiguousFraction: ambiguousFraction,
-            mimeType: "image/png"
+            signMode: signMode.rawValue, mimeType: "image/png"
         ))
     }
 

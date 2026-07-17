@@ -58,7 +58,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 | `compute_metrics` | Volume, area, centroid, bounding box, principal axes |
 | `query_topology` | Find faces / edges / vertices matching criteria, return stable IDs |
 | `measure_distance` | Min distance + contacts between two bodies |
-| `measure_deviation` | Signed, spatially-resolved surface deviation between two bodies — max / rms / mean / p95 / `signedMean` (systematic proud(+)/shy(−) bias) each way + worstPoint, plus an optional per-section signedMean sweep along an axis. The certify-a-reconstruction metric (`measure_distance` is min-only) |
+| `measure_deviation` | Signed, spatially-resolved surface deviation between two bodies — max / rms / mean / p95 / `signedMean` (systematic proud(+)/shy(−) bias) each way + worstPoint, plus an optional per-section signedMean sweep along an axis. The certify-a-reconstruction metric (`measure_distance` is min-only). See `signMode` under [Deviation & reconstruction QA](#deviation--reconstruction-qa) for what the sign is worth against an open thin-walled reference |
 | `recognize_features` | Pockets and holes via AAG heuristics |
 | `inspect_assembly` | Walk an XCAF assembly tree (STEP / IGES / XBF) |
 
@@ -83,11 +83,22 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 Signed, spatially-resolved comparison of a reconstruction against its source mesh. Where `measure_deviation`'s scalars can hide a *systematic* shape error (a wrong cross-section that averages out), these expose **where** and **which way** the candidate departs. Pure-Swift rendering — no Python/matplotlib.
 
+**Which way is out?** `measure_deviation`, `deviation_histogram` and `signed_deviation_heatmap` share one signed-distance engine, so they share a `signMode` knob. The sign of a deviation depends on which reference triangle a sample is judged against, and against an **open, thin-walled** reference (a raw scan / STL skin) the nearest one is often the wrong one: a candidate flank sitting 4.5 mm inside a 2 mm wall is only 2.5 mm from the wall's *inner* surface, so that surface wins on proximity and — facing the cavity — reports **+2.5 proud for a part that is 4.5 shy**. Wrong side, wrong magnitude, nothing tying to flag it. `signMode: "robust"` (the default since v1.17.0) rejects reference triangles whose outward normal opposes the sample's own before the nearest survivor wins, recovering both figures; samples with no compatible surface in reach are reported `ambiguous` and withheld from the signed statistics rather than guessed. `signMode: "nearest"` restores the pre-v1.17 raw nearest-triangle sign, which is correct against a watertight / single-surface reference. An `ambiguousFraction` near 1.0 means the reference's winding is likely inverted relative to the sampled body; where nothing has a trustworthy sign the signed figures come back **null** rather than a zero that would read as "perfectly centred".
+
+The two families of number answer **different questions**, and `signMode` moves only the second:
+
+| Family | Measures to | Moved by `signMode`? |
+|--------|-------------|----------------------|
+| Unsigned — `max` / `rms` / `mean` / `p95` / `worstPoint` / `symmetricHausdorff` / `maxAbs` / `withinTolerance` | the **nearest** reference surface, whatever it is | No — same meaning as pre-v1.17 |
+| Signed — `signedMean` / `signedMin` / `signedMax` / `sections` / histogram buckets / heatmap colours | the surface the sample **corresponds to** | Yes |
+
+Against a watertight reference these are the same surface and the families agree. Against an open thin-walled one they diverge on purpose: `max: 2.5` next to `signedMin: -4.5` says the nearest reference geometry is an inner wall 2.5 away while the skin that flank belongs to is 4.5 above it. Both true. A gap between them is itself the tell that the reference is thin-walled.
+
 | Tool | Purpose |
 |------|---------|
 | `deviation_histogram` | Signed point-to-surface deviation distribution: μ / σ / median / p95 / proud-shy extremes, percent within ±tolerance, bucket histogram + optional PNG. A non-zero mean or bimodal shape ⇒ systematic error |
 | `cross_section_compare` | Slice both bodies at N stations across their shared axis-extent overlap; per-section signed-mean / RMS / area-ratio / centroid-offset + a pose-robust radial shape scalar, with overlay PNGs. Default `outerEnvelope` mode compares against the reference's outer boundary per angular direction so inner window-return / frame paths of a thin-wall or scanned part don't pollute the aggregate; each station reports `axisCoord` (world position along the axis). Handles open-shell references (raw scan / STL skin) whose sections are open arcs, reports the `overlap` range, and warns on stations that sliced only one body. The highest-leverage detector of a wrong-shape section |
-| `signed_deviation_heatmap` | Render the candidate surface coloured by signed distance (proud = red, shy = blue) through a diverging colormap with a colorbar legend. Triangles whose sign is ambiguous against an open/thin-walled reference render grey instead (`ambiguousTriangles`/`ambiguousFraction`) rather than a coin-flip red/blue |
+| `signed_deviation_heatmap` | Render the candidate surface coloured by signed distance (proud = red, shy = blue) through a diverging colormap with a colorbar legend. Triangles whose sign can't be established against an open/thin-walled reference render grey (`ambiguousTriangles`/`ambiguousFraction`, excluded from signedMin/Max/Mean) rather than a coin-flip red/blue — see `signMode` above |
 | `overlay_render` | Render the reference mesh semi-transparent over the opaque candidate solid — see the departure in 3D |
 
 ### Selection & remap
