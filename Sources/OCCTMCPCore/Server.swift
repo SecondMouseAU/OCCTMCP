@@ -14,8 +14,33 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag — clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.16.1"
+    public static let serverVersion = "1.17.0"
 }
+
+/// Shared by the three tools that share DeviationTools' signed-distance engine
+/// (#72), so the LLM reads one consistent account of what the sign means.
+let signModeDescription = """
+How each sample picks WHICH reference triangle it corresponds to. This steers \
+the SIGNED figures only (signedMean/signedMin/signedMax, per-section sweeps, \
+histogram buckets, heatmap colours). The unsigned ones (max/rms/mean/p95/\
+worstPoint/symmetricHausdorff/maxAbs/withinTolerance) always measure to the \
+NEAREST reference surface and mean the same in every mode. \
+"robust" (default) rejects reference triangles whose outward normal opposes the \
+sample's own before the nearest survivor wins. That matters against an OPEN, \
+thin-walled reference (a raw scan / STL skin): a candidate flank sitting 4.5mm \
+inside a 2mm wall is only 2.5mm from the wall's INNER surface, so under \
+"nearest" that surface wins on proximity and reports +2.5 proud when the truth \
+is −4.5 shy — inverted sign, with nothing tying to flag it. So against such a \
+reference expect max/mean to report 2.5 while signedMin reports −4.5: both are \
+true, they measure to different surfaces, and the gap between them is itself \
+the tell that the reference is thin-walled. Samples with no compatible surface \
+in reach are reported ambiguous and excluded from the signed figures rather \
+than guessed; if EVERY sample is (ambiguousFraction ≈ 1.0) the signed figures \
+come back null — do not read that as zero bias, it means the sign channel is \
+unavailable and the reference's winding is likely inverted relative to the \
+sampled body. "nearest" takes the nearest triangle whatever it is — the \
+pre-1.17 behaviour, correct only against a watertight / single-surface reference.
+"""
 
 /// Build a fully-configured MCP server with every OCCTMCP tool registered.
 /// Caller is responsible for `start(transport:)` and `waitUntilCompleted()`.
@@ -822,6 +847,11 @@ func catalogTools() -> [Tool] {
                         "type": .string("integer"),
                         "description": .string("Number of along-axis bins for the per-section signedMean sweep (≥2). Requires sectionAxis."),
                     ]),
+                    "signMode": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("robust"), .string("nearest")]),
+                        "description": .string(signModeDescription),
+                    ]),
                 ]),
                 "required": .array([.string("fromBodyId"), .string("toBodyId")]),
                 "additionalProperties": .bool(false),
@@ -840,6 +870,11 @@ func catalogTools() -> [Tool] {
                     "maxSamples": .object(["type": .string("integer"), "description": .string("Max from-surface vertices sampled (stride-subsampled). Default 50000.")]),
                     "tolerance": .object(["type": .string("number"), "description": .string("± band (model units); report fraction of samples within it + shade it on the PNG.")]),
                     "outputPath": .object(["type": .string("string"), "description": .string("PNG path for the histogram image. Omit to return stats only.")]),
+                    "signMode": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("robust"), .string("nearest")]),
+                        "description": .string(signModeDescription),
+                    ]),
                 ]),
                 "required": .array([.string("fromBodyId"), .string("referenceBodyId")]),
                 "additionalProperties": .bool(false),
@@ -877,6 +912,11 @@ func catalogTools() -> [Tool] {
                     "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
                     "bands": .object(["type": .string("integer"), "description": .string("Colormap band count. Default 11.")]),
                     "clamp": .object(["type": .string("number"), "description": .string("|signed| ≥ clamp saturates to full red/blue. Default: p95 of |signed|.")]),
+                    "signMode": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("robust"), .string("nearest")]),
+                        "description": .string(signModeDescription),
+                    ]),
                     "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
                 ]),
                 "required": .array([.string("fromBodyId"), .string("referenceBodyId"), .string("outputPath")]),
@@ -1216,6 +1256,15 @@ func toAnyCodable(_ value: Value) -> AnyCodable {
     case .data:           return .null  // base64 blobs not used by annotations params
     @unknown default:     return .null
     }
+}
+
+/// `.robust` unless the caller explicitly asks for `"nearest"` — an unparseable
+/// or absent value gets the mode that can't invert a sign silently (#72).
+func parseSignMode(_ value: Value?) -> DeviationTools.SignMode {
+    guard let raw = value?.stringValue, let mode = DeviationTools.SignMode(rawValue: raw) else {
+        return .robust
+    }
+    return mode
 }
 
 func parseRenderOptions(_ value: Value?) -> RenderPreviewTool.Options {
@@ -1678,7 +1727,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         let sectionCount = arguments["sections"]?.intValue ?? 0
         return await DeviationTools.measureDeviation(
             fromBodyId: fromId, toBodyId: toId, deflection: deflection, maxSamples: maxSamples,
-            sectionAxis: sectionAxis, sectionCount: sectionCount
+            sectionAxis: sectionAxis, sectionCount: sectionCount,
+            signMode: parseSignMode(arguments["signMode"])
         ).asCallToolResult()
 
     case "deviation_histogram":
@@ -1693,6 +1743,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             bins: arguments["bins"]?.intValue ?? 40,
             maxSamples: arguments["maxSamples"]?.intValue ?? 50_000,
             tolerance: arguments["tolerance"]?.numberValue,
+            signMode: parseSignMode(arguments["signMode"]),
             outputPath: arguments["outputPath"]?.stringValue
         ).asCallToolResult()
 
@@ -1733,6 +1784,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             deflection: arguments["deflection"]?.numberValue,
             bands: arguments["bands"]?.intValue ?? 11,
             clamp: arguments["clamp"]?.numberValue,
+            signMode: parseSignMode(arguments["signMode"]),
             options: parseRenderOptions(arguments["options"])
         ).asCallToolResult()
 
