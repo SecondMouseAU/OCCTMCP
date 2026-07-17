@@ -1,11 +1,12 @@
 # OCCTMCP
 
-[![Swift 6.1](https://img.shields.io/badge/Swift-6.1-orange.svg)](https://swift.org)
+[![Swift](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FSecondMouseAU%2FOCCTMCP%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/SecondMouseAU/OCCTMCP)
+[![Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FSecondMouseAU%2FOCCTMCP%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/SecondMouseAU/OCCTMCP)
 [![License: LGPL v2.1+](https://img.shields.io/badge/License-LGPL--2.1--or--later-blue.svg)](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html)
 
-MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with [OpenCASCADE](https://www.opencascade.com/) via the [OCCTSwift](https://github.com/gsdali/OCCTSwift) family.
+MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with [OpenCASCADE](https://www.opencascade.com/) via the [OCCTSwift](https://github.com/SecondMouseAU/OCCTSwift) family.
 
-Part of the [OCCTSwift ecosystem](https://github.com/gsdali/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
+Part of the [OCCTSwift ecosystem](https://github.com/SecondMouseAU/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
 
 The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 63 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, and dimension overlays.
 
@@ -144,7 +145,7 @@ Signed, spatially-resolved comparison of a reconstruction against its source mes
 
 ### Reconstruction graph (read/write)
 
-LLM read/write over an attributed reconstruction graph — annotate per-node decisions and persist them. Backed by OCCTSwift 1.2.0's `NodeAttributeStore` + Codable `GraphSnapshot`. Nodes are addressed as `<kind>:<index>` (e.g. `face:3`). The reconstruction *engine* (surface fitting, congruence detection) lives in [OCCTReconstruct](https://github.com/gsdali/OCCTReconstruct); these tools are the annotate-and-persist layer — `reconstruct_force_fit` records an override for the engine to honour, it does not re-fit here.
+LLM read/write over an attributed reconstruction graph — annotate per-node decisions and persist them. Backed by OCCTSwift 1.2.0's `NodeAttributeStore` + Codable `GraphSnapshot`. Nodes are addressed as `<kind>:<index>` (e.g. `face:3`). The reconstruction *engine* (surface fitting, congruence detection) lives in [OCCTReconstruct](https://github.com/SecondMouseAU/OCCTReconstruct); these tools are the annotate-and-persist layer — `reconstruct_force_fit` records an override for the engine to honour, it does not re-fit here.
 
 | Tool | Purpose |
 |------|---------|
@@ -168,14 +169,14 @@ Both speak stdio MCP and read/write the same manifest format.
 
 - macOS 15+ (for the Swift implementation)
 - Swift 6.1+ / Xcode 16+
-- For the Node implementation only: Node.js 18+, plus a sibling clone of [OCCTSwiftScripts](https://github.com/gsdali/OCCTSwiftScripts) so `occtkit` is on `$PATH` (or `make install` it)
+- For the Node implementation only: Node.js 18+, plus a sibling clone of [OCCTSwiftScripts](https://github.com/SecondMouseAU/OCCTSwiftScripts) so `occtkit` is on `$PATH` (or `make install` it)
 
 ## Setup
 
 ### Swift implementation (recommended)
 
 ```bash
-git clone https://github.com/gsdali/OCCTMCP.git
+git clone https://github.com/SecondMouseAU/OCCTMCP.git
 cd OCCTMCP
 swift build -c release
 ```
@@ -192,12 +193,12 @@ In Claude Code's `.mcp.json`:
 }
 ```
 
-The Swift package is published on the [Swift Package Index](https://swiftpackageindex.com/gsdali/OCCTMCP).
+The Swift package is published on the [Swift Package Index](https://swiftpackageindex.com/SecondMouseAU/OCCTMCP).
 
 ### Node implementation
 
 ```bash
-git clone https://github.com/gsdali/OCCTMCP.git
+git clone https://github.com/SecondMouseAU/OCCTMCP.git
 cd OCCTMCP
 npm install
 npm run build
@@ -271,4 +272,4 @@ Releases are tagged on GitHub. The `main` branch is what SPI tracks.
 
 ## License
 
-LGPL-2.1-or-later — same as [OCCTSwift](https://github.com/gsdali/OCCTSwift).
+LGPL-2.1-or-later — same as [OCCTSwift](https://github.com/SecondMouseAU/OCCTSwift).
