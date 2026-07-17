@@ -172,11 +172,14 @@ Render `fromBodyId`'s surface coloured by **signed** distance to `referenceBodyI
 | `deflection` | number | no | Mesh linear deflection. Default 0.5% of the from-body bbox diagonal. |
 | `bands` | integer | no | Colormap band count. Default 11. |
 | `clamp` | number | no | `|signed| ≥ clamp` saturates to full red/blue. Default: p95 of `|signed|`. |
+| `signMode` | string | no | `robust` (default) or `nearest` — see [Which way is out?](introspection.md#which-way-is-out-signmode). |
 | `options` | object | no | Render options — same shape as [`render_preview`](#render_preview)'s `options` (camera, width, height, background). |
 
-**Returns** — `{ outputPath, bands, triangles, clamp, signedMin, signedMax, signedMean, ambiguousTriangles, ambiguousFraction }`.
+**Returns** — `{ outputPath, bands, triangles, clamp, signMode, signedMin, signedMax, signedMean, ambiguousTriangles, ambiguousFraction }`. The signed trio is **`null`** when every triangle rendered grey.
 
-**Notes** — The sign channel is only trustworthy against a watertight / single-surface reference. Against an **open, thin-walled** reference (a raw scan / STL skin whose outer skin and inner wall sit a small gap apart) the nearest-triangle sign can flip per sample with no positional meaning. Triangles where a comparably-close reference triangle disagrees on sign render **grey** instead of red/blue, are excluded from `signedMin` / `signedMax` / `signedMean`, and are counted in `ambiguousTriangles` / `ambiguousFraction` ([#72](https://github.com/SecondMouseAU/OCCTMCP/issues/72)). A mostly-grey render means trust the magnitude (or [`cross_section_compare`](introspection.md#cross_section_compare)), not this tool's sign.
+**Notes** — Colours track the **signed** distance to the surface each triangle *corresponds to*, which against an open, thin-walled reference is not always the nearest one — see [Which way is out?](introspection.md#which-way-is-out-signmode) for why, and why `signMode` defaults to `robust` ([#72](https://github.com/SecondMouseAU/OCCTMCP/issues/72)).
+
+Triangles whose sign can't be established render **grey** rather than a guessed red/blue, are excluded from `signedMin` / `signedMax` / `signedMean`, and are counted in `ambiguousTriangles` / `ambiguousFraction`. That happens where a comparably-close reference triangle disagrees on the side (a genuine tie), where `robust` finds no normal-compatible reference surface in reach, or where the triangle's own normal is degenerate. A mostly-grey render means trust the magnitude (or [`cross_section_compare`](introspection.md#cross_section_compare)), not this tool's sign; an `ambiguousFraction` of ~1.0 usually means the reference's winding is inverted relative to the candidate.
 
 ---
 

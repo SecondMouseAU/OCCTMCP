@@ -77,6 +77,8 @@ Call `measure_deviation` with the reconstruction as `fromBodyId` and the scan as
 - **`toToFrom`** — scan surface vs. reconstruction. High values here = parts of the scan the reconstruction does not cover (under-coverage).
 - **`symmetricHausdorff`** — `max(fromToTo.max, toToFrom.max)`: the single worst-case in either direction. Compare this against your tolerance spec.
 
+> **Reading the sign against a scan.** A raw scan is usually an *open, thin-walled* skin, which is the case where a deviation's sign is hard-won: the nearest bit of reference geometry to a candidate flank can be the wall's far surface, which reports the deviation inverted. `signMode: "robust"` (the default since v1.17.0) handles it, and reports `ambiguousFraction` where it can't. Two consequences worth knowing before you read the numbers: the unsigned figures above (including `symmetricHausdorff`) measure to the *nearest* surface while `signedMean` and friends measure to the *corresponding* one, so they can legitimately disagree; and the signed figures are `null` — not zero — when no sample has a trustworthy sign. See [Which way is out?](../../reference/introspection.md#which-way-is-out-signmode).
+
 <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
 
 <model-viewer src="models/measurement.glb" poster="images/measurement.png" alt="Source mesh (grey) and reconstruction (blue)" camera-controls auto-rotate environment-image="neutral" exposure="1.1" shadow-intensity="1" style="width:100%;max-width:480px;height:360px;background:#eef1f5;border-radius:6px"></model-viewer>
