@@ -84,7 +84,7 @@ let package = Package(
         // TopologyGraph model. All sibling deps below are re-pinned to the
         // matching p1 cohort. 1.8.0 adds Exporter.writeBREP(allowInvalid:) for
         // read_brep / import_file `allowInvalid` (#41).
-        occtDep("OCCTSwift", from: "1.10.1"),  // ≥1.10.1: kernel fix for OCCTSwift#280 (XDE STEP read corrupting later STEP writes — inspect_assembly + export_scene is exactly that sequence); 1.10.0 added O(edges) allEdgePolylines(Indexed) (#275)
+        occtDep("OCCTSwift", from: "1.12.3"),  // ≥1.12.3: thread-safe 3D fillet/chamfer (#298, kernel patch 0003)
         occtDep("OCCTSwiftMesh", from: "1.1.1"),
         // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
         // Composer.render(spec:components:) / render(spec:document:) — multi-body
