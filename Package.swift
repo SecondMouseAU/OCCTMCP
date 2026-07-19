@@ -84,7 +84,7 @@ let package = Package(
         // TopologyGraph model. All sibling deps below are re-pinned to the
         // matching p1 cohort. 1.8.0 adds Exporter.writeBREP(allowInvalid:) for
         // read_brep / import_file `allowInvalid` (#41).
-        occtDep("OCCTSwift", from: "1.12.7"),  // ≥1.12.7: kernel crash fixes (fillet #298, free-bounds #310, ShapeFix_Face null-context #317)
+        occtDep("OCCTSwift", from: "1.12.9"),  // ≥1.12.9: OCCT kernel crash/hang fixes through #318 and #323 (patches 0003-0009)
         occtDep("OCCTSwiftMesh", from: "1.1.1"),
         // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
         // Composer.render(spec:components:) / render(spec:document:) — multi-body
