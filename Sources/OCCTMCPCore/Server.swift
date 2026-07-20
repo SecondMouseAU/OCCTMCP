@@ -99,7 +99,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "validate_geometry",
-            description: "Per-body topology validation. Wraps GraphIO + TopologyGraph.validate() in-process.",
+            description: "Per-body topology validation. Wraps GraphIO + BRepGraph.validate() in-process.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -200,7 +200,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "graph_select",
-            description: "Local B-rep graph adjacency / selection query (no full-graph dump). query=face-neighbors needs `face` (returns adjacent faces + convexity + shared-edge count); edge-faces needs `edge`; vertex-edges needs `vertex`; face-adjacency returns the full attributed face-adjacency graph (gAAG); edges-class needs `class` (boundary|non-manifold|seam|degenerate). Face indices follow shape.faces() order (the face[N] scheme query_topology emits); edge/vertex indices are TopologyGraph indices.",
+            description: "Local B-rep graph adjacency / selection query (no full-graph dump). query=face-neighbors needs `face` (returns adjacent faces + convexity + shared-edge count); edge-faces needs `edge`; vertex-edges needs `vertex`; face-adjacency returns the full attributed face-adjacency graph (gAAG); edges-class needs `class` (boundary|non-manifold|seam|degenerate). Face indices follow shape.faces() order (the face[N] scheme query_topology emits); edge/vertex indices are BRepGraph indices.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([

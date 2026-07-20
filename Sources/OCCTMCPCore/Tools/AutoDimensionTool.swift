@@ -46,9 +46,16 @@ public enum AutoDimensionTool {
         } catch {
             return .init("\(error)")
         }
-        let shape = loaded.shape
+        // #91/#93: resolve through the retained lineage graph.
+        let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
+        do {
+            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: loaded.path)
+        } catch {
+            return .init("\(error)")
+        }
+        let shape = lineage.shape
+        let graph = lineage.graph
         let aag = AAG(shape: shape)
-        let allEdges = shape.edges()
 
         var added: [AutoDimensionEntry] = []
         var skipped: [AutoDimensionResult.SkipReason] = []
@@ -65,12 +72,17 @@ public enum AutoDimensionTool {
                 skipped.append(.init(faceIndex: faceIndex, reason: "no circular rim edge on hole face"))
                 continue
             }
-            // Find the rim edge's global index (matches the
-            // `edge[N]` selectionId scheme).
-            guard let edgeIndex = indexOf(rimEdge, in: allEdges) else {
-                skipped.append(.init(faceIndex: faceIndex, reason: "rim edge not found in shape's edge list"))
+            // Resolve the rim edge's GRAPH index (matches the `edge[N]`
+            // selectionId scheme) via the graph itself rather than a
+            // hand-rolled midpoint+length scan over shape.edges():
+            // enumeration order there doesn't always match the graph's
+            // own edge-kind index (#91).
+            guard let rimEdgeShape = Shape.fromEdge(rimEdge),
+                  let node = graph.findNode(for: rimEdgeShape), node.kind == .edge else {
+                skipped.append(.init(faceIndex: faceIndex, reason: "rim edge not found in the graph"))
                 continue
             }
+            let edgeIndex = node.index
 
             // Capture the selection so add_dimension can resolve it.
             let bounds = rimEdge.parameterBounds
@@ -85,6 +97,9 @@ public enum AutoDimensionTool {
             )
             let anchor = TopologyAnchor.edge(bodyId: bodyId, index: edgeIndex)
             await registry.record(anchor: anchor, snapshot: snapshot)
+            if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: edgeIndex) {
+                await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
+            }
 
             // Run add_dimension with the selectionId we just minted.
             let dimResp = await AnnotationsTools.addDimension(
@@ -119,30 +134,5 @@ public enum AutoDimensionTool {
             added: added,
             skipped: skipped
         ))
-    }
-
-    /// Map a Face-edge handle back to its index in the shape's full
-    /// edge list. OCCT doesn't expose a direct lookup, so we match by
-    /// midpoint + length — both stable for a given Edge instance.
-    /// O(E) per lookup; acceptable for the typical hole-count.
-    static func indexOf(_ target: Edge, in allEdges: [Edge]) -> Int? {
-        guard let bounds = target.parameterBounds else { return nil }
-        let mid = (bounds.first + bounds.last) * 0.5
-        guard let targetMidpoint = target.point(at: mid) else { return nil }
-        let targetLength = target.length
-
-        for (i, candidate) in allEdges.enumerated() {
-            guard let cb = candidate.parameterBounds,
-                  let cMid = candidate.point(at: (cb.first + cb.last) * 0.5) else {
-                continue
-            }
-            let dist = simd_length(cMid - targetMidpoint)
-            let lenDiff = abs(candidate.length - targetLength)
-            // Tight matching — same edge should be sub-mm in both axes.
-            if dist < 1e-6 && lenDiff < 1e-6 {
-                return i
-            }
-        }
-        return nil
     }
 }

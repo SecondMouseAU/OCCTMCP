@@ -61,19 +61,19 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
   - `RenderPreviewTool.swift` — `render_preview` (depends on Tools+Viewport per the layered architecture; reads annotations sidecar and overlays measurements / primitives via `AnnotationsRenderer`). #75: shapes above `meshDirectEdgeThreshold` (10k edges — an STL lands as one face per facet, so a 442k-tri scan is ~1.3M edges) bypass `shapeToBodyAndMetadata` and take `meshDirectBody` instead: tessellation-only, crease-smoothed, linear. Historically that guarded the O(edges²) per-edge extraction hang; since OCCTSwift 1.10.0 + OCCTSwiftTools 1.3.1 (OCCTSwift#275) both paths are linear, and the threshold guards weight only (per-segment pick indices / B-rep vertex arrays / polyline allocations nothing consumes at scan scale). Edge overlays on the mesh-direct path come from the O(edges) bulk `allEdgePolylines` (dense — render/raycast never consume per-edge pick indices) up to `edgeOverlayCap` (100k edges); beyond the cap bodies render surface-only (facet wireframe = noise + memory churn). `pick_surface_point` and `overlay_render` route through the same `viewportBody(for:)` guard. #76 step 3: sub-threshold B-reps pass `directMesh: true` to Tools (skips interleave + NormalSmoothing — analytic normals need neither) unless `isLikelyFacetShell` (E/F ratio outside 1.85–2.55 at ≥64 faces: sewn soups ≈1.5, unsewn ≈3.0) says the body needs the smoothing weld; `AnnotationsRenderer` primitives are always direct
   - `DrawingTools.swift` — `generate_drawing`
   - `AnalysisTools.swift` — graph-level: `graph_validate`, `graph_compact`, `graph_dedup`, `graph_ml`, `feature_recognize`
-  - `SelectionTools.swift` — `select_topology`. #91: the index embedded in a `selectionId` (`sel:<bodyId>#face[<idx>]`) has to be a `TopologyGraph` node index — that's what `RemapTools.remapViaHistory` feeds into `findDerivedOrSelf(of:)` — not a raw `Shape.faces()/.edges()/.vertices()` enumeration index. Those turned out NOT to be the same index space for edges/vertices (verified false on a plain box — `TopologyIdentityTests`; true only for faces, apparently by coincidence). `SelectionTools.graphIndex(for:kind:in:fallback:)` resolves the real graph index via `TopologyGraph.findNode(for:)` for every kind
+  - `SelectionTools.swift` — `select_topology`. #91: the index embedded in a `selectionId` (`sel:<bodyId>#face[<idx>]`) has to be a `BRepGraph` node index — that's what `RemapTools.remapViaHistory` feeds into `findDerivedOrSelf(of:)` — not a raw `Shape.faces()/.edges()/.vertices()` enumeration index. Those turned out NOT to be the same index space for edges/vertices (verified false on a plain box — `TopologyIdentityTests`; true only for faces, apparently by coincidence). `SelectionTools.graphIndex(for:kind:in:fallback:)` resolves the real graph index via `BRepGraph.findNode(for:)` for every kind
   - `RemapTools.swift` — `remap_selection` (consults `HistoryRegistry`, falls back to centroid heuristic). The centroid-heuristic path also mints selectionIds (via `pickClosest` → `registry.record`), so `remapOne` uses the same `SelectionTools.graphIndex(...)` resolution as `select_topology` — both selectionId-minting paths have to agree on the graph-index convention (#91)
   - `AnnotationsTools.swift` — `add_dimension`, `add_scene_primitive`, `remove_scene_annotation`
   - `GapFillerTools.swift` — `show_bounding_box`, `diff_overlay`, `select_by_feature`
   - `IntrospectionRegistryTools.swift` — `list_selections`, `clear_selections`, `list_annotations`
   - `AutoDimensionTool.swift` — `auto_dimension`
   - `ReconstructTools.swift` — `reconstruct_get_graph`, `reconstruct_set_decision`, `reconstruct_force_fit`, `reconstruct_confirm_instances`, `reconstruct_export_session`, `reconstruct_import_session` (LLM read/write over the attributed reconstruction graph; #33)
-- `ReconstructRegistry.swift` — actor-backed `sessionId → TopologyGraph`. Holds the per-node attribute overlay (OCCTSwift 1.2.0 `NodeAttributeStore`) for a reconstruction session; all graph reads/writes are actor-isolated. `reconstruct.*` namespaced keys (`decidedBy`, `accepted`, `forcedSurfaceType`, `instanceCluster`, `instanceConfirmed`). Nodes addressed as `<kind>:<index>`. The reconstruction *engine* (fitting, congruence) lives in OCCTReconstruct — `force_fit` records an override, it does not re-fit. Persistence via `TopologyGraph.snapshot()` / `GraphSnapshot` round-trip.
+- `ReconstructRegistry.swift` — actor-backed `sessionId → BRepGraph`. Holds the per-node attribute overlay (OCCTSwift 1.2.0 `NodeAttributeStore`) for a reconstruction session; all graph reads/writes are actor-isolated. `reconstruct.*` namespaced keys (`decidedBy`, `accepted`, `forcedSurfaceType`, `instanceCluster`, `instanceConfirmed`). Nodes addressed as `<kind>:<index>`. The reconstruction *engine* (fitting, congruence) lives in OCCTReconstruct — `force_fit` records an override, it does not re-fit. Persistence via `BRepGraph.snapshot()` / `GraphSnapshot` round-trip.
 - `Manifest.swift` — `ScriptManifest` + `BodyDescriptor` Codable, plus `ManifestStore` (atomic JSON read/write)
 - `Annotations.swift` — `AnnotationsSidecar` (`<output_dir>/annotations.json`): `dimensions[]` + `primitives[]`, `AnyCodable` for per-kind primitive params
 - `AnnotationsRenderer.swift` — synthesises `ViewportBody` overlays from the sidecar (trihedron / workPlane / axis / pointCloud / boundingBox / diffMarker / 3D dimension leaders), and `ViewportMeasurement` entries (linear / angular / radial) for OffscreenRenderer's 2D label overlay. `pointCloud` routes through `OCCTSwiftTools.PointConverter.pointsToBody` (no per-point cap).
 - `SelectionRegistry.swift` — actor-backed store of `selectionId → AnchorSnapshot`. `selectionId` format `sel:<bodyId>#<kind>[<idx>]` is self-describing and parseable.
-- `HistoryRegistry.swift` — actor-backed `bodyId → TopologyGraph`. `recordIdentityHistory` (transforms — 1:1), `recordIdentityHistoryIfTopologyPreserved` (heals — guarded), `recordBooleanHistory` (boolean_op — translates `ShapeHistoryRef.record(of:)` outputs into `recordHistory` entries by centroid match within the modified∪generated set; records under result body and both inputs so a selectionId on either side remaps cleanly). `apply_feature` / `mirror_or_pattern` don't opt in yet — they fall back to `RemapTools`' centroid heuristic.
+- `HistoryRegistry.swift` — actor-backed `bodyId → LineageEntry { graph, liveShape, root, fingerprint }`. As of #90/#91/#93 full completion, a body's `BRepGraph` is **retained across successive mutations** rather than rebuilt disposably per call: `currentInput(bodyId:path:)` re-stats the body's file and returns the cached `(shape, graph, root)` on a fingerprint match. No disk read: critical, since `add(_:absorbing:...)`'s absorb correlates by `TShape` object identity, and `Shape.loadBREP` mints a new `TShape` tree every call even for byte-identical content. It reloads fresh on any mismatch (first touch, or an out-of-band rewrite, e.g. `execute_script`). `commit(bodyId:path:output:ref:from:operationName:)` absorbs `ref` into the retained graph and returns `true` (continuation) when `historyRecordCount` actually grows, else falls back to a **generation reset**, a fresh graph built from `output` alone, and returns `false`. `absorb(into:root:output:ref:operationName:)` is the same primitive without a registry write, for the side of a shared-graph mutation whose own file is unchanged (boolean_op's b-side). `graph.add(...)`'s returned NodeRef is never trusted directly: `trackableRoot(for:in:)` re-resolves via `findNode(for:)` and drills a `.compound` result down to its wrapped `.solid` child, since `add(_:absorbing:...)` only tracks vertex/edge/face/solid nodes and boolean/`FeatureReconstructor` outputs register as `.compound` even for single-solid results. Since `BRepGraph` is a reference type, a graph shared across two `LineageEntry` keys (boolean_op's `outId` plus `aBodyId`; `apply_feature`'s output body plus its unchanged source body) mutates in place for both the instant `add()` runs, so no second registry write is needed for the side whose file didn't change. **Known gap:** chaining a SECOND `*WithFullHistory` op onto the *output* of a prior one (rather than a freshly-loaded shape) currently absorbs zero records regardless of retention: [SecondMouseAU/OCCTSwift#336](https://github.com/SecondMouseAU/OCCTSwift/issues/336). A body mutated twice in a row still degrades to a generation reset on hop 2 today; single-hop absorption is unaffected. See `HistoryRegistryLineageTests.swift` (in-process, asserts on `graph.instanceID`/`graph.contains(uid:)` directly, the rigorous check; the two-hop hop-2 assertions are wrapped in `withKnownIssue` pending #336) and `IntegrationTests.swift`'s two-hop test (black-box; proves `remap_selection` stays correct end-to-end but can't distinguish genuine chaining from a lucky generation-reset fallback, since both report `confidenceMm: 0`).
 - `Paths.swift` — output dir resolution: `OCCTMCP_OUTPUT_DIR` env > iCloud Drive (`~/Library/Mobile Documents/com~apple~CloudDocs/OCCTSwiftScripts/output/`) > local fallback (`~/.occtswift-scripts/output/`)
 - `SceneHistory.swift` — in-memory ring buffer (last 10 manifest snapshots) backing `compare_versions`
 
@@ -85,26 +85,58 @@ OCCTSwift / OCCTSwiftViewport are kernel layers. `OCCTSwiftTools` is the bridge 
 
 ### History wiring (selectionId remap across mutations)
 
-`remap_selection` resolves a `selectionId` against the post-mutation state of a body via:
+`select_topology` resolves through `HistoryRegistry.currentInput(bodyId:path:)` rather than a
+disposable per-call graph. This establishes (or reuses) the SAME retained graph a later
+history-aware mutation will absorb into, and mints a `BRepGraph.GraphUID` per anchor
+(`SelectionRegistry.recordGraphUID`), a side-table keyed by selectionId (not a field on
+`AnchorSnapshot`, which is `Encodable` straight into LLM-facing responses).
 
-1. `HistoryRegistry.graph(for: bodyId)` — if recorded, call `TopologyGraph.findDerivedOrSelf(originalRef:)` (OCCTSwift v1.1.0+):
-   - Non-empty derivatives → fate ∈ {preserved, split}, confidenceMm = 0.
-   - Empty result → explicitly recorded as deleted, fate = lost.
-   - `[self]` (no record at all) → preserved at same index, confidenceMm = 0.
-2. Centroid heuristic — load pre and post BREPs, find nearest face/edge/vertex within an epsilon. fate is preserved if within ε, lost otherwise. confidenceMm reports the centroid distance.
+`remap_selection` resolves a `selectionId` against the post-mutation state of a body via three
+rungs, most-preferred first:
 
-`recordSingleInputHistory` and `recordBooleanHistory` (#90/#93) build a `TopologyGraph` from the operation's *input* shape and call `add(_:absorbing:inputRoots:operationName:)` to absorb the real `BRepTools_History` from the matching `*WithFullHistory` call — no hand-written identity-skip logic needed, since `BRepTools_History` simply has no record for an untouched node, so `findDerivedOrSelf` falls through to the implicit `[self]` branch above on its own.
+1. **GraphUID** (#93): `registry.graphUID(for: id)` then `historyRegistry.graph(for: bodyId).node(forUID:)`,
+   then the same `findDerivedOrSelf` walk as rung 2. Preferred because a UID survives index
+   renumbering within the graph across multiple hops, unlike a selectionId's embedded literal
+   index. Falls through to rung 2 if the UID doesn't resolve (e.g. it was minted from a
+   disposable graph, or by a call site that doesn't mint UIDs yet).
+2. **Recorded history graph, anchor's embedded index**: `HistoryRegistry.graph(for: bodyId)` then
+   `BRepGraph.findDerivedOrSelf(of:)`:
+   - Non-empty derivatives: fate in {preserved, split}, confidenceMm = 0.
+   - Empty result: explicitly recorded as deleted, fate = lost.
+   - `[self]` (no record at all): preserved at same index, confidenceMm = 0. This is also what a
+     **generation reset** looks like from the outside; a fresh graph with zero history records
+     resolves every node to `[self]` unconditionally, which is indistinguishable from genuine
+     "untouched" through this API alone (see the `HistoryRegistry.swift` bullet above re #336).
+3. **Centroid heuristic** (unchanged, last resort): load pre and post BREPs, find nearest
+   face/edge/vertex within an epsilon. fate is preserved if within ε, lost otherwise.
+   confidenceMm reports the centroid distance.
 
-Per-tool opt-in status:
+After any rung-1/rung-2 (history-based) remap, `RemapTools.refreshAfterHistoryRemap` re-mints a
+fresh GraphUID for the new anchor **from the retained lineage graph only**, never from the
+disposable `currentGraph` rung 3 uses, so a multi-hop remap chain stays UID-exact instead of
+degrading to rung 2 (or rung 3) after one hop.
+
+Per-tool history path, via `HistoryRegistry.currentInput`/`commit`/`absorb`:
 
 | Tool             | History path                              | Notes |
 |------------------|-------------------------------------------|-------|
-| `transform_body` | implicit identity (no records written)    | every node maps 1:1; `findDerivedOrSelf` returns `[self]` |
-| `heal_shape`     | implicit identity if pre/post counts match | falls back to heuristic if shape repair changed topology |
-| `boolean_op`     | per-input history via `recordBooleanHistory` | OCCTSwift `*WithFullHistory` variants absorbed via `add(_:absorbing:...)`; a two-input boolean needs two independent graphs (NodeRefs/GraphUIDs are graph-scoped) — one rooted at `aShape` (also recorded under `outId`, the canonical graph for the result body), one at `bShape` |
-| `apply_feature`  | per-feature history via `recordSingleInputHistory` | OCCTSwift v1.0.4 `FeatureReconstructor.BuildResult.histories[id]` — every spec kind (boolean / hole / second-additive / fillet / chamfer) populates a `ShapeHistoryRef` when the spec carries a non-nil id |
+| `transform_body` | generation reset (`commit(ref: nil)`)     | no `*WithFullHistory` variant wired in yet: OCCTSwift#331 (shipped v1.14.0) added `translated`/`rotated`/`scaled`/`mirrored`/pattern `*WithFullHistory` upstream, but OCCTMCP hasn't switched this call site over |
+| `heal_shape`     | real history via `healedWithFullHistory()` (OCCTSwift v1.13.0/#327) | falls back to plain `healed()` + generation reset if the `*WithFullHistory` variant returns nil, or its absorb doesn't grow `historyRecordCount` |
+| `boolean_op`     | per-input history via `HistoryRegistry.recordBooleanHistory` | two independent graphs (NodeRefs/GraphUIDs are graph-scoped): a-side's graph becomes `outId`'s canonical graph too (`commit`, writes an entry); b-side only needs `absorb` (no entry write; `bBodyId`'s own file is unchanged, so writing one would overwrite its liveShape/fingerprint with the OTHER side's output) |
+| `apply_feature`  | per-feature history via `commit`, chained via `absorb` if `result.histories` has >1 entry | absorbs ONCE per graph object regardless of in-place vs new-`outputBodyId`: the source body's own entry (when different from the mutated one) shares the SAME graph object reference (`BRepGraph` is a reference type) and sees the absorbed history for free, no second write |
+| `mirror_or_pattern` | generation reset for the output body only; source body's entry untouched | same #331 gap as `transform_body`; source's file didn't change so its lineage stays as-is |
 
-`mirror_or_pattern` doesn't fit `remap_selection`'s contract (it produces new bodies rather than mutating in place). For that case use `find_correspondences`, which takes a source body and target body and applies a transform to each source anchor's centroid before nearest-neighbour search on the target. Pure geometry, no OCCT history involved — pattern instances aren't OCCT-derivatives of the source.
+`mirror_or_pattern` also doesn't fit `remap_selection`'s contract (it produces new bodies rather than mutating in place). For that case use `find_correspondences`, which takes a source body and target body and applies a transform to each source anchor's centroid before nearest-neighbour search on the target. Pure geometry, no OCCT history involved: pattern instances aren't OCCT-derivatives of the source.
+
+**Persistence caveat:** `BRepGraph.GraphUID` is `Codable` but **instance-scoped**: it does not
+survive `GraphSnapshot` restore or a process restart (a rebuild mints a new `instanceID`; re-mint
+from `(kind, index)` after reloading). A retained graph's `snapshot()` also serializes the
+*pre-mutation* `sourceBREP` captured at construction, not updated by later `add()` calls.
+
+**Cross-referencing hazard:** `query_topology` / `check_thickness` emit informational
+`face[i]`/`edge[i]` labels in `Shape.faces()`/`.edges()` **enumeration order**, not `BRepGraph`
+node-index order: the same divergence `TopologyIdentityTests` proves for edges/vertices. Don't
+feed those labels' indices into a `selectionId` by hand; they're a different index space.
 
 `find_correspondences`'s `transform` is optional. Resolution order:
 1. **Explicit hint** — `translate` / `mirror` / `rotate` / `compound { steps: [...] }` (the last one is a recursive composition applied in array order). Codable, so the same JSON shape works in tool args and on disk.
@@ -145,13 +177,45 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 1.12.10 — kernel wrapper around OpenCASCADE; v1.12.0 adds `TopologyGraph.add(_:absorbing:inputRoots:operationName:)`, which imports a `*WithFullHistory` op's real `BRepTools_History` into the graph in one call (OCCTSwift#290) — `HistoryRegistry.recordBooleanHistory` / `recordSingleInputHistory` now build a graph from the operation's input and absorb the result into it directly, instead of hand-correlating output sub-shapes to input sub-shapes by nearest centroid (#90/#93; the centroid path could misassign under symmetric/patterned geometry, the same failure family #72 guards against for signed distance). v1.10.1 rebuilds OCCT with the OCCTSwift#280 kernel fix (an XDE STEP read — `inspect_assembly` — used to silently corrupt every later STEP write — `export_scene` — dropping faces on indirect surfaces while still reporting valid); v1.9.0 makes the bulk `allEdgePolylines` O(edges) and v1.10.0 adds `allEdgePolylinesIndexed` (OCCTSwift#275 — consumed by `render_preview`'s mesh-direct edge overlays and, via Tools 1.3.1, every `shapeToBodyAndMetadata` call); full per-input history coverage for booleans + every `FeatureSpec` kind in `BuildResult.histories[id]`, plus `TopologyGraph.findDerivedOrSelf` / `hasHistoryRecord` for unambiguous untouched-vs-deleted resolution. v1.2.0 adds the `TopologyGraph` per-node attribute store (`attributes` / `setAttribute` / `attribute`, closed `AttrValue` enum) and Codable `GraphSnapshot` round-trip (`snapshot()` / `init(snapshot:)`) backing the `reconstruct_*` tool group (#33). v1.8.0 adds `Exporter.writeBREP(allowInvalid:)` backing `read_brep` / `import_file`'s `allowInvalid` (#41)
-- **OCCTSwiftMesh** ≥ 1.0.0 — mesh-domain algorithms (QEM decimation today; smoothing / repair / remeshing in roadmap)
-- **OCCTSwiftScripts** ≥ 1.4.2 — provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process. `ExecuteScriptTool.scriptsPin` must track this pin (#42) and points at the SecondMouseAU URL; 1.4.2 caps its transitive OCCTSwiftIO to the lean 1.0.x line so the `execute_script` workspace resolves (1.4.0/1.4.1 float OCCTSwiftIO to the heavy 1.5.0 and fail — SecondMouseAU/OCCTSwiftScripts#69, ecosystem#14)
-- **OCCTSwiftTools** ≥ 1.3.1 — Shape↔ViewportBody bridge; ships `PointConverter` and wires `pointRadius` / `vertexColors` through to `ViewportBody`; v1.3.1 makes `extractEdgePolylines` (inside every `shapeToBodyAndMetadata`) a single O(edges) bulk pass via `allEdgePolylinesIndexed` (OCCTSwift#275 Tools half)
-- **OCCTSwiftViewport** ≥ 1.1.23 — Metal viewport + offscreen renderer; v1.0.2 added the point-sprite pipeline that makes `pointCloud` overlays actually render; v1.1.23 adds the opt-in `ViewportBody.directMesh` path (de-interleaved position/normal GPU buffers, normals verbatim — no NormalSmoothing) used by `HeatmapTools`' band bodies (#76). `RenderPreviewTool.meshDirectBody` stays on the interleaved layout on purpose: facet-per-face STL imports need the smoothing pass
-- **OCCTSwiftAIS** ≥ 1.0.1 — selection, manipulators, dimensions
-- **modelcontextprotocol/swift-sdk** ≥ 0.11.0 — MCP transport + types
+- **OCCTSwift** ≥ 1.15.0: kernel wrapper around OpenCASCADE. **v1.15.0 renamed `TopologyGraph` to
+  `BRepGraph`** (OCCTSwift#333, filed and shipped same-day; old name kept as a deprecated
+  typealias for one or more releases, but OCCTMCP has already migrated every reference). v1.14.0
+  adds `*WithFullHistory` for `translated`/`rotated`/`scaled`/`mirrored`/`linearPattern`/
+  `circularPattern` (OCCTSwift#331), not yet wired into `transform_body`/`mirror_or_pattern`,
+  which still do a generation reset. v1.13.0 adds `*WithFullHistory` for heal/sew/quilt/solid
+  (OCCTSwift#327): `heal_shape` now records real history instead of the old topology-count
+  heuristic. **Known gap (OCCTSwift#336):** a `*WithFullHistory` op chained onto the OUTPUT of a
+  prior `*WithFullHistory` op (rather than a freshly-loaded `Shape`) currently absorbs zero
+  records, verified independent of OCCTMCP's own code (reproduces against a brand-new
+  `BRepGraph`), so a body mutated twice in a row still degrades to a generation reset on the
+  second hop; see the `HistoryRegistry.swift` bullet above. v1.12.0 adds
+  `BRepGraph.add(_:absorbing:inputRoots:operationName:)`, which imports a `*WithFullHistory` op's
+  real `BRepTools_History` into the graph in one call (OCCTSwift#290): `HistoryRegistry` builds a
+  RETAINED graph from a body's lineage and absorbs each mutation into it directly (#90/#91/#93;
+  originally a disposable per-call graph rebuilt from scratch every time, and before that
+  hand-correlating output sub-shapes to input sub-shapes by nearest centroid, which could
+  misassign under symmetric/patterned geometry, the same failure family #72 guards against for
+  signed distance). v1.10.1 rebuilds OCCT with the OCCTSwift#280 kernel fix (an XDE STEP read —
+  `inspect_assembly` — used to silently corrupt every later STEP write — `export_scene` —
+  dropping faces on indirect surfaces while still reporting valid); v1.9.0 makes the bulk
+  `allEdgePolylines` O(edges) and v1.10.0 adds `allEdgePolylinesIndexed` (OCCTSwift#275 — consumed
+  by `render_preview`'s mesh-direct edge overlays and, via Tools 1.3.1, every
+  `shapeToBodyAndMetadata` call); full per-input history coverage for booleans + every
+  `FeatureSpec` kind in `BuildResult.histories[id]`, plus `BRepGraph.findDerivedOrSelf` /
+  `hasHistoryRecord` for unambiguous untouched-vs-deleted resolution. v1.2.0 adds the `BRepGraph`
+  per-node attribute store (`attributes` / `setAttribute` / `attribute`, closed `AttrValue` enum)
+  and Codable `GraphSnapshot` round-trip (`snapshot()` / `init(snapshot:)`) backing the
+  `reconstruct_*` tool group (#33). v1.8.0 adds `Exporter.writeBREP(allowInvalid:)` backing
+  `read_brep` / `import_file`'s `allowInvalid` (#41)
+- **OCCTSwiftMesh** ≥ 1.0.0: mesh-domain algorithms (QEM decimation today; smoothing / repair / remeshing in roadmap)
+- **OCCTSwiftScripts** ≥ 1.5.1: provides `occtkit` (only used by `execute_script` and `export_scene`); also ships `ScriptHarness` + `DrawingComposer` consumed in-process. `ExecuteScriptTool.scriptsPin` must track this pin (#42) and points at the SecondMouseAU URL. v1.5.0 capped its own OCCTSwiftIO dependency to `<1.1.0`, conflicting with OCCTSwiftTools ≥1.6.1's own OCCTSwiftIO `>=1.7.0` requirement (below) and making the two unresolvable together; fixed in v1.5.1 (raises the OCCTSwiftIO floor to 1.7.5), closing SecondMouseAU/OCCTSwiftScripts#80
+- **OCCTSwiftTools** ≥ 1.6.1: Shape↔ViewportBody bridge; ships `PointConverter` and wires `pointRadius` / `vertexColors` through to `ViewportBody`. v1.6.1 renamed `TopologyGraph` to `BRepGraph` (OCCTSwift#333) and re-pins OCCTSwift to ≥1.15.0; v1.3.1 makes `extractEdgePolylines` (inside every `shapeToBodyAndMetadata`) a single O(edges) bulk pass via `allEdgePolylinesIndexed` (OCCTSwift#275 Tools half)
+- **OCCTSwiftViewport** ≥ 1.1.23: Metal viewport + offscreen renderer; v1.0.2 added the point-sprite pipeline that makes `pointCloud` overlays actually render; v1.1.23 adds the opt-in `ViewportBody.directMesh` path (de-interleaved position/normal GPU buffers, normals verbatim, no NormalSmoothing) used by `HeatmapTools`' band bodies (#76). `RenderPreviewTool.meshDirectBody` stays on the interleaved layout on purpose: facet-per-face STL imports need the smoothing pass
+- **OCCTSwiftAIS** ≥ 1.3.1: selection, manipulators, dimensions. v1.3.1 renamed `TopologyGraph` to `BRepGraph` (OCCTSwift#333) and requires OCCTSwiftTools ≥1.6.1
+- **OCCTSwiftIO** ≥ 1.7.0: transitive dependency of OCCTSwiftScripts / OCCTSwiftTools (BREP/STEP/mesh-format import/export core), now a direct root pin. Was capped to the 1.0.x line (`.upToNextMinor`) to dodge a heavy mesh-IO stack (SwiftPMX / SwiftGLTF / ThreeMF / SwiftJWW / SwiftX / Nodal / Zip) that OCCTSwiftIO ≥1.1.0 pulls in and OCCTMCP doesn't use. That cap stopped being optional once OCCTSwiftTools ≥1.6.1 started requiring OCCTSwiftIO ≥1.7.0 directly: keeping OCCTMCP's own cap just broke resolution instead of avoiding the heavier graph. Uncapped as of the #90/#91/#93/#97 repin; the heavy stack is now a real (if unused) part of the dependency graph, accepted in exchange for the whole cohort staying current
+- **modelcontextprotocol/swift-sdk** ≥ 0.11.0: MCP transport + types
+
+Verify what a fresh clone / CI actually resolves (not the local sibling-checkout shortcut below) with `OCCTMCP_FORCE_REMOTE_DEPS=1 swift build` / `swift test`.
 
 ### Node implementation
 

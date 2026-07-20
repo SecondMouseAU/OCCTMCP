@@ -49,12 +49,13 @@ public enum FeatureTools {
             return .init("BREP file missing: \(inputPath)")
         }
 
-        let inputShape: Shape
+        let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            inputShape = try Shape.loadBREP(fromPath: inputPath)
+            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: inputPath)
         } catch {
-            return .init("Failed to load BREP: \(error.localizedDescription)", isError: true)
+            return .init("Failed to load BREP: \(error)", isError: true)
         }
+        let inputShape = lineage.shape
 
         let envelope: Value = .object([
             "features": .array([feature]),
@@ -92,32 +93,45 @@ public enum FeatureTools {
 
         await history.snapshot(store: store)
 
-        // Tier 3 (gsdali/OCCTSwift#165) — record per-feature history
-        // against the body that took the mutation. Only one feature is
-        // submitted per `apply_feature` call (`features: [feature]`
-        // above), so at most one entry in `result.histories` is
-        // populated and we record it under the post-mutation body id.
-        // Multi-feature chaining lives in `execute_script`, not here.
+        // Per-feature history (#90/#93): absorb into the source body's
+        // retained graph. Only one feature is submitted per apply_feature
+        // call (`features: [feature]` above), so result.histories almost
+        // always has at most one entry; the rare multi-entry case chains
+        // each absorb against the previous one's resulting root.
+        //
+        // Absorb ONCE per graph object and write ONLY mutatedBodyId's
+        // entry: when it differs from bodyId (a new output body), bodyId's
+        // own entry already shares the SAME graph object (BRepGraph is
+        // a reference type) and sees the absorbed history for free.
+        // Writing a second entry for it would overwrite its liveShape/
+        // fingerprint with the output and corrupt the next read of the
+        // source body, which is exactly the double-absorb-into-one-graph
+        // hazard retention introduces (harmless when each side built its
+        // own disposable graph, as it did pre-retention).
         let mutatedBodyId = (isInPlace || outputBodyId == nil) ? bodyId : outputBodyId!
-        for (_, ref) in result.histories {
-            await HistoryRegistry.shared.recordSingleInputHistory(
-                bodyId: mutatedBodyId,
-                inputShape: inputShape,
-                output: outputShape,
-                ref: ref,
-                operationName: "apply_feature"
+        let refs = result.histories.sorted { $0.key < $1.key }.map(\.value)
+        if refs.isEmpty {
+            await HistoryRegistry.shared.commit(
+                bodyId: mutatedBodyId, path: outputPath, output: outputShape,
+                ref: nil, from: nil, operationName: "apply_feature"
             )
-            // record under the source bodyId too when emitting a new
-            // body, so a selectionId taken on the source remaps cleanly
-            if mutatedBodyId != bodyId {
-                await HistoryRegistry.shared.recordSingleInputHistory(
-                    bodyId: bodyId,
-                    inputShape: inputShape,
-                    output: outputShape,
-                    ref: ref,
-                    operationName: "apply_feature"
-                )
+        } else {
+            var chain: (graph: BRepGraph, root: BRepGraph.NodeRef)? = (lineage.graph, lineage.root)
+            for ref in refs.dropLast() {
+                guard let current = chain,
+                      let newRoot = await HistoryRegistry.shared.absorb(
+                          into: current.graph, root: current.root, output: outputShape,
+                          ref: ref, operationName: "apply_feature"
+                      ) else {
+                    chain = nil
+                    break
+                }
+                chain = (current.graph, newRoot)
             }
+            await HistoryRegistry.shared.commit(
+                bodyId: mutatedBodyId, path: outputPath, output: outputShape,
+                ref: refs.last, from: chain, operationName: "apply_feature"
+            )
         }
 
         if !isInPlace, let newId = outputBodyId {

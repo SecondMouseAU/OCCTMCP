@@ -22,7 +22,7 @@ struct ReconstructToolsTests {
     /// Fresh registry + a box-backed graph stored under `id`.
     private func makeSession(id: String) async throws -> ReconstructRegistry {
         let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
-        let graph = try #require(TopologyGraph(shape: box))
+        let graph = try #require(BRepGraph(shape: box))
         let registry = ReconstructRegistry()
         await registry.store(id: id, graph: graph)
         return registry
@@ -93,7 +93,7 @@ struct ReconstructToolsTests {
         let snapshot = try await registry.makeSnapshot(id: "src")
         let data = try GraphSnapshot.canonicalEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(GraphSnapshot.self, from: data)
-        let rebuilt = try TopologyGraph(snapshot: decoded)
+        let rebuilt = try BRepGraph(snapshot: decoded)
         let registry2 = ReconstructRegistry()
         await registry2.store(id: "dst", graph: rebuilt)
 

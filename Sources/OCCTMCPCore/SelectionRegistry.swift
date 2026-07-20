@@ -10,6 +10,7 @@
 // calls don't have to re-load the BREP.
 
 import Foundation
+import OCCTSwift
 
 /// A named pick into the topology of a scene body. Mirrors the AIS
 /// `SubShape` enum but keyed by `bodyId` so it survives without an
@@ -135,6 +136,13 @@ public actor SelectionRegistry {
 
     private var snapshots: [String: AnchorSnapshot] = [:]
     private var anchors: [String: TopologyAnchor] = [:]
+    /// selectionId → the BRepGraph-durable GraphUID minted for it, when the
+    /// registering graph is a HistoryRegistry-retained lineage (not a
+    /// disposable per-call graph: an unretained graph's UID is
+    /// permanently unresolvable). Side-table, NOT a field on
+    /// AnchorSnapshot: that struct is Encodable straight into LLM-facing
+    /// responses, and an opaque UID triple there would be pure noise.
+    private var graphUIDs: [String: BRepGraph.GraphUID] = [:]
 
     public init() {}
 
@@ -167,9 +175,22 @@ public actor SelectionRegistry {
         return snapshots[selectionId]
     }
 
+    /// Record (or overwrite) the GraphUID for a selectionId. Callers must
+    /// mint `uid` from a HistoryRegistry-retained lineage graph, never a
+    /// disposable one, since a UID only ever resolves against the graph
+    /// instance that minted it.
+    public func recordGraphUID(selectionId: String, uid: BRepGraph.GraphUID) {
+        graphUIDs[selectionId] = uid
+    }
+
+    public func graphUID(for selectionId: String) -> BRepGraph.GraphUID? {
+        return graphUIDs[selectionId]
+    }
+
     public func clear() {
         snapshots.removeAll()
         anchors.removeAll()
+        graphUIDs.removeAll()
     }
 
     public func count() -> Int {

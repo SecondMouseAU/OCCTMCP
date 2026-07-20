@@ -12,32 +12,26 @@
 import PackageDescription
 import Foundation
 
-// Prefer a local sibling checkout (../<name>) when present, else the published URL — so the whole
+// Prefer a local sibling checkout (../<name>) when present, else the published URL: so the whole
 // OCCT ecosystem SHARES the single OCCTSwift/Libraries/OCCT.xcframework instead of each repo
 // extracting its own 1.3 GB copy. CI / fresh clones (no sibling) use the URL pin. `#filePath`-relative
 // so it's independent of build CWD. Guarded against SwiftPM's own checkout layout: a transitively-
 // resolved checkout under a consumer's .build/ must never be treated as a local dev sibling
-// (ecosystem issue OCCTSwiftScripts#69 / #70).
-func occtDep(_ name: String, from version: String) -> Package.Dependency {
+// (ecosystem issue OCCTSwiftScripts#69 / #70). Set OCCTMCP_FORCE_REMOTE_DEPS=1 to always use the
+// URL pin even when a local sibling exists, for verifying what a fresh clone / CI actually
+// resolves, without needing to touch or move anything under the sibling checkouts.
+func useLocalSibling(_ name: String) -> Bool {
+    guard ProcessInfo.processInfo.environment["OCCTMCP_FORCE_REMOTE_DEPS"] == nil else { return false }
     let manifestDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-    if !manifestDir.contains("/.build/"),
-       FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift") {
+    return !manifestDir.contains("/.build/")
+        && FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift")
+}
+
+func occtDep(_ name: String, from version: String) -> Package.Dependency {
+    if useLocalSibling(name) {
         return .package(path: "../\(name)")
     }
     return .package(url: "https://github.com/SecondMouseAU/\(name).git", from: Version(version)!)
-}
-
-// As occtDep, but pins to the package's minor line (`.upToNextMinor`) instead of
-// the major. Used to cap a transitive dependency whose newer minors pull deps we
-// don't want in the graph — see the OCCTSwiftIO note in `dependencies` below.
-// Same checkout-layout guard as occtDep (ecosystem issue OCCTSwiftScripts#69 / #70).
-func occtDepUpToNextMinor(_ name: String, from version: String) -> Package.Dependency {
-    let manifestDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-    if !manifestDir.contains("/.build/"),
-       FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift") {
-        return .package(path: "../\(name)")
-    }
-    return .package(url: "https://github.com/SecondMouseAU/\(name).git", .upToNextMinor(from: Version(version)!))
 }
 
 let package = Package(
@@ -84,7 +78,7 @@ let package = Package(
         // TopologyGraph model. All sibling deps below are re-pinned to the
         // matching p1 cohort. 1.8.0 adds Exporter.writeBREP(allowInvalid:) for
         // read_brep / import_file `allowInvalid` (#41).
-        occtDep("OCCTSwift", from: "1.12.10"),  // ≥1.12.9: OCCT kernel crash/hang fixes through #318 and #323 (patches 0003-0009); ≥1.12.0: TopologyGraph.add(_:absorbing:inputRoots:operationName:) absorbs a *WithFullHistory op's real BRepTools_History (OCCTSwift#290), replacing HistoryRegistry's hand-rolled centroid correlation (#90/#93); ≥1.10.1: kernel fix for OCCTSwift#280 (XDE STEP read corrupting later STEP writes); 1.10.0 added O(edges) allEdgePolylines(Indexed) (#275)
+        occtDep("OCCTSwift", from: "1.15.0"),  // >=1.15.0: TopologyGraph renamed to BRepGraph (OCCTSwift#333, TopologyGraph kept as a deprecated typealias); >=1.14.0: *WithFullHistory for translate/rotate/scale/mirror/patterns (OCCTSwift#331); >=1.13.0: *WithFullHistory for heal/sew/quilt/solid (OCCTSwift#327), heal_shape now records real history instead of the topology-count heuristic; >=1.12.9: OCCT kernel crash/hang fixes through #318 and #323 (patches 0003-0009); >=1.12.0: BRepGraph.add(_:absorbing:inputRoots:operationName:) absorbs a *WithFullHistory op's real BRepTools_History (OCCTSwift#290), replacing HistoryRegistry's hand-rolled centroid correlation (#90/#93); >=1.10.1: kernel fix for OCCTSwift#280 (XDE STEP read corrupting later STEP writes); 1.10.0 added O(edges) allEdgePolylines(Indexed) (#275)
         occtDep("OCCTSwiftMesh", from: "1.1.1"),
         // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
         // Composer.render(spec:components:) / render(spec:document:) — multi-body
@@ -97,25 +91,33 @@ let package = Package(
         // v1.4.1 / Tools v1.2.1 = SecondMouseAU org migration: their manifests now
         // declare OCCTSwiftIO at SecondMouseAU, so the transitive pin re-homes
         // without a root-level OCCTSwiftIO override here (#53).
-        occtDep("OCCTSwiftScripts", from: "1.4.1"),
-        occtDep("OCCTSwiftTools", from: "1.3.1"),  // ≥1.3.1: linear extractEdgePolylines (OCCTSwift#275 Tools half)
+        //
+        // v1.5.0 capped its own OCCTSwiftIO dependency to <1.1.0, which directly
+        // conflicted with OCCTSwiftTools >=1.6.1's own OCCTSwiftIO >=1.7.0
+        // requirement (below) and made the two unresolvable together. Fixed in
+        // v1.5.1 (raises the OCCTSwiftIO floor to 1.7.5), closing
+        // SecondMouseAU/OCCTSwiftScripts#80.
+        occtDep("OCCTSwiftScripts", from: "1.5.1"),
+        occtDep("OCCTSwiftTools", from: "1.6.1"),  // >=1.6.1: TopologyGraph renamed to BRepGraph (OCCTSwift#333), and re-pins OCCTSwift to >=1.15.0; >=1.3.1: linear extractEdgePolylines (OCCTSwift#275 Tools half)
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server
         // during render-preview; 1.0.4 makes the package dependency-free;
         // 1.1.20 adds tap-to-measure (Viewport #68) and
-        // ViewportBody.worldHitPoint(ray:triangleIndex:) — ray → world
+        // ViewportBody.worldHitPoint(ray:triangleIndex:) ray to world
         // surface-point reconstruction that respects the body transform.
-        occtDep("OCCTSwiftViewport", from: "1.1.23"),   // ≥1.1.23: ViewportBody.directMesh (#76)
-        occtDep("OCCTSwiftAIS", from: "1.0.3"),
+        occtDep("OCCTSwiftViewport", from: "1.1.23"),   // >=1.1.23: ViewportBody.directMesh (#76)
+        occtDep("OCCTSwiftAIS", from: "1.3.1"),  // >=1.3.1: TopologyGraph renamed to BRepGraph (OCCTSwift#333), requires OCCTSwiftTools >=1.6.1
         // OCCTSwiftIO is a transitive dependency of OCCTSwiftScripts / OCCTSwiftTools,
-        // declared open-endedly (`from: 1.0.x`) in their manifests. After the
-        // SecondMouseAU migration its 1.1.0+ releases became reachable, and those
-        // pull a heavy mesh-IO stack (SwiftPMX / SwiftGLTF / ThreeMF / SwiftJWW /
-        // SwiftX) that doesn't resolve in this graph — OCCTMCP only needs the
-        // BREP/STEP core. Cap it to the compatible 1.0.x line, which is the version
-        // OCCTMCP has always built against. Also re-homes the pin to SecondMouseAU
-        // (root URL wins), so no gsdali/OCCTSwiftIO leaks into the lockfile (#53).
-        occtDepUpToNextMinor("OCCTSwiftIO", from: "1.0.1"),
+        // declared open-endedly (`from: 1.0.x`-ish) in their manifests. Was capped to
+        // the 1.0.x line here to dodge a heavy mesh-IO stack (SwiftPMX / SwiftGLTF /
+        // ThreeMF / SwiftJWW / SwiftX / Nodal) that OCCTSwiftIO >=1.1.0 pulls in and
+        // OCCTMCP doesn't need (BREP/STEP core only). That cap is no longer optional:
+        // OCCTSwiftTools >=1.6.1 requires OCCTSwiftIO >=1.7.0 directly, so keeping
+        // OCCTMCP's own cap just breaks resolution rather than avoiding the heavier
+        // graph. Uncapped as of the #90/#91/#93/#97 repin; the heavy stack is now a
+        // real (if unused) part of the dependency graph, accepted in exchange for the
+        // whole OCCTSwift cohort staying current, including the BRepGraph rename.
+        occtDep("OCCTSwiftIO", from: "1.7.0"),
     ],
     targets: [
         .target(

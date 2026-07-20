@@ -48,7 +48,7 @@ public enum ReconstructTools {
             }
             do {
                 let loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
-                guard let graph = TopologyGraph(shape: loaded.shape) else {
+                guard let graph = BRepGraph(shape: loaded.shape) else {
                     return .init("Failed to build a topology graph for body '\(bodyId)'.", isError: true)
                 }
                 await registry.store(id: sid, graph: graph)
@@ -203,9 +203,9 @@ public enum ReconstructTools {
         } catch {
             return .init("reconstruct_import_session: decode failed: \(error)", isError: true)
         }
-        let graph: TopologyGraph
+        let graph: BRepGraph
         do {
-            graph = try TopologyGraph(snapshot: snapshot)
+            graph = try BRepGraph(snapshot: snapshot)
         } catch {
             return .init("reconstruct_import_session: rebuild failed: \(error)", isError: true)
         }

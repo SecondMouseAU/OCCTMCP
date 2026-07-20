@@ -61,12 +61,13 @@ public enum ConstructionTools {
             return .init("Output body id \"\(newId)\" already exists.")
         }
 
-        let inputShape: Shape
+        let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            inputShape = try Shape.loadBREP(fromPath: inputPath)
+            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: inputPath)
         } catch {
-            return .init("Failed to load BREP: \(error.localizedDescription)", isError: true)
+            return .init("Failed to load BREP: \(error)", isError: true)
         }
+        let inputShape = lineage.shape
 
         var current: Shape = inputShape
         if let t = options.translate {
@@ -116,14 +117,18 @@ public enum ConstructionTools {
 
         await history.snapshot(store: store)
 
-        // v0.6: record 1:1 identity history so remap_selection can
-        // resolve via TopologyGraph.findDerived rather than the
-        // centroid heuristic. Transforms preserve topology, so every
-        // post-mutation node maps to the same index pre-mutation.
+        // *WithFullHistory variants for transforms shipped in OCCTSwift
+        // v1.14.0 (SecondMouseAU/OCCTSwift#331) but aren't wired in here
+        // yet, so this is still a generation reset. Still routed through
+        // commit() so the retained lineage for this bodyId starts fresh
+        // from the post-transform shape rather than going stale.
         let recordedBodyId = isInPlace ? bodyId : (options.outputBodyId ?? bodyId)
-        await HistoryRegistry.shared.recordIdentityHistory(
+        await HistoryRegistry.shared.commit(
             bodyId: recordedBodyId,
-            postMutationShape: current,
+            path: outputPath,
+            output: current,
+            ref: nil,
+            from: nil,
             operationName: "transform_body"
         )
 
@@ -188,17 +193,21 @@ public enum ConstructionTools {
         }
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
-        let aShape: Shape
-        let bShape: Shape
+        let aPath = "\(outputDir)/\(aBody.file)"
+        let bPath = "\(outputDir)/\(bBody.file)"
+        let aLineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
+        let bLineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            aShape = try Shape.loadBREP(fromPath: "\(outputDir)/\(aBody.file)")
-            bShape = try Shape.loadBREP(fromPath: "\(outputDir)/\(bBody.file)")
+            aLineage = try await HistoryRegistry.shared.currentInput(bodyId: aBodyId, path: aPath)
+            bLineage = try await HistoryRegistry.shared.currentInput(bodyId: bBodyId, path: bPath)
         } catch {
-            return .init("Failed to load input BREP: \(error.localizedDescription)", isError: true)
+            return .init("Failed to load input BREP: \(error)", isError: true)
         }
+        let aShape = aLineage.shape
+        let bShape = bLineage.shape
 
         // v0.10: prefer the per-input-history variants (gsdali/OCCTSwift#165
-        // Tier 1) so remap_selection can resolve via TopologyGraph.findDerived
+        // Tier 1) so remap_selection can resolve via BRepGraph.findDerived
         // instead of the centroid heuristic. Fall back to the no-history calls
         // only if the WithFullHistory variant returned nil — same observable
         // behaviour as v0.9 for the failure path.
@@ -258,20 +267,30 @@ public enum ConstructionTools {
 
         await history.snapshot(store: store)
 
-        // v0.10: translate per-input ShapeHistoryRef into
-        // TopologyGraph.recordHistory entries on the post-mutation graph.
-        // remap_selection's history path then resolves selections on
-        // either input body via findDerived rather than the
-        // centroid-distance heuristic.
+        // Per-input history (#90/#93): absorb into both input sides'
+        // retained graphs so remap_selection resolves selections on either
+        // input body via findDerived rather than the centroid heuristic.
+        // outId shares the a-side graph (arbitrary but consistent "primary"
+        // choice); see HistoryRegistry.recordBooleanHistory. No-history
+        // fallback still registers a fresh generation for outId so it has
+        // a lineage to build on for a later mutation.
         if let hist = historyRef {
             await HistoryRegistry.shared.recordBooleanHistory(
-                bodyId: outId,
-                aBodyId: aBodyId,
-                bBodyId: bBodyId,
-                aShape: aShape,
-                bShape: bShape,
+                outId: outId,
+                outputPath: outputPath,
+                aLineage: (aLineage.graph, aLineage.root),
+                bLineage: (bLineage.graph, bLineage.root),
                 output: output,
                 ref: hist,
+                operationName: "boolean_\(op.rawValue)"
+            )
+        } else {
+            await HistoryRegistry.shared.commit(
+                bodyId: outId,
+                path: outputPath,
+                output: output,
+                ref: nil,
+                from: nil,
                 operationName: "boolean_\(op.rawValue)"
             )
         }
@@ -359,12 +378,13 @@ public enum ConstructionTools {
             return .init("Output body id \"\(outId)\" already exists.")
         }
 
-        let shape: Shape
+        let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            shape = try Shape.loadBREP(fromPath: inputPath)
+            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: inputPath)
         } catch {
-            return .init("Failed to load BREP: \(error.localizedDescription)", isError: true)
+            return .init("Failed to load BREP: \(error)", isError: true)
         }
+        let shape = lineage.shape
 
         let result: Shape?
         switch kind {
@@ -402,6 +422,22 @@ public enum ConstructionTools {
         }
 
         await history.snapshot(store: store)
+
+        // *WithFullHistory variants for mirror/pattern shipped in OCCTSwift
+        // v1.14.0 (SecondMouseAU/OCCTSwift#331) but aren't wired in here
+        // yet, so this is still a generation reset for outId only. The
+        // source body's own entry (bodyId) stays untouched: its file
+        // didn't change, so overwriting its lineage here would corrupt the
+        // next read of it.
+        await HistoryRegistry.shared.commit(
+            bodyId: outId,
+            path: outputPath,
+            output: output,
+            ref: nil,
+            from: nil,
+            operationName: "mirror_or_pattern"
+        )
+
         var bodies = manifest.bodies
         bodies.append(BodyDescriptor(
             id: outId,

@@ -182,10 +182,20 @@ public enum CorrespondenceTools {
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let targetPath = "\(outputDir)/\(targetBody.file)"
-        guard FileManager.default.fileExists(atPath: targetPath),
-              let targetShape = try? Shape.loadBREP(fromPath: targetPath) else {
+        guard FileManager.default.fileExists(atPath: targetPath) else {
             return .init("Target BREP missing or unreadable: \(targetPath)")
         }
+        // #91/#93: resolve through the retained lineage graph so target
+        // sub-shape indices below are graph indices (correct for a later
+        // remap_selection/GraphUID lookup), not raw enumeration indices.
+        let targetLineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
+        do {
+            targetLineage = try await HistoryRegistry.shared.currentInput(bodyId: targetBodyId, path: targetPath)
+        } catch {
+            return .init("Target BREP missing or unreadable: \(targetPath)")
+        }
+        let targetShape = targetLineage.shape
+        let targetGraph = targetLineage.graph
 
         // Resolve the effective transform — explicit hint wins; then
         // provenance.json (mirror_or_pattern's record); then bbox
@@ -215,19 +225,27 @@ public enum CorrespondenceTools {
         let diag = simd_length(bb.max - bb.min)
         let tolerance = max(diag * toleranceMmFraction, 1e-6)
 
-        // Pre-compute target sub-shape centroids once per kind — every
-        // source id of the same kind reuses the array.
-        let targetFaceCentres: [SIMD3<Double>] = targetShape.faces().map {
-            SelectionTools.faceCenterAndNormal(face: $0).0
+        // Pre-compute target sub-shape centroids once per kind, indexed BY
+        // GRAPH INDEX (not shape.faces()/.edges()/.vertices() enumeration
+        // order: the graph's own per-kind index doesn't always match
+        // that order; verified false for edges/vertices, true for faces
+        // only by coincidence, per TopologyIdentityTests). pickNearest's
+        // winning array position IS the graph index it hands to
+        // anchorMaker, so a nil hole (a graph index with no resolvable
+        // shape) has to stay a hole in the array, not get compacted away.
+        let targetFaceCentres: [SIMD3<Double>?] = (0..<targetGraph.faceCount).map { i in
+            guard let faceShape = targetGraph.shape(nodeKind: .face, nodeIndex: i),
+                  let face = Face(faceShape) else { return nil }
+            return SelectionTools.faceCenterAndNormal(face: face).0
         }
-        let targetEdgeCentres: [SIMD3<Double>] = targetShape.edges().compactMap {
-            SelectionTools.edgeMidpoint(edge: $0)
+        let targetEdgeCentres: [SIMD3<Double>?] = (0..<targetGraph.edgeCount).map { i in
+            guard let edgeShape = targetGraph.shape(nodeKind: .edge, nodeIndex: i),
+                  let edge = Edge(edgeShape) else { return nil }
+            return SelectionTools.edgeMidpoint(edge: edge)
         }
-        let targetVertices: [SIMD3<Double>] = targetShape.vertices()
-
-        // Cache source-shape loads per source bodyId — multiple
-        // selectionIds typically share a source.
-        var sourceShapes: [String: Shape] = [:]
+        let targetVertexCentres: [SIMD3<Double>?] = (0..<targetGraph.vertexCount).map { i in
+            targetGraph.shape(nodeKind: .vertex, nodeIndex: i)?.centerOfMass
+        }
 
         var out: [Correspondence] = []
         for sid in sourceSelectionIds {
@@ -251,8 +269,7 @@ public enum CorrespondenceTools {
                 sourceCentroid = await loadSourceCentroid(
                     anchor: anchor,
                     manifest: manifest,
-                    outputDir: outputDir,
-                    cache: &sourceShapes
+                    outputDir: outputDir
                 )
             }
             guard let sc = sourceCentroid else {
@@ -286,8 +303,9 @@ public enum CorrespondenceTools {
                     centres: targetFaceCentres,
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.face(bodyId: targetBodyId, index: idx) }
-                if let newAnchor = entry.anchor, let snap = snapshot {
-                    await registry.record(anchor: newAnchor, snapshot: snap)
+                if let newAnchor = entry.anchor {
+                    if let snap = snapshot { await registry.record(anchor: newAnchor, snapshot: snap) }
+                    await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
                 }
                 out.append(entry.report)
 
@@ -298,8 +316,9 @@ public enum CorrespondenceTools {
                     centres: targetEdgeCentres,
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.edge(bodyId: targetBodyId, index: idx) }
-                if let newAnchor = entry.anchor, let snap = snapshot {
-                    await registry.record(anchor: newAnchor, snapshot: snap)
+                if let newAnchor = entry.anchor {
+                    if let snap = snapshot { await registry.record(anchor: newAnchor, snapshot: snap) }
+                    await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
                 }
                 out.append(entry.report)
 
@@ -307,11 +326,12 @@ public enum CorrespondenceTools {
                 let entry = pickNearest(
                     sid: sid,
                     transformed: transformed,
-                    centres: targetVertices,
+                    centres: targetVertexCentres,
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.vertex(bodyId: targetBodyId, index: idx) }
-                if let newAnchor = entry.anchor, let snap = snapshot {
-                    await registry.record(anchor: newAnchor, snapshot: snap)
+                if let newAnchor = entry.anchor {
+                    if let snap = snapshot { await registry.record(anchor: newAnchor, snapshot: snap) }
+                    await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
                 }
                 out.append(entry.report)
             }
@@ -331,22 +351,23 @@ public enum CorrespondenceTools {
     private static func pickNearest(
         sid: String,
         transformed: SIMD3<Double>,
-        centres: [SIMD3<Double>],
+        centres: [SIMD3<Double>?],
         tolerance: Double,
         anchorMaker: (Int) -> TopologyAnchor
     ) -> PickResult {
-        guard !centres.isEmpty else {
+        var bestIdx: Int?
+        var bestDist = Double.infinity
+        for (i, c) in centres.enumerated() {
+            guard let c else { continue }
+            let d = simd_length(c - transformed)
+            if d < bestDist { bestDist = d; bestIdx = i }
+        }
+        guard let bestIdx else {
             return PickResult(
                 report: .init(sourceSelectionId: sid, targetSelectionId: nil,
                               confidenceMm: nil, fate: "lost"),
                 anchor: nil
             )
-        }
-        var bestIdx = 0
-        var bestDist = simd_length(centres[0] - transformed)
-        for i in 1..<centres.count {
-            let d = simd_length(centres[i] - transformed)
-            if d < bestDist { bestDist = d; bestIdx = i }
         }
         if bestDist > tolerance {
             return PickResult(
@@ -363,43 +384,58 @@ public enum CorrespondenceTools {
         )
     }
 
+    /// Mint (or skip, if unresolvable) a GraphUID for a freshly-matched
+    /// target anchor, for parity with select_topology / remap_selection
+    /// (#93), so a correspondence result composes cleanly into a later
+    /// remap_selection call on the target body.
+    private static func mintUID(for anchor: TopologyAnchor, graph: BRepGraph, registry: SelectionRegistry) async {
+        let kindIndex: (BRepGraph.NodeKind, Int)?
+        switch anchor {
+        case .body:              kindIndex = nil
+        case .face(_, let idx):  kindIndex = (.face, idx)
+        case .edge(_, let idx):  kindIndex = (.edge, idx)
+        case .vertex(_, let idx): kindIndex = (.vertex, idx)
+        }
+        guard let (kind, index) = kindIndex else { return }
+        if let uid = graph.uid(ofNodeKind: Int(kind.rawValue), index: index) {
+            await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
+        }
+    }
+
     /// Recompute the source anchor centroid from the source BREP. Only
     /// needed when the SelectionRegistry snapshot was evicted or never
-    /// captured (e.g. selectionIds constructed by hand).
+    /// captured (e.g. selectionIds constructed by hand). Resolves through
+    /// the HistoryRegistry-retained lineage graph (#91/#93): `anchor`'s
+    /// stored index is a GRAPH index, not a shape.faces()/.edges()/
+    /// .vertices() enumeration index, so it has to be looked up via
+    /// `graph.shape(nodeKind:nodeIndex:)`, not raw array subscripting.
     private static func loadSourceCentroid(
         anchor: TopologyAnchor,
         manifest: ScriptManifest,
-        outputDir: String,
-        cache: inout [String: Shape]
+        outputDir: String
     ) async -> SIMD3<Double>? {
         let bodyId = anchor.bodyId
-        let shape: Shape
-        if let cached = cache[bodyId] {
-            shape = cached
-        } else {
-            guard let body = manifest.body(withId: bodyId),
-                  let loaded = try? Shape.loadBREP(fromPath: "\(outputDir)/\(body.file)") else {
-                return nil
-            }
-            cache[bodyId] = loaded
-            shape = loaded
+        guard let body = manifest.body(withId: bodyId) else { return nil }
+        let path = "\(outputDir)/\(body.file)"
+        guard let lineage = try? await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: path) else {
+            return nil
         }
+        let shape = lineage.shape
+        let graph = lineage.graph
         switch anchor {
         case .body:
             let bb = shape.bounds
             return (bb.min + bb.max) * 0.5
         case .face(_, let idx):
-            let faces = shape.faces()
-            guard idx < faces.count else { return nil }
-            return SelectionTools.faceCenterAndNormal(face: faces[idx]).0
+            guard let faceShape = graph.shape(nodeKind: .face, nodeIndex: idx),
+                  let face = Face(faceShape) else { return nil }
+            return SelectionTools.faceCenterAndNormal(face: face).0
         case .edge(_, let idx):
-            let edges = shape.edges()
-            guard idx < edges.count else { return nil }
-            return SelectionTools.edgeMidpoint(edge: edges[idx])
+            guard let edgeShape = graph.shape(nodeKind: .edge, nodeIndex: idx),
+                  let edge = Edge(edgeShape) else { return nil }
+            return SelectionTools.edgeMidpoint(edge: edge)
         case .vertex(_, let idx):
-            let vs = shape.vertices()
-            guard idx < vs.count else { return nil }
-            return vs[idx]
+            return graph.shape(nodeKind: .vertex, nodeIndex: idx)?.centerOfMass
         }
     }
 

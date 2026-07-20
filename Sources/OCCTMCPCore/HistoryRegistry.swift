@@ -1,181 +1,251 @@
-// HistoryRegistry — per-body cache of post-mutation TopologyGraphs
-// with history records, used by remap_selection to walk selectionIds
-// across operations that participate in history capture.
+// HistoryRegistry: per-body RETAINED lineage of BRepGraphs (OCCTSwift's wrapper around OCCT's
+// BRepGraph, renamed from TopologyGraph in OCCTSwift v1.15.0 / SecondMouseAU/OCCTSwift#333) with
+// history records, used by remap_selection to walk selectionIds across chains of operations that
+// participate in history capture.
 //
-// v0.6 wires `transform_body` (1:1 identity history — every
-// face/edge/vertex in the post-mutation graph corresponds to the same
-// index in the pre-mutation graph). remap_selection consults the
-// registry first; absent a recorded graph, it falls back to the
-// centroid-distance heuristic from v0.4.
+// #90/#91/#93 full completion: a body keeps ONE BRepGraph across successive mutations, instead of
+// a fresh disposable graph per call. Chain two history-bearing ops (apply_feature hole, then
+// apply_feature fillet, same body) and hop 2 must absorb into the SAME graph object hop 1
+// committed to. BRepGraph.add(_:absorbing:...)'s history absorption correlates by TShape object
+// identity, and Shape.loadBREP mints a new TShape tree every call even for byte-identical content,
+// so re-loading from disk between hops silently produces a zero-record absorb.
 //
-// Future tools that should opt in to history capture:
-//   - boolean_op (BRepAlgoAPI_BooleanOperation.Modified/Generated/IsDeleted)
-//   - apply_feature (FeatureReconstructor's BuildHistory by id)
-//   - heal_shape (ShapeFix history accessors)
-//   - mirror_or_pattern (1:1 within each repetition; pattern instances
-//     map to source by modulo)
+// `currentInput` is the single path every history-aware tool uses to obtain its starting Shape:
+// fingerprint match (mtime+size on the body's BREP file) returns the cached liveShape/graph/root
+// with no disk read; any mismatch (first touch, or an out-of-band rewrite, e.g. execute_script)
+// triggers a fresh load and a fresh graph. `commit` absorbs a mutation's ShapeHistoryRef into the
+// graph currentInput returned and writes the resulting lineage back. When there's no ref, or the
+// absorb fails or no-ops (add() returns nil, or historyRecordCount doesn't grow, the TShape-
+// identity gap surfacing despite currentInput's best effort), it falls back to a generation reset:
+// a fresh graph built from the output alone, exactly today's behaviour.
 //
-// Each pays off only when the underlying OCCT op surfaces history;
-// transforms are the only "free" case because they preserve topology.
+// BRepGraph is a reference type (`final class`), so a graph object shared across two LineageEntry
+// keys (a two-input boolean's `outId` plus `aBodyId`; apply_feature's output body plus its
+// unchanged source body) mutates in place the instant `add(_:absorbing:...)` runs for either. No
+// second write is needed for the side whose on-disk file didn't change. `absorb(into:root:...)`
+// exists precisely for that side: it runs the absorb without touching the registry, so a bodyId
+// whose file is unmodified never gets its liveShape/fingerprint overwritten with the OTHER side's
+// output, which would silently corrupt the next read of that body.
+//
+// Known gap (SecondMouseAU/OCCTSwift#336): chaining a second *WithFullHistory op onto the output
+// of a prior one (rather than a freshly-loaded Shape) currently absorbs zero records, verified
+// independent of this file. A body mutated twice in a row still degrades to a generation reset on
+// hop 2 today; single-hop absorption is unaffected.
 
 import Foundation
 import simd
 import OCCTSwift
 
+public enum HistoryRegistryError: Error, CustomStringConvertible {
+    case graphBuildFailed(bodyId: String)
+
+    public var description: String {
+        switch self {
+        case .graphBuildFailed(let bodyId):
+            return "Failed to build a BRepGraph for body \"\(bodyId)\""
+        }
+    }
+}
+
 public actor HistoryRegistry {
     public static let shared = HistoryRegistry()
 
-    /// Per-body post-mutation `TopologyGraph`. Replaced when the body
-    /// is re-mutated. Consumed by `RemapTools` via
-    /// `TopologyGraph.findDerivedOrSelf` (OCCTSwift 1.1.0+).
-    private var graphs: [String: TopologyGraph] = [:]
+    /// mtime + size snapshot of a body's BREP file, used to detect out-of-band rewrites
+    /// (execute_script, manual edits) between calls. Not a content hash: a heuristic guard, same
+    /// spirit as an ETag.
+    struct FileFingerprint: Equatable {
+        let mtime: TimeInterval
+        let size: Int64
+    }
+
+    /// Retained per-body lineage: the graph (may be shared with another body's entry), the EXACT
+    /// live Shape object it was built from or last committed to (not a re-load: TShape identity
+    /// matters, see file header), the node to use as `inputRoots` for the next
+    /// `add(_:absorbing:...)`, and the fingerprint `currentInput` re-checks.
+    struct LineageEntry {
+        var graph: BRepGraph
+        var liveShape: Shape
+        var root: BRepGraph.NodeRef
+        var fingerprint: FileFingerprint
+    }
+
+    private var entries: [String: LineageEntry] = [:]
 
     public init() {}
 
-    /// Record a post-mutation graph for `bodyId`. Replaces any prior
-    /// entry for the same body — older selectionIds remap against the
-    /// most recent state only.
-    public func record(bodyId: String, graph: TopologyGraph) {
-        graphs[bodyId] = graph
-    }
-
-    public func graph(for bodyId: String) -> TopologyGraph? {
-        return graphs[bodyId]
-    }
-
     public func clear() {
-        graphs.removeAll()
+        entries.removeAll()
     }
 
     public func count() -> Int {
-        return graphs.count
+        return entries.count
+    }
+
+    /// Lookup used by RemapTools' primary history rung. Unchanged contract from the pre-retention
+    /// design, now backed by the retained lineage instead of a disposable per-call graph, so it
+    /// sees history from every hop committed so far, not just the most recent one.
+    public func graph(for bodyId: String) -> BRepGraph? {
+        return entries[bodyId]?.graph
+    }
+
+    /// The retained graph's `instanceID` for `bodyId`, if any. Diagnostic and test-only: proves
+    /// "one graph across mutations" by staying constant across a multi-hop chain.
+    public func instanceID(for bodyId: String) -> UInt64? {
+        return entries[bodyId]?.graph.instanceID
+    }
+
+    private static func fingerprint(atPath path: String) -> FileFingerprint? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+        guard let date = attrs[.modificationDate] as? Date else { return nil }
+        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+        return FileFingerprint(mtime: date.timeIntervalSince1970, size: size)
+    }
+
+    /// Resolve the Shape + retained graph to mutate for `bodyId` at `path`. Re-stats `path` (no
+    /// content read) and compares against the cached fingerprint: a match returns the cached
+    /// liveShape/graph/root with no disk I/O at all. Any mismatch (no entry yet, or the file
+    /// changed out from under the registry) loads fresh from disk and starts a brand-new graph,
+    /// caching it under `bodyId` before returning.
+    @discardableResult
+    public func currentInput(
+        bodyId: String,
+        path: String
+    ) throws -> (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool) {
+        let fp = Self.fingerprint(atPath: path)
+        if let entry = entries[bodyId], let fp, entry.fingerprint == fp {
+            return (entry.liveShape, entry.graph, entry.root, false)
+        }
+        let shape = try Shape.loadBREP(fromPath: path)
+        guard let graph = BRepGraph(shape: shape),
+              let root = Self.trackableRoot(for: shape, in: graph) else {
+            throw HistoryRegistryError.graphBuildFailed(bodyId: bodyId)
+        }
+        entries[bodyId] = LineageEntry(
+            graph: graph,
+            liveShape: shape,
+            root: root,
+            fingerprint: fp ?? FileFingerprint(mtime: 0, size: 0)
+        )
+        return (shape, graph, root, true)
+    }
+
+    /// `add(_:absorbing:...)`'s history absorption only tracks vertex, edge, face and solid nodes
+    /// (`BRepTools_History::IsSupportedType`, see the `add` doc quoted in the file header); a
+    /// `.compound` wrapper isn't itself trackable. Boolean-op and FeatureReconstructor outputs
+    /// register as `.compound` even for a single-solid result (verified empirically during this
+    /// change's development), so a NodeRef pointing at one can't be fed back in as a LATER add()
+    /// call's `inputRoots`: the absorb runs, `add()` itself returns non-nil, but
+    /// `historyRecordCount` never grows, a silent no-op that looks identical to "genuinely nothing
+    /// changed" from the caller's side. Drill down to the wrapped solid whenever the resolved node
+    /// isn't already a trackable kind; falls back to the raw (untrackable) node only if no solid
+    /// child can be found at all, which keeps `currentInput`/`commit` working (degrading later
+    /// chained absorbs to generation resets) rather than failing outright.
+    static func trackableRoot(for shape: Shape, in graph: BRepGraph) -> BRepGraph.NodeRef? {
+        guard let node = graph.findNode(for: shape) else { return nil }
+        let raw = BRepGraph.NodeRef(kind: node.kind, index: node.index)
+        switch node.kind {
+        case .solid, .face, .edge, .vertex:
+            return raw
+        default:
+            guard let solid = shape.subShapes(ofType: .solid).first,
+                  let solidNode = graph.findNode(for: solid) else {
+                return raw
+            }
+            return BRepGraph.NodeRef(kind: solidNode.kind, index: solidNode.index)
+        }
+    }
+
+    /// Absorb `ref` into `graph` (mutates it in place) WITHOUT touching the registry. Used for the
+    /// side of a shared-graph mutation whose own on-disk file is unchanged, e.g. the b-side of a
+    /// two-input boolean, so its entry's liveShape/fingerprint never gets overwritten with the
+    /// other side's output. Returns the added result's topology-root node (re-resolved via
+    /// `trackableRoot`, not `add()`'s raw return value; see that function's doc), or nil if the
+    /// add failed or absorbed zero records (the TShape-identity gap, see file header).
+    @discardableResult
+    public func absorb(
+        into graph: BRepGraph,
+        root: BRepGraph.NodeRef,
+        output: Shape,
+        ref: ShapeHistoryRef,
+        operationName: String
+    ) -> BRepGraph.NodeRef? {
+        let before = graph.historyRecordCount
+        guard graph.add(output, absorbing: ref, inputRoots: [root], operationName: operationName) != nil,
+              graph.historyRecordCount > before else {
+            return nil
+        }
+        return Self.trackableRoot(for: output, in: graph)
+    }
+
+    /// Commit a mutation's output as `bodyId`'s new lineage state: the file at `path` now
+    /// contains `output`. Only call this for the body whose file was actually (over)written; a
+    /// body sharing the same graph object but whose own file is unchanged should use `absorb`
+    /// instead (see `recordBooleanHistory`).
+    ///
+    /// Decision tree: when `ref` and `from` are both present, absorb into `from`'s graph; success
+    /// (absorbed AND historyRecordCount grew) is a CONTINUATION, writing an entry that keeps
+    /// `from.graph` (now mutated) with the new root. Anything else, no ref, no `from`, or a
+    /// failed/no-op absorb, is a GENERATION RESET: a fresh graph built from `output` alone,
+    /// discarding any prior history for this key (today's pre-retention behaviour, unchanged).
+    @discardableResult
+    public func commit(
+        bodyId: String,
+        path: String,
+        output: Shape,
+        ref: ShapeHistoryRef?,
+        from prior: (graph: BRepGraph, root: BRepGraph.NodeRef)?,
+        operationName: String
+    ) -> Bool {
+        let fp = Self.fingerprint(atPath: path) ?? FileFingerprint(mtime: 0, size: 0)
+
+        if let ref, let prior,
+           let newRoot = absorb(into: prior.graph, root: prior.root, output: output, ref: ref, operationName: operationName) {
+            entries[bodyId] = LineageEntry(graph: prior.graph, liveShape: output, root: newRoot, fingerprint: fp)
+            return true
+        }
+
+        guard let freshGraph = BRepGraph(shape: output),
+              let root = Self.trackableRoot(for: output, in: freshGraph) else {
+            entries.removeValue(forKey: bodyId)
+            return false
+        }
+        entries[bodyId] = LineageEntry(graph: freshGraph, liveShape: output, root: root, fingerprint: fp)
+        return false
+    }
+
+    /// Re-key a retained lineage across a rename so it survives `rename_body`. selectionIds embed
+    /// bodyId, so old selection strings still go stale on rename (unchanged, documented
+    /// behaviour); this only keeps the GRAPH's history alive under the new id.
+    public func rename(bodyId: String, to newBodyId: String) {
+        guard let entry = entries.removeValue(forKey: bodyId) else { return }
+        entries[newBodyId] = entry
     }
 }
 
 extension HistoryRegistry {
 
-    /// Translate per-input boolean history (gsdali/OCCTSwift#165 Tier 1)
-    /// via OCCTSwift 1.12's `add(_:absorbing:inputRoots:operationName:)`
-    /// (#90 / #93) — the kernel's own `BRepTools_History` correlates
-    /// input sub-shapes to their result-side successors, so there is no
-    /// centroid guessing left to misfire on symmetric/patterned geometry.
+    /// Boolean per-input history (#90/#93): absorb `ref` into BOTH input sides' retained graphs,
+    /// one `add(_:absorbing:...)` call per side. `add()` requires the input and result to live in
+    /// ONE graph instance, so a two-input boolean needs two independent graphs.
     ///
-    /// `add(_:absorbing:...)` requires the input and result to live in
-    /// ONE graph instance (NodeRefs/GraphUIDs are graph-scoped), so a
-    /// two-input boolean needs two independent graphs — one rooted at
-    /// `aShape`, one at `bShape` — each absorbing the same
-    /// `ShapeHistoryRef` from its own side. `outId` resolves through the
-    /// `a`-side graph (arbitrary but consistent choice of "canonical"
-    /// graph for the result body); a selectionId taken on `bBodyId`
-    /// still resolves correctly through the separately-recorded `b`-side
-    /// graph.
-    public func recordBooleanHistory(
-        bodyId outId: String,
-        aBodyId: String,
-        bBodyId: String,
-        aShape: Shape,
-        bShape: Shape,
-        output: Shape,
-        ref: ShapeHistoryRef,
-        operationName: String
-    ) {
-        if let aGraph = TopologyGraph(shape: aShape),
-           let aRoot = aGraph.findNode(for: aShape) {
-            aGraph.add(
-                output, absorbing: ref,
-                inputRoots: [TopologyGraph.NodeRef(kind: aRoot.kind, index: aRoot.index)],
-                operationName: operationName
-            )
-            graphs[aBodyId] = aGraph
-            graphs[outId] = aGraph
-        }
-        if let bGraph = TopologyGraph(shape: bShape),
-           let bRoot = bGraph.findNode(for: bShape) {
-            bGraph.add(
-                output, absorbing: ref,
-                inputRoots: [TopologyGraph.NodeRef(kind: bRoot.kind, index: bRoot.index)],
-                operationName: operationName
-            )
-            graphs[bBodyId] = bGraph
-        }
-    }
-
-    /// Translate a single-input `ShapeHistoryRef` (gsdali/OCCTSwift#165
-    /// Tier 2 / Tier 3 — fillet / chamfer / shell / defeature, plus
-    /// `FeatureReconstructor.BuildResult.histories[id]`) via
-    /// `add(_:absorbing:inputRoots:operationName:)` (#90 / #93). Same
-    /// one-graph-instance requirement as `recordBooleanHistory`, just
-    /// with a single input side.
-    ///
-    /// Operations without a `*WithFullHistory` variant (sewing, healing
-    /// — SecondMouseAU/OCCTSwift#327) don't have a `ShapeHistoryRef` to
-    /// absorb and so never reach this method; `heal_shape` still uses
-    /// `recordIdentityHistoryIfTopologyPreserved`'s topology-count
-    /// heuristic below, unchanged by this refactor.
-    public func recordSingleInputHistory(
-        bodyId: String,
-        inputShape: Shape,
-        output: Shape,
-        ref: ShapeHistoryRef,
-        operationName: String
-    ) {
-        guard let graph = TopologyGraph(shape: inputShape),
-              let root = graph.findNode(for: inputShape) else { return }
-        graph.add(
-            output, absorbing: ref,
-            inputRoots: [TopologyGraph.NodeRef(kind: root.kind, index: root.index)],
-            operationName: operationName
-        )
-        graphs[bodyId] = graph
-    }
-
-    /// Convenience for the common "post-mutation graph with 1:1
-    /// identity history" pattern used by topology-preserving tools
-    /// (transforms, in-place healings, …). Records every node in the
-    /// post-mutation graph as deriving from the same-indexed node in
-    /// the (notional) pre-mutation graph — find_derived will return
-    /// the same index, which is what we want.
-    public func recordIdentityHistory(
-        bodyId: String,
-        postMutationShape: Shape,
-        operationName: String
-    ) {
-        // No history records to write — transforms preserve topology
-        // 1:1 by construction. Register the post-mutation graph and
-        // let RemapTools' `findDerivedOrSelf` resolve every node to
-        // self (since none are mentioned in any record).
-        _ = operationName
-        guard let graph = TopologyGraph(shape: postMutationShape) else { return }
-        graphs[bodyId] = graph
-    }
-
-    /// Conditional version of `recordIdentityHistory` — only records
-    /// if the pre/post topology counts match (face / edge / vertex).
-    /// Returns true when history was captured, false when the
-    /// post-mutation shape's topology differs and the heuristic should
-    /// take over downstream. Used by tools like `heal_shape` whose
-    /// operation usually preserves topology but might rewire edges
-    /// when fixing real defects.
+    /// The a-side graph becomes `outId`'s canonical graph too (arbitrary but consistent "primary"
+    /// choice: `outId` resolves through the a-side graph for history purposes) via `commit`, which
+    /// writes `outId`'s entry. The b-side only needs `absorb`: `bBodyId`'s own file is unchanged by
+    /// a boolean (only `outId`'s output file is new), so writing a `commit`-style entry for it
+    /// would overwrite its liveShape/fingerprint with `output` and corrupt the next read of that
+    /// body. `bGraph`'s mutation is visible through `bBodyId`'s existing entry automatically since
+    /// BRepGraph is a reference type.
     @discardableResult
-    public func recordIdentityHistoryIfTopologyPreserved(
-        bodyId: String,
-        preMutationShape: Shape,
-        postMutationShape: Shape,
+    public func recordBooleanHistory(
+        outId: String,
+        outputPath: String,
+        aLineage: (graph: BRepGraph, root: BRepGraph.NodeRef),
+        bLineage: (graph: BRepGraph, root: BRepGraph.NodeRef),
+        output: Shape,
+        ref: ShapeHistoryRef,
         operationName: String
     ) -> Bool {
-        guard let pre = TopologyGraph(shape: preMutationShape),
-              let post = TopologyGraph(shape: postMutationShape) else {
-            return false
-        }
-        guard pre.faceCount == post.faceCount,
-              pre.edgeCount == post.edgeCount,
-              pre.vertexCount == post.vertexCount else {
-            return false
-        }
-        // Topology preserved 1:1 — no records to write. RemapTools'
-        // `findDerivedOrSelf` resolves every node to self.
-        _ = operationName
-        graphs[bodyId] = post
-        return true
+        absorb(into: bLineage.graph, root: bLineage.root, output: output, ref: ref, operationName: operationName)
+        return commit(bodyId: outId, path: outputPath, output: output, ref: ref, from: aLineage, operationName: operationName)
     }
 }
