@@ -84,7 +84,7 @@ let package = Package(
         // TopologyGraph model. All sibling deps below are re-pinned to the
         // matching p1 cohort. 1.8.0 adds Exporter.writeBREP(allowInvalid:) for
         // read_brep / import_file `allowInvalid` (#41).
-        occtDep("OCCTSwift", from: "1.12.9"),  // ≥1.12.9: OCCT kernel crash/hang fixes through #318 and #323 (patches 0003-0009)
+        occtDep("OCCTSwift", from: "1.12.10"),  // ≥1.12.9: OCCT kernel crash/hang fixes through #318 and #323 (patches 0003-0009); ≥1.12.0: TopologyGraph.add(_:absorbing:inputRoots:operationName:) absorbs a *WithFullHistory op's real BRepTools_History (OCCTSwift#290), replacing HistoryRegistry's hand-rolled centroid correlation (#90/#93); ≥1.10.1: kernel fix for OCCTSwift#280 (XDE STEP read corrupting later STEP writes); 1.10.0 added O(edges) allEdgePolylines(Indexed) (#275)
         occtDep("OCCTSwiftMesh", from: "1.1.1"),
         // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
         // Composer.render(spec:components:) / render(spec:document:) — multi-body

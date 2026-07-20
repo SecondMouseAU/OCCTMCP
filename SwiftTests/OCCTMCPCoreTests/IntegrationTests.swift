@@ -1361,6 +1361,215 @@ struct IntegrationTests {
         }
         #expect(text.contains("alpha"))
     }
+
+    @Test("history-based remap: a face split by a boolean resolves to both successors (#90/#93)")
+    func historyRemapSplitFaceResolvesToTwoSuccessors() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-split-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Shape.box(width:height:depth:) is centred at the origin, so a
+        // 20x20x20 box spans x/y/z: -10..10 (top face at z=10). `tool`
+        // is a shallow slot cut down from the top face only (z: 0..10
+        // vs box z: -10..10 — doesn't reach the bottom), off-centre in
+        // x (6..8 of -10..10, full y width) so it splits the top face
+        // into two unequal, individually-addressable pieces rather than
+        // deleting it outright.
+        guard let box = Shape.box(width: 20, height: 20, depth: 20),
+              let toolRaw = Shape.box(width: 2, height: 20, depth: 10),
+              let tool = toolRaw.translated(by: SIMD3(7, 0, 5)) else {
+            Issue.record("Failed to synthesise box/tool fixtures")
+            return
+        }
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(scene)/part.brep"))
+        try Exporter.writeBREP(shape: tool, to: URL(fileURLWithPath: "\(scene)/tool.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "split-face history test",
+            bodies: [
+                BodyDescriptor(id: "part", file: "part.brep", color: [1, 0, 0, 1]),
+                BodyDescriptor(id: "tool", file: "tool.brep", color: [0, 1, 0, 1]),
+            ]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // Pick the top face specifically (outward normal +Z) — the one
+        // the slot cut will split into two.
+        try harness.send(.init(
+            id: 70, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "kind": .string("face"),
+                    "filter": .object(["normalDirection": .array([.double(0), .double(0), .double(1)])]),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = try JSONSerialization.jsonObject(with: d1) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        try harness.send(.init(
+            id: 71, method: "tools/call",
+            params: .object([
+                "name": .string("boolean_op"),
+                "arguments": .object([
+                    "op": .string("subtract"),
+                    "aBodyId": .string("part"),
+                    "bBodyId": .string("tool"),
+                    "outputBodyId": .string("slotted"),
+                ]),
+            ])
+        ))
+        let boolResp = try harness.recv(timeout: 30)
+        #expect(boolResp["error"] == nil, "boolean subtract errored: \(boolResp)")
+
+        try harness.send(.init(
+            id: 72, method: "tools/call",
+            params: .object([
+                "name": .string("remap_selection"),
+                "arguments": .object(["selectionIds": .array([.string(selectionId)])]),
+            ])
+        ))
+        let rmResp = try harness.recv(timeout: 5)
+        guard case .object(let r2)? = rmResp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let p2 = try JSONSerialization.jsonObject(with: d2) as? [String: Any],
+              let remapped = p2["remapped"] as? [[String: Any]],
+              let entry = remapped.first else {
+            Issue.record("remap_selection response shape unexpected")
+            return
+        }
+        let fate = entry["fate"] as? String ?? "<missing>"
+        let newIds = entry["newSelectionIds"] as? [String] ?? []
+        #expect(fate == "split", "top face crossed by a slot should split (got \(fate))")
+        #expect(newIds.count == 2, "expected 2 successor faces from the slot cut, got \(newIds.count): \(newIds)")
+        if let conf = entry["confidenceMm"] as? Double {
+            #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
+        }
+    }
+
+    @Test("history-based remap: a face fully consumed by a boolean reports fate=lost, not a false match (#90/#93)")
+    func historyRemapDistinguishesDeletedFromModified() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built — run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-deleted-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Shape.box(width:height:depth:) is centred at the origin: a
+        // 10x10x10 box spans x/y/z: -5..5 (top face at z=5). `tool`
+        // engulfs the entire top half (z: 0..5) and then some in x/y
+        // too, so the original top face has no image at all in the
+        // result — fully consumed, not merely reshaped.
+        guard let box = Shape.box(width: 10, height: 10, depth: 10),
+              let toolRaw = Shape.box(width: 20, height: 20, depth: 10),
+              let tool = toolRaw.translated(by: SIMD3(-5, -5, 5)) else {
+            Issue.record("Failed to synthesise box/tool fixtures")
+            return
+        }
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(scene)/part.brep"))
+        try Exporter.writeBREP(shape: tool, to: URL(fileURLWithPath: "\(scene)/tool.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "deleted-face history test",
+            bodies: [
+                BodyDescriptor(id: "part", file: "part.brep", color: [1, 0, 0, 1]),
+                BodyDescriptor(id: "tool", file: "tool.brep", color: [0, 1, 0, 1]),
+            ]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        try harness.send(.init(
+            id: 80, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "kind": .string("face"),
+                    "filter": .object(["normalDirection": .array([.double(0), .double(0), .double(1)])]),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = try JSONSerialization.jsonObject(with: d1) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        try harness.send(.init(
+            id: 81, method: "tools/call",
+            params: .object([
+                "name": .string("boolean_op"),
+                "arguments": .object([
+                    "op": .string("subtract"),
+                    "aBodyId": .string("part"),
+                    "bBodyId": .string("tool"),
+                    "outputBodyId": .string("halved"),
+                ]),
+            ])
+        ))
+        let boolResp = try harness.recv(timeout: 30)
+        #expect(boolResp["error"] == nil, "boolean subtract errored: \(boolResp)")
+
+        try harness.send(.init(
+            id: 82, method: "tools/call",
+            params: .object([
+                "name": .string("remap_selection"),
+                "arguments": .object(["selectionIds": .array([.string(selectionId)])]),
+            ])
+        ))
+        let rmResp = try harness.recv(timeout: 5)
+        guard case .object(let r2)? = rmResp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let p2 = try JSONSerialization.jsonObject(with: d2) as? [String: Any],
+              let remapped = p2["remapped"] as? [[String: Any]],
+              let entry = remapped.first else {
+            Issue.record("remap_selection response shape unexpected")
+            return
+        }
+        let fate = entry["fate"] as? String ?? "<missing>"
+        let newIds = entry["newSelectionIds"] as? [String] ?? []
+        #expect(fate == "lost", "fully-consumed top face should report fate=lost (got \(fate))")
+        #expect(newIds.isEmpty, "a deleted face should have no successors, got \(newIds)")
+    }
 }
 
 // MARK: - Harness

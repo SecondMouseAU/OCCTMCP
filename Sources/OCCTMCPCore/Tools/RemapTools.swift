@@ -88,6 +88,11 @@ public enum RemapTools {
             // v0.6: prefer the recorded TopologyGraph history over the
             // centroid heuristic when a mutating tool opted in.
             let recordedGraph = await historyRegistry.graph(for: bodyId)
+            // #91: the centroid-fallback path below mints selectionIds
+            // too (pickClosest → registry.record), so it has to agree
+            // with select_topology's index convention — the shape's own
+            // TopologyGraph node index, not the enumeration loop index.
+            let currentGraph = TopologyGraph(shape: shape)
 
             for id in ids {
                 guard let anchor = await registry.anchor(for: id) else {
@@ -123,6 +128,7 @@ public enum RemapTools {
                     anchor: anchor,
                     priorSnapshot: snapshot,
                     shape: shape,
+                    graph: currentGraph,
                     bodyId: bodyId,
                     tolerance: tolerance,
                     registry: registry
@@ -212,6 +218,7 @@ public enum RemapTools {
         anchor: TopologyAnchor,
         priorSnapshot: AnchorSnapshot?,
         shape: Shape,
+        graph: TopologyGraph?,
         bodyId: String,
         tolerance: Double,
         registry: SelectionRegistry
@@ -230,7 +237,8 @@ public enum RemapTools {
         case .face:
             let candidates = shape.faces().enumerated().map { (i, face) -> (Int, SIMD3<Double>, Double, String) in
                 let (center, _) = SelectionTools.faceCenterAndNormal(face: face)
-                return (i, center, face.area(), String(describing: face.surfaceType))
+                let index = SelectionTools.graphIndex(for: Shape.fromFace(face), kind: .face, in: graph, fallback: i)
+                return (index, center, face.area(), String(describing: face.surfaceType))
             }
             return await pickClosest(
                 originalId: originalId,
@@ -261,8 +269,9 @@ public enum RemapTools {
         case .edge:
             let candidates = shape.edges().enumerated().compactMap { (i, edge) -> Candidate? in
                 guard let center = SelectionTools.edgeMidpoint(edge: edge) else { return nil }
+                let index = SelectionTools.graphIndex(for: Shape.fromEdge(edge), kind: .edge, in: graph, fallback: i)
                 return Candidate(
-                    index: i,
+                    index: index,
                     center: center,
                     area: nil,
                     length: edge.length,
@@ -288,8 +297,12 @@ public enum RemapTools {
             )
 
         case .vertex:
-            let candidates = shape.vertices().enumerated().map { (i, v) -> Candidate in
-                Candidate(index: i, center: v, area: nil, length: nil, type: "vertex")
+            // Not shape.vertices() — see the matching note in
+            // SelectionTools.selectTopology (#91).
+            let candidates = shape.subShapes(ofType: .vertex).enumerated().map { (i, vShape) -> Candidate in
+                let index = SelectionTools.graphIndex(for: vShape, kind: .vertex, in: graph, fallback: i)
+                let point = vShape.centerOfMass ?? .zero
+                return Candidate(index: index, center: point, area: nil, length: nil, type: "vertex")
             }
             return await pickClosest(
                 originalId: originalId,

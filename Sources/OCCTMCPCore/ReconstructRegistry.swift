@@ -89,6 +89,20 @@ public enum ReconstructError: Error, CustomStringConvertible, Sendable {
 public actor ReconstructRegistry {
     public static let shared = ReconstructRegistry()
 
+    /// Invariant (#92): a session's graph must never be structurally
+    /// mutated — no node removal/compaction/dedup — while
+    /// `reconstruct.*` attributes are attached. Every write in this file
+    /// goes through `setAttribute`, never through a graph-mutating call,
+    /// so the `<kind>:<index>` node addressing below (`format`/`parse`)
+    /// stays valid for a session's lifetime. `AnalysisTools.graph_compact`
+    /// / `graph_dedup` are one-shot, file-path-only, and never touch a
+    /// live session graph — if a future `reconstruct_*` tool wires
+    /// compaction into a live session, indices can shift out from under
+    /// stored attribute keys with nothing to catch it (unlike a
+    /// `GraphUID`, which `TopologyGraph` resolves to `nil` rather than a
+    /// wrong node on a stale reference). Switch node addressing to
+    /// `GraphUID` (minted via `graph.uid(ofNodeKind:index:)`) before
+    /// adding any compaction/dedup path here.
     private var sessions: [String: TopologyGraph] = [:]
 
     public init() {}

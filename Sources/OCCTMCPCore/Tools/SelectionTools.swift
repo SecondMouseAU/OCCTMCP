@@ -58,6 +58,14 @@ public enum SelectionTools {
             return .init("\(error)")
         }
         let shape = loaded.shape
+        // #91: shape.faces()/.edges()/.vertices() enumeration order is
+        // NOT guaranteed to equal TopologyGraph(shape:)'s own per-kind
+        // node index order (verified false for edges/vertices — see
+        // TopologyIdentityTests). remap_selection's history path
+        // (RemapTools.remapViaHistory) reinterprets a selectionId's
+        // embedded index as a TopologyGraph.NodeRef index, so that
+        // index has to come from the graph, not the enumeration loop.
+        let graph = TopologyGraph(shape: shape)
 
         var entries: [SelectionEntry] = []
         var totalScanned = 0
@@ -98,7 +106,8 @@ public enum SelectionTools {
                     let limit = filter.normalTolerance ?? 0.01
                     if abs(cos - 1.0) > limit { continue }
                 }
-                let anchor = TopologyAnchor.face(bodyId: bodyId, index: i)
+                let index = graphIndex(for: Shape.fromFace(face), kind: .face, in: graph, fallback: i)
+                let anchor = TopologyAnchor.face(bodyId: bodyId, index: index)
                 let snapshot = AnchorSnapshot(
                     center: [center.x, center.y, center.z],
                     normal: normal.map { [$0.x, $0.y, $0.z] },
@@ -110,7 +119,7 @@ public enum SelectionTools {
                     selectionId: anchor.selectionId,
                     bodyId: bodyId,
                     kind: "face",
-                    anchorIndex: i,
+                    anchorIndex: index,
                     anchor: snapshot
                 ))
             }
@@ -140,7 +149,8 @@ public enum SelectionTools {
                 } else {
                     circleCenter = nil
                 }
-                let anchor = TopologyAnchor.edge(bodyId: bodyId, index: i)
+                let index = graphIndex(for: Shape.fromEdge(edge), kind: .edge, in: graph, fallback: i)
+                let anchor = TopologyAnchor.edge(bodyId: bodyId, index: index)
                 let snapshot = AnchorSnapshot(
                     center: center.map { [$0.x, $0.y, $0.z] } ?? [0, 0, 0],
                     length: length,
@@ -152,24 +162,31 @@ public enum SelectionTools {
                     selectionId: anchor.selectionId,
                     bodyId: bodyId,
                     kind: "edge",
-                    anchorIndex: i,
+                    anchorIndex: index,
                     anchor: snapshot
                 ))
             }
 
         case "vertex":
-            for (i, vertex) in shape.vertices().enumerated() {
+            // Not shape.vertices() — that returns bare SIMD3 points with
+            // no Shape wrapper to look up in the graph, and (per #91) its
+            // order doesn't match the graph's vertex-kind index order
+            // anyway. subShapes(ofType: .vertex) gives real vertex Shapes
+            // to resolve through graphIndex(...).
+            for (i, vertexShape) in shape.subShapes(ofType: .vertex).enumerated() {
                 totalScanned += 1
-                let anchor = TopologyAnchor.vertex(bodyId: bodyId, index: i)
+                let index = graphIndex(for: vertexShape, kind: .vertex, in: graph, fallback: i)
+                let point = vertexShape.centerOfMass ?? .zero
+                let anchor = TopologyAnchor.vertex(bodyId: bodyId, index: index)
                 let snapshot = AnchorSnapshot(
-                    center: [vertex.x, vertex.y, vertex.z]
+                    center: [point.x, point.y, point.z]
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
                 entries.append(SelectionEntry(
                     selectionId: anchor.selectionId,
                     bodyId: bodyId,
                     kind: "vertex",
-                    anchorIndex: i,
+                    anchorIndex: index,
                     anchor: snapshot
                 ))
             }
@@ -211,5 +228,24 @@ public enum SelectionTools {
 
     static func edgeLength(edge: Edge) -> Double {
         return edge.length
+    }
+
+    /// Resolve `sub`'s node index in `graph` for `kind` (#91). Falls
+    /// back to `fallback` — the naive enumeration index — if the graph
+    /// is absent or doesn't know the shape; should not happen in
+    /// practice for a sub-shape freshly enumerated from the exact shape
+    /// the graph was built from, but a stale fallback is safer than
+    /// dropping the selection outright.
+    static func graphIndex(
+        for sub: Shape?,
+        kind: TopologyGraph.NodeKind,
+        in graph: TopologyGraph?,
+        fallback: Int
+    ) -> Int {
+        guard let graph, let sub,
+              let node = graph.findNode(for: sub), node.kind == kind else {
+            return fallback
+        }
+        return node.index
     }
 }
