@@ -1,6 +1,6 @@
 // swift-tools-version: 6.1
 //
-// OCCTMCP — Swift port of the Node MCP server. Coexists with the original
+// OCCTMCP: Swift port of the Node MCP server. Coexists with the original
 // TypeScript implementation under src/ during the migration; once feature
 // parity is reached the Node code can be removed.
 //
@@ -53,7 +53,7 @@ let package = Package(
         // OCCT 8.0.0 GA cohort.
         //
         // OCCTSwift 1.1.0 closes gsdali/OCCTSwift#167: TopologyGraph
-        // gains `findDerivedOrSelf(of:)` and `hasHistoryRecord(for:)` —
+        // gains `findDerivedOrSelf(of:)` and `hasHistoryRecord(for:)`:
         // single-call disambiguation between untouched / modified /
         // deleted nodes. Lets RemapTools drop its v1.3
         // isIdentityPreserving flag workaround.
@@ -67,21 +67,21 @@ let package = Package(
         // `setAttribute` / `attribute`), a closed `AttrValue` enum, and
         // a Codable `GraphSnapshot` round-trip (`snapshot()` /
         // `init(snapshot:)`). Backs the `reconstruct_*` tool group
-        // (OCCTMCP #33) — LLM read/write over the attributed graph.
+        // (OCCTMCP #33): LLM read/write over the attributed graph.
         //
         // OCCTSwiftViewport 1.0.2 closes #28: Metal point-sprite
         // pipeline. Combined with OCCTSwiftTools 1.1.0 wiring
         // pointRadius / vertexColors through to ViewportBody, the
         // pointCloud annotation now actually renders.
         //
-        // Floored at 1.7.1 for OCCT 8.0.0p1 — the redesigned BRepGraph/
+        // Floored at 1.7.1 for OCCT 8.0.0p1: the redesigned BRepGraph/
         // TopologyGraph model. All sibling deps below are re-pinned to the
         // matching p1 cohort. 1.8.0 adds Exporter.writeBREP(allowInvalid:) for
         // read_brep / import_file `allowInvalid` (#41).
-        occtDep("OCCTSwift", from: "1.15.0"),  // >=1.15.0: TopologyGraph renamed to BRepGraph (OCCTSwift#333, TopologyGraph kept as a deprecated typealias); >=1.14.0: *WithFullHistory for translate/rotate/scale/mirror/patterns (OCCTSwift#331); >=1.13.0: *WithFullHistory for heal/sew/quilt/solid (OCCTSwift#327), heal_shape now records real history instead of the topology-count heuristic; >=1.12.9: OCCT kernel crash/hang fixes through #318 and #323 (patches 0003-0009); >=1.12.0: BRepGraph.add(_:absorbing:inputRoots:operationName:) absorbs a *WithFullHistory op's real BRepTools_History (OCCTSwift#290), replacing HistoryRegistry's hand-rolled centroid correlation (#90/#93); >=1.10.1: kernel fix for OCCTSwift#280 (XDE STEP read corrupting later STEP writes); 1.10.0 added O(edges) allEdgePolylines(Indexed) (#275)
+        occtDep("OCCTSwift", from: "1.15.2"),  // >=1.15.2: docs+tests only, retracts #336 as not-a-bug (two-hop *WithFullHistory chaining always absorbed correctly; the reported "zero records" was a box-centering mistake in the repro's own geometry); >=1.15.0: TopologyGraph renamed to BRepGraph (OCCTSwift#333, TopologyGraph kept as a deprecated typealias); >=1.14.0: *WithFullHistory for translate/rotate/scale/mirror/patterns (OCCTSwift#331); >=1.13.0: *WithFullHistory for heal/sew/quilt/solid (OCCTSwift#327), heal_shape now records real history instead of the topology-count heuristic; >=1.12.9: OCCT kernel crash/hang fixes through #318 and #323 (patches 0003-0009); >=1.12.0: BRepGraph.add(_:absorbing:inputRoots:operationName:) absorbs a *WithFullHistory op's real BRepTools_History (OCCTSwift#290), replacing HistoryRegistry's hand-rolled centroid correlation (#90/#93); >=1.10.1: kernel fix for OCCTSwift#280 (XDE STEP read corrupting later STEP writes); 1.10.0 added O(edges) allEdgePolylines(Indexed) (#275)
         occtDep("OCCTSwiftMesh", from: "1.1.1"),
         // 1.0.4 adds DrawingComposer GA / assembly drawings (OCCTSwiftScripts#50):
-        // Composer.render(spec:components:) / render(spec:document:) — multi-body
+        // Composer.render(spec:components:) / render(spec:document:): multi-body
         // drawings with a parts list + balloons. Surfaced via generate_drawing's
         // bodyIds.
         // v1.2.0 = OCCTSwift 1.7.1 floor (OCCT 8.0.0p1) + the graph-select verb /

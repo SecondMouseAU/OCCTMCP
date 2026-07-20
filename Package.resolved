@@ -1,5 +1,5 @@
 {
-  "originHash" : "a137479a7e949afe343503a1cb6c181e896eaa27b1cebd22036a6fd6eed1cf21",
+  "originHash" : "4223b053c8aa2ac3671dc67160e98a2c36649811ef1af9e8032029326f053737",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwift.git",
       "state" : {
-        "revision" : "b71b65760498052a3ce79c91b95a904fea6df459",
-        "version" : "1.15.0"
+        "revision" : "988c46a8c8bcae9753e30d27db83662fa14f7e96",
+        "version" : "1.15.2"
       }
     },
     {

@@ -27,10 +27,13 @@
 // whose file is unmodified never gets its liveShape/fingerprint overwritten with the OTHER side's
 // output, which would silently corrupt the next read of that body.
 //
-// Known gap (SecondMouseAU/OCCTSwift#336): chaining a second *WithFullHistory op onto the output
-// of a prior one (rather than a freshly-loaded Shape) currently absorbs zero records, verified
-// independent of this file. A body mutated twice in a row still degrades to a generation reset on
-// hop 2 today; single-hop absorption is unaffected.
+// SecondMouseAU/OCCTSwift#336 (retracted in v1.15.2, not a bug): a two-hop chain (a second
+// *WithFullHistory op onto the output of a prior one, rather than a freshly-loaded Shape) was
+// reported to absorb zero records. Root cause: the repro tool's second cut was aimed at a corner
+// outside the box's actual bounds, `Shape.box` being centered at the origin rather than
+// corner-anchored, so the second op was a genuine geometric no-op; this repo's own
+// HistoryRegistryLineageTests.retainedLineageSurvivesTwoHops carried the identical geometry
+// mistake and is now fixed the same way. Two-hop (and longer) chains absorb correctly.
 
 import Foundation
 import simd

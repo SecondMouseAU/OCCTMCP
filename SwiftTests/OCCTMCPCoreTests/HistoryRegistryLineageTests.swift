@@ -18,7 +18,7 @@ import ScriptHarness
 @Suite("HistoryRegistry retained lineage (#90/#91/#93)")
 struct HistoryRegistryLineageTests {
 
-    @Test("hop 1 absorbs correctly; hop 2 chaining is a KNOWN issue (OCCTSwift#336) until fixed upstream")
+    @Test("hop 1 and hop 2 both absorb as continuations of the SAME retained graph (OCCTSwift#336 retracted, not a bug)")
     func retainedLineageSurvivesTwoHops() async throws {
         let registry = HistoryRegistry()
         let scene = NSTemporaryDirectory() + "occtmcp-lineage-\(UUID().uuidString)"
@@ -57,50 +57,46 @@ struct HistoryRegistryLineageTests {
         #expect(lineage1.graph.instanceID == instanceID0, "graph identity should be retained across hop 1")
         #expect(lineage1.graph.contains(uid: uid0), "pre-hop-1 UID should still resolve after hop 1")
 
-        // Hop 2: a second subtract, chained off hop 1's output. Cuts the
-        // OPPOSITE corner (box spans (0,0,0)-(10,20,30)) so it clearly
-        // touches/modifies pre-existing outer faces near (10,20,30)
-        // rather than landing fully enclosed inside the solid, which
-        // wouldn't generate any Modified/Generated record against the
-        // tracked root at all.
+        // Hop 2: a second subtract, chained off hop 1's output. `Shape.box`
+        // is CENTERED at the origin (box(10,20,30) spans (-5,-10,-15) to
+        // (5,10,15), not (0,0,0)-(10,20,30): the exact box-centering
+        // mistake OCCTSwift#336's own repro made, see below), so straddle
+        // a REAL corner of that centered box, (5,10,15), rather than a
+        // point that misses the solid entirely.
         //
-        // KNOWN ISSUE (SecondMouseAU/OCCTSwift#336): a *WithFullHistory
-        // call whose INPUT is the output of a prior *WithFullHistory op
-        // (rather than a freshly-loaded Shape) currently produces a
-        // ShapeHistoryRef that absorbs zero records, verified independent
-        // of HistoryRegistry (reproduces against a brand-new BRepGraph
-        // too, and regardless of compound-vs-solid root drilling). Single-
-        // hop absorption (hop 1, above) is unaffected. commit()'s decision
-        // tree correctly detects this (historyRecordCount doesn't grow)
-        // and degrades to a generation reset rather than a false
-        // continuation, so this whole block is wrapped in withKnownIssue:
-        // it documents today's actual behavior and will flip to reporting
-        // an unexpected pass (worth noticing) once #336 ships and this
-        // repins.
-        let tool2 = try #require(Shape.box(width: 3, height: 3, depth: 3)?.translated(by: SIMD3(8, 18, 28)))
+        // SecondMouseAU/OCCTSwift#336 was RETRACTED as not-a-bug in
+        // v1.15.2: the reported "chaining absorbs zero records" was the
+        // filer's (this repo's) own repro tool clipping a corner outside
+        // the box's actual (centered) bounds, a genuine geometric no-op
+        // that correctly absorbed zero records. This test's own hop 2
+        // originally made the identical mistake (translating by
+        // (8, 18, 28), corner-anchored math against a centered box, which
+        // lands entirely outside (-5,-10,-15)-(5,10,15) and never touches
+        // the solid) and was wrapped in withKnownIssue on that basis;
+        // fixed here to a translation that genuinely clips real geometry,
+        // which absorbs correctly with no upstream change needed.
+        let tool2 = try #require(Shape.box(width: 3, height: 3, depth: 3)?.translated(by: SIMD3(5, 10, 15)))
         let (out2, hist2) = try #require(lineage1.shape.subtractedWithFullHistory(tool2))
         try Exporter.writeBREP(shape: out2, to: URL(fileURLWithPath: path))
 
-        await withKnownIssue("SecondMouseAU/OCCTSwift#336: chaining a second *WithFullHistory op onto a prior op's output absorbs zero records") {
-            let committed2 = await registry.commit(
-                bodyId: "part", path: path, output: out2, ref: hist2,
-                from: (lineage1.graph, lineage1.root), operationName: "test-hop2"
-            )
-            #expect(committed2, "hop 2 should absorb as a continuation, not a generation reset")
+        let committed2 = await registry.commit(
+            bodyId: "part", path: path, output: out2, ref: hist2,
+            from: (lineage1.graph, lineage1.root), operationName: "test-hop2"
+        )
+        #expect(committed2, "hop 2 should absorb as a continuation, not a generation reset")
 
-            let lineage2 = try await registry.currentInput(bodyId: "part", path: path)
-            #expect(!lineage2.isFreshLoad)
-            #expect(
-                lineage2.graph.instanceID == instanceID0,
-                "graph identity should STILL be retained after hop 2: this is 'one graph across mutations'"
-            )
-            #expect(
-                lineage2.graph.contains(uid: uid0),
-                "pre-hop-1 UID should STILL resolve after hop 2, proving the retained lineage spans both hops, not just hop 1's own continuation"
-            )
-            let resolved = try #require(lineage2.graph.node(forUID: uid0))
-            #expect(resolved.kind == Int(BRepGraph.NodeKind.face.rawValue))
-        }
+        let lineage2 = try await registry.currentInput(bodyId: "part", path: path)
+        #expect(!lineage2.isFreshLoad)
+        #expect(
+            lineage2.graph.instanceID == instanceID0,
+            "graph identity should STILL be retained after hop 2: this is 'one graph across mutations'"
+        )
+        #expect(
+            lineage2.graph.contains(uid: uid0),
+            "pre-hop-1 UID should STILL resolve after hop 2, proving the retained lineage spans both hops, not just hop 1's own continuation"
+        )
+        let resolved = try #require(lineage2.graph.node(forUID: uid0))
+        #expect(resolved.kind == Int(BRepGraph.NodeKind.face.rawValue))
     }
 
     @Test("a failed/no-op absorb degrades to a generation reset, not a silent wrong continuation")

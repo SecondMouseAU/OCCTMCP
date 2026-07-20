@@ -7,7 +7,7 @@ nav_order: 6
 # Selection & remap
 
 These tools let an LLM pick faces, edges, or vertices on scene bodies and carry those picks forward
-across mutations, transforms, and pattern instances. All six tools are **Swift only** — the Node
+across mutations, transforms, and pattern instances. All six tools are **Swift only**: the Node
 server does not expose them.
 
 ## Tools
@@ -32,7 +32,7 @@ registers server-tracked `selectionId`s in the format `sel:<bodyId>#<kind>[<idx>
 | `filter` | object | no | face: `surfaceType`, `minArea`, `maxArea`, `normalDirection`, `normalTolerance`. edge: `curveType`, `minLength`, `maxLength`. |
 | `limit` | integer (≥ 1) | no | Maximum number of entities to return. |
 
-**Returns** — Array of `selectionId` strings plus an anchor snapshot (centroid, kind, index) for
+**Returns:** Array of `selectionId` strings plus an anchor snapshot (centroid, kind, index) for
 each matched entity. The registry retains these until `clear_selections` is called or the session
 ends.
 
@@ -57,7 +57,7 @@ ends.
 }
 ```
 
-**Notes** — `selectionId`s produced here can be passed directly to `add_dimension`,
+**Notes:** `selectionId`s produced here can be passed directly to `add_dimension`,
 `remap_selection`, and `find_correspondences`. Use `list_selections` to review all live picks.
 
 ---
@@ -72,13 +72,9 @@ history (OCCTSwift v1.13.0) rather than a topology-count heuristic. `select_topo
 durable GraphUID per pick in addition to its `selectionId`; `remap_selection` tries that GraphUID
 first, then the recorded history graph, then the centroid heuristic.
 
-**Known limitation:** a body mutated twice in a row by history-bearing tools (e.g. `apply_feature`
-called twice) currently loses the connecting history on the second mutation, a gap in the upstream
-OCCTSwift `*WithFullHistory` chaining mechanism, not this tool
-([SecondMouseAU/OCCTSwift#336](https://github.com/SecondMouseAU/OCCTSwift/issues/336)). Selections
-still resolve after such a chain (falling back to a fresh per-mutation graph), but `fate` may read
-`"preserved"` via implicit identity rather than genuine history in that case; a single mutation
-always resolves via real history when the underlying op supports it.
+A body mutated twice in a row by history-bearing tools (e.g. `apply_feature` called twice)
+correctly chains the connecting history across both mutations; the second mutation absorbs into
+the same retained graph as the first, not a fresh disposable one.
 
 **Server:** Swift only
 
@@ -89,7 +85,7 @@ always resolves via real history when the underlying op supports it.
 | `selectionIds` | string[] | yes | One or more `selectionId`s to remap. |
 | `toleranceMmFraction` | number | no | Fraction of body bbox diagonal to use as the match tolerance. Default `0.01`. |
 
-**Returns** — For each input `selectionId`: zero or more new `selectionId`s plus a `fate` string
+**Returns:** For each input `selectionId`: zero or more new `selectionId`s plus a `fate` string
 (`"preserved"` \| `"approximate"` \| `"lost"`). Fate is `"preserved"` when history confirms an
 exact match, `"approximate"` for centroid-heuristic matches, `"lost"` when no post-mutation
 entity falls within the tolerance.
@@ -114,7 +110,7 @@ entity falls within the tolerance.
 }
 ```
 
-**Notes** — This tool handles the *within-body* case only. To carry a pick from a source body
+**Notes:** This tool handles the *within-body* case only. To carry a pick from a source body
 onto a mirrored or patterned copy, use `find_correspondences`.
 
 ---
@@ -149,7 +145,7 @@ anchor centroid, then nearest-neighbour searches among the target's topology.
 | `angleDeg` | number | `rotate`: angle in degrees, right-hand rule about `axisDirection`. |
 | `steps` | object[] | `compound`: array of nested transform objects applied in order. |
 
-**Returns** — For each source `selectionId`: one target `selectionId` (or `null`) plus
+**Returns:** For each source `selectionId`: one target `selectionId` (or `null`) plus
 `confidenceMm` and `fate` (`"matched"` \| `"lost"`).
 
 When `transform` is omitted, resolution falls back to provenance metadata recorded by
@@ -186,7 +182,7 @@ path resolved (`"explicit"` \| `"provenance"` \| `"bbox-inference"` \| `"identit
 }
 ```
 
-**Notes** — For within-body remapping after a mutation, use `remap_selection` instead. Linear and
+**Notes:** For within-body remapping after a mutation, use `remap_selection` instead. Linear and
 circular pattern outputs produce N copies; provenance is not written for them, so supply an
 explicit `transform` or rely on bbox-translation inference.
 
@@ -206,7 +202,7 @@ pocket, without requiring a prior `query_topology` call.
 | `bodyId` | string | yes | Body to recognise features on. |
 | `kinds` | Array of `"pocket"` \| `"hole"` | no | Feature kinds to detect. Defaults to both when omitted. |
 
-**Returns** — Array of `selectionId`s (one per detected feature instance) plus metadata
+**Returns:** Array of `selectionId`s (one per detected feature instance) plus metadata
 (kind, representative face indices). The picks are registered in the `SelectionRegistry` and
 can be forwarded directly to `add_dimension`.
 
@@ -226,21 +222,21 @@ can be forwarded directly to `add_dimension`.
 }
 ```
 
-**Drives** — AAG feature recognition (same engine as `recognize_features`).
+**Drives:** AAG feature recognition (same engine as `recognize_features`).
 
 ---
 
 ## `list_selections`
 
 Return every active `selectionId` held in the `SelectionRegistry` together with its anchor
-metadata. A cheap introspection call — useful when the session context no longer holds the
+metadata. A cheap introspection call, useful when the session context no longer holds the
 original pick results.
 
 **Server:** Swift only
 
 No parameters.
 
-**Returns** — Array of entries, each with `selectionId`, `bodyId`, `kind`, `index`, and
+**Returns:** Array of entries, each with `selectionId`, `bodyId`, `kind`, `index`, and
 `centroid`. Returns an empty array when the registry is clear.
 
 **Example**
@@ -275,7 +271,7 @@ become invalid after this call.
 
 No parameters.
 
-**Returns** — `{ "cleared": <count> }` — the number of entries removed.
+**Returns:** `{ "cleared": <count> }`: the number of entries removed.
 
 **Example**
 
