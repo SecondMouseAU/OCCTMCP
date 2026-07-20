@@ -1,4 +1,4 @@
-// RemapTools — remap_selection. v0.4 ships a position-matching
+// RemapTools: remap_selection. v0.4 ships a position-matching
 // heuristic rather than wiring OCCT history capture into every
 // mutation tool: for each input selection, look up its cached
 // AnchorSnapshot, then find the best-matching face/edge/vertex on
@@ -15,7 +15,7 @@
 // - Body-level picks always rebind to the same body.
 //
 // A future v0.5 can layer OCCT-history-based remap (matching AIS's
-// .findDerived approach) on top — opt-in per-mutation history capture
+// .findDerived approach) on top: opt-in per-mutation history capture
 // would replace the heuristic for tools that participate.
 
 import Foundation
@@ -120,7 +120,20 @@ public enum RemapTools {
                     continue
                 }
 
-                // Rung 2: recorded history graph, anchor's embedded index.
+                // Rung 2 (#94: kept intentionally, not dead code): recorded
+                // history graph, anchor's embedded index. Rung 1 only fires
+                // when select_topology minted a GraphUID for this pick AND
+                // the mutation went through a tool that records history
+                // under that UID; transform_body / mirror_or_pattern don't
+                // wire OCCTSwift's `*WithFullHistory` variants in yet, so a
+                // pure transform still generation-resets rather than
+                // recording. For that specific case the embedded literal
+                // index is not a lucky guess: transform_body/mirror map
+                // every source node 1:1 (no split/merge/delete), so the
+                // pre-mutation graph's face/edge/vertex index N is
+                // reliably still N post-mutation. Removing this rung would
+                // regress `transform_body` remaps from `confidenceMm == 0`
+                // exact matches back down to rung 3's centroid heuristic.
                 if let graph = recordedGraph,
                    let entry = remapViaHistory(
                        originalId: id,
@@ -154,7 +167,7 @@ public enum RemapTools {
 
     /// History-based remap path. Mirrors the AIS InteractiveContext.remap
     /// algorithm: BRepGraph.findDerivedOrSelf(of:) returns either
-    /// the modification chain (touched nodes), [self] (untouched —
+    /// the modification chain (touched nodes), [self] (untouched:
     /// either no record or implicit identity), or [] (explicitly
     /// recorded as deleted). Returns nil if the anchor isn't a
     /// face/edge/vertex (body always rebinds; whole-body picks aren't
@@ -227,7 +240,7 @@ public enum RemapTools {
         }
         let derived = graph.findDerivedOrSelf(of: .init(kind: kind, index: originalIndex))
         if derived.isEmpty {
-            // Explicitly recorded as deleted — definitive.
+            // Explicitly recorded as deleted: definitive.
             return RemapEntry(
                 originalSelectionId: originalId,
                 newSelectionIds: [],
@@ -257,7 +270,7 @@ public enum RemapTools {
             originalSelectionId: originalId,
             newSelectionIds: newIds,
             fate: fate,
-            confidenceMm: 0   // history-based — no centroid distance
+            confidenceMm: 0   // history-based, no centroid distance
         )
     }
 
@@ -380,7 +393,7 @@ public enum RemapTools {
             )
 
         case .vertex:
-            // Not shape.vertices() — see the matching note in
+            // Not shape.vertices(): see the matching note in
             // SelectionTools.selectTopology (#91).
             let candidates = shape.subShapes(ofType: .vertex).enumerated().map { (i, vShape) -> Candidate in
                 let index = SelectionTools.graphIndex(for: vShape, kind: .vertex, in: graph, fallback: i)

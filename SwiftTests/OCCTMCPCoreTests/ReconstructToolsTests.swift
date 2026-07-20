@@ -1,7 +1,7 @@
 // Unit tests for the reconstruct_* tool group (OCCTMCP #33): per-node
 // attribute writes over OCCTSwift 1.2.0's NodeAttributeStore, and the
 // GraphSnapshot export/import round-trip that must preserve every
-// annotation. Runs fully in-process — no occtkit, no manifest — by
+// annotation. Runs fully in-process, no occtkit, no manifest, by
 // building a box graph directly and driving the ReconstructRegistry.
 
 import Foundation
@@ -54,6 +54,63 @@ struct ReconstructToolsTests {
         #expect(node == "face:0")
         #expect(attrs[ReconstructKeys.decidedBy]?.asString == "human")
         if case .bool(let b)? = attrs[ReconstructKeys.accepted] { #expect(b) } else { Issue.record("accepted not a bool") }
+    }
+
+    @Test("pin an entity, compact(), resolve the same wire string again: same entity, both before- and after-compaction attributes intact (#95)")
+    func resolveSurvivesCompaction() async throws {
+        let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
+        let graph = try #require(BRepGraph(shape: box))
+        let registry = ReconstructRegistry()
+        await registry.store(id: "s3", graph: graph)
+        let faceKind = Int(BRepGraph.NodeKind.face.rawValue)
+
+        // Pin "face:2": first touch parses the wire string and caches a
+        // GraphUID for whatever node it named at the time, and the
+        // attribute store keys `decidedBy` by that UID, not by (kind, index).
+        let before = await registry.setDecision(id: "s3", nodeStr: "face:2", decidedBy: "human", accepted: true)
+        guard case .ok = before else {
+            Issue.record("expected .ok, got \(before)")
+            return
+        }
+        let originalUID = try #require(graph.uid(ofNodeKind: faceKind, index: 2))
+
+        // Remove a lower-indexed face and compact: any remaining face
+        // above it shifts down, so "face:2"'s original node can end up
+        // at a different raw index.
+        graph.removeNode(nodeKind: .face, nodeIndex: 0)
+        graph.compact()
+        let (newKind, newIndex) = try #require(graph.node(forUID: originalUID))
+        #expect(newKind == faceKind)
+        // Renumbering must actually have occurred, or this test would
+        // pass vacuously without exercising the UID path at all.
+        #expect(newIndex != 2)
+
+        // Resolve the SAME wire string "face:2" again, at its new index,
+        // and write a second attribute through it.
+        let newNodeStr = "face:\(newIndex)"
+        let after = await registry.forceFit(id: "s3", nodeStr: "face:2", surfaceType: "cylinder")
+        guard case let .ok(_, afterAttrs) = after else {
+            Issue.record("expected .ok, got \(after)")
+            return
+        }
+        // Both the pre-compaction write (decidedBy) and the post-compaction
+        // write (forcedSurfaceType) land on the SAME entity: the outcome
+        // from the SECOND call already reflects the FIRST call's attribute
+        // too, proving they share one GraphUID-keyed entry, not two
+        // separate NodeRef-keyed ones split across the renumbering.
+        #expect(afterAttrs[ReconstructKeys.decidedBy]?.asString == "human")
+        #expect(afterAttrs[ReconstructKeys.forcedSurfaceType]?.asString == "cylinder")
+
+        // state() independently confirms: exactly one annotated node,
+        // reported at the CURRENT post-compaction index, carrying both
+        // attributes; nothing is attached to the literal (and now
+        // differently-owned) index 2.
+        let state = try #require(await registry.state(id: "s3"))
+        #expect(state.nodes.count == 1)
+        let entry = try #require(state.nodes.first)
+        #expect(entry.node == newNodeStr)
+        #expect(entry.attributes[ReconstructKeys.decidedBy]?.asString == "human")
+        #expect(entry.attributes[ReconstructKeys.forcedSurfaceType]?.asString == "cylinder")
     }
 
     @Test("set_decision on unknown session reports noSession")

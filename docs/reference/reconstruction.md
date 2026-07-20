@@ -6,7 +6,9 @@ nav_order: 11
 
 # Reconstruction graph
 
-All Swift only. The `reconstruct_*` tools give an LLM read/write access to an attributed reconstruction graph: topology is exposed as nodes addressed `<kind>:<index>` (e.g. `face:3`) and per-node `reconstruct.*` attributes track decisions, fit overrides, and instance membership. The fitting engine lives in OCCTReconstruct — `reconstruct_force_fit` records an override as an attribute; it does **not** re-fit.
+All Swift only. The `reconstruct_*` tools give an LLM read/write access to an attributed reconstruction graph: topology is exposed as nodes addressed `<kind>:<index>` (e.g. `face:3`) and per-node `reconstruct.*` attributes track decisions, fit overrides, and instance membership. The fitting engine lives in OCCTReconstruct: `reconstruct_force_fit` records an override as an attribute; it does **not** re-fit.
+
+The `<kind>:<index>` wire format is stable across calls: passing the same node string back to any `reconstruct_*` tool always targets the same underlying topology, even if the session's graph structure changes between calls (resolution goes through a durable per-node identity internally, not the string's literal index).
 
 ## Tools
 
@@ -27,12 +29,12 @@ Export the attributed reconstruction graph as JSON: topology counts, every annot
 | `bodyId` | string | no | Scene body to start a new session from (`sessionId` defaults to `bodyId`). |
 | `sessionId` | string | no | Existing reconstruction session id. |
 
-**Returns** — JSON object with topology counts, the list of annotated nodes (each with its node address and current `reconstruct.*` attributes), and any instance clusters. Returns an error if neither `bodyId` nor `sessionId` is supplied, or the body/session cannot be found.
+**Returns:** JSON object with topology counts, the list of annotated nodes (each with its node address and current `reconstruct.*` attributes), and any instance clusters. Returns an error if neither `bodyId` nor `sessionId` is supplied, or the body/session cannot be found.
 
 **Example**
 
 ```json
-// tool call arguments — start a new session from a body
+// tool call arguments: start a new session from a body
 { "bodyId": "scan_part" }
 ```
 ```json
@@ -47,7 +49,7 @@ Export the attributed reconstruction graph as JSON: topology counts, every annot
 }
 ```
 
-**Notes** — `sessionId` is the handle used by all subsequent `reconstruct_*` calls. When starting from a `bodyId`, the returned `sessionId` is typically the same string as `bodyId` unless overridden.
+**Notes:** `sessionId` is the handle used by all subsequent `reconstruct_*` calls. When starting from a `bodyId`, the returned `sessionId` is typically the same string as `bodyId` unless overridden.
 
 ---
 
@@ -66,7 +68,7 @@ Annotate a node's reconstruction decision: `decidedBy` (`geometric` | `ml` | `hu
 | `decidedBy` | string (`geometric` \| `ml` \| `human`) | no | Who or what made the decision. |
 | `accepted` | boolean | no | Whether the proposed fit is accepted. |
 
-**Returns** — Confirmation JSON with the updated node address and the attributes now stored, or an error if the session/node is not found or neither annotation field was supplied.
+**Returns:** Confirmation JSON with the updated node address and the attributes now stored, or an error if the session/node is not found or neither annotation field was supplied.
 
 **Example**
 
@@ -95,7 +97,7 @@ Override a node's fitted surface type (e.g. force `cylinder`). Records the overr
 | `node` | string | yes | Target node as `<kind>:<index>`. |
 | `surfaceType` | string | yes | Forced surface type, e.g. `plane` / `cylinder` / `cone` / `sphere` / `torus`. |
 
-**Returns** — Confirmation JSON with the node and the recorded `surfaceType` override, or an error if the session/node is not found.
+**Returns:** Confirmation JSON with the node and the recorded `surfaceType` override, or an error if the session/node is not found.
 
 **Example**
 
@@ -108,7 +110,7 @@ Override a node's fitted surface type (e.g. force `cylinder`). Records the overr
 { "sessionId": "scan_part", "node": "face:5", "forcedSurfaceType": "cylinder" }
 ```
 
-**Notes** — The override is stored as `reconstruct.forcedSurfaceType` on the node. The engine reads it on its next reconstruction pass; calling this tool alone does not change the geometry.
+**Notes:** The override is stored as `reconstruct.forcedSurfaceType` on the node. The engine reads it on its next reconstruction pass; calling this tool alone does not change the geometry.
 
 ---
 
@@ -127,12 +129,12 @@ Confirm or reject a congruence cluster ("these N nodes are one part definition")
 | `nodes` | string[] | yes | Cluster member nodes as `<kind>:<index>`. |
 | `confirmed` | boolean | no | Whether to confirm the cluster. Defaults to `true`. |
 
-**Returns** — Confirmation JSON listing the cluster id, the nodes tagged, and the resulting `confirmed` state, or an error if the session is not found.
+**Returns:** Confirmation JSON listing the cluster id, the nodes tagged, and the resulting `confirmed` state, or an error if the session is not found.
 
 **Example**
 
 ```json
-// tool call arguments — confirm a cluster of three faces as one part definition
+// tool call arguments: confirm a cluster of three faces as one part definition
 { "sessionId": "scan_part", "clusterId": "flange_boss", "nodes": ["face:2", "face:6", "face:9"], "confirmed": true }
 ```
 ```json
@@ -155,7 +157,7 @@ Write the session's attributed graph snapshot to disk as byte-stable JSON. Defau
 | `sessionId` | string | yes | Reconstruction session id to export. |
 | `path` | string | no | Optional output path. Overrides the default location. |
 
-**Returns** — JSON with the path the snapshot was written to and the session id, or an error if the session is not found or the file cannot be written.
+**Returns:** JSON with the path the snapshot was written to and the session id, or an error if the session is not found or the file cannot be written.
 
 **Example**
 
@@ -168,7 +170,7 @@ Write the session's attributed graph snapshot to disk as byte-stable JSON. Defau
 { "sessionId": "scan_part", "path": "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/OCCTSwiftScripts/output/reconstruct/scan_part.session.json" }
 ```
 
-**Notes** — The output is byte-stable: the same session state always produces the same JSON bytes, making it safe to checksum or diff across saves.
+**Notes:** The output is byte-stable: the same session state always produces the same JSON bytes, making it safe to checksum or diff across saves.
 
 ---
 
@@ -185,7 +187,7 @@ Reload a graph snapshot file into a session and return its current state. `sessi
 | `path` | string | yes | Path to the `.session.json` snapshot file. |
 | `sessionId` | string | no | Session id to assign. Defaults to the file stem. |
 
-**Returns** — The reloaded session's graph state in the same shape as `reconstruct_get_graph`, or an error if the file cannot be read or parsed.
+**Returns:** The reloaded session's graph state in the same shape as `reconstruct_get_graph`, or an error if the file cannot be read or parsed.
 
 **Example**
 
@@ -207,4 +209,4 @@ Reload a graph snapshot file into a session and return its current state. `sessi
 }
 ```
 
-**Notes** — Use `reconstruct_export_session` / `reconstruct_import_session` to persist a session across server restarts or share it between runs.
+**Notes:** Use `reconstruct_export_session` / `reconstruct_import_session` to persist a session across server restarts or share it between runs.
