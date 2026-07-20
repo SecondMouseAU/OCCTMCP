@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag: clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.19.0"
+    public static let serverVersion = "1.19.1"
 }
 
 /// Shared by the three tools that share DeviationTools' signed-distance engine
