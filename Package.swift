@@ -92,15 +92,12 @@ let package = Package(
         // declare OCCTSwiftIO at SecondMouseAU, so the transitive pin re-homes
         // without a root-level OCCTSwiftIO override here (#53).
         //
-        // Capped BELOW the actual latest (v1.5.0) on purpose: v1.5.0 still caps its
-        // own OCCTSwiftIO dependency to <1.1.0, which directly conflicts with
-        // OCCTSwiftTools >=1.6.1's own OCCTSwiftIO >=1.7.0 requirement (below) and
-        // makes the two unresolvable together. Filed as
-        // SecondMouseAU/OCCTSwiftScripts#80; bump this floor past 1.5.0 once that
-        // ships a compatible OCCTSwiftIO range. Until then this repo runs the
-        // pre-BRepGraph-rename ScriptHarness/DrawingComposer (1.4.1), one minor
-        // behind the rest of the cohort.
-        occtDep("OCCTSwiftScripts", from: "1.4.1"),
+        // v1.5.0 capped its own OCCTSwiftIO dependency to <1.1.0, which directly
+        // conflicted with OCCTSwiftTools >=1.6.1's own OCCTSwiftIO >=1.7.0
+        // requirement (below) and made the two unresolvable together. Fixed in
+        // v1.5.1 (raises the OCCTSwiftIO floor to 1.7.5), closing
+        // SecondMouseAU/OCCTSwiftScripts#80.
+        occtDep("OCCTSwiftScripts", from: "1.5.1"),
         occtDep("OCCTSwiftTools", from: "1.6.1"),  // >=1.6.1: TopologyGraph renamed to BRepGraph (OCCTSwift#333), and re-pins OCCTSwift to >=1.15.0; >=1.3.1: linear extractEdgePolylines (OCCTSwift#275 Tools half)
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server
