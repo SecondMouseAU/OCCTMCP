@@ -1,10 +1,10 @@
-// IntegrationTests — spawn the occtmcp-server binary, drive it via
+// IntegrationTests: spawn the occtmcp-server binary, drive it via
 // JSON-RPC over stdio (newline-delimited per the Swift MCP SDK
 // StdioTransport contract), assert tool responses against a
 // tempdir-redirected scene.
 //
 // Slow: requires the binary to be built (`swift build` ahead of test
-// run). The harness is deliberately minimal — the unit suites already
+// run). The harness is deliberately minimal; the unit suites already
 // cover the deterministic logic; this is the smoke test that proves
 // the wired-up server actually serves requests.
 //
@@ -40,7 +40,7 @@ struct IntegrationTests {
     @Test("server initialises and lists tools")
     func initialisesAndLists() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let harness = try Harness(binary: binary)
@@ -94,7 +94,7 @@ struct IntegrationTests {
     @Test("history-based remap preserves selectionIds across transform_body")
     func historyRemapPreservesAcrossTransform() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-history-\(UUID().uuidString)"
@@ -131,7 +131,7 @@ struct IntegrationTests {
         defer { harness.terminate() }
         try harness.handshake()
 
-        // 1. select_topology — pick a face on the cylinder
+        // 1. select_topology: pick a face on the cylinder
         try harness.send(.init(
             id: 30, method: "tools/call",
             params: .object([
@@ -157,7 +157,7 @@ struct IntegrationTests {
             return
         }
 
-        // 2. transform_body — move it
+        // 2. transform_body: move it
         try harness.send(.init(
             id: 31, method: "tools/call",
             params: .object([
@@ -171,7 +171,7 @@ struct IntegrationTests {
         let transformResp = try harness.recv(timeout: 30)
         #expect(transformResp["error"] == nil)
 
-        // 3. remap_selection — should find the face via history (fate
+        // 3. remap_selection: should find the face via history (fate
         //    preserved), not via centroid heuristic
         try harness.send(.init(
             id: 32, method: "tools/call",
@@ -204,14 +204,14 @@ struct IntegrationTests {
     @Test("render_preview overlays a linear dimension on the rendered PNG")
     func dimensionOverlayRenders() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-dimoverlay-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: scene) }
 
-        // Cylinder fixture — same shape as historyRemapPreservesAcrossTransform.
+        // Cylinder fixture, same shape as historyRemapPreservesAcrossTransform.
         guard let cyl = Shape.cylinder(radius: 10, height: 25) else {
             Issue.record("Failed to synthesise cylinder fixture")
             return
@@ -300,13 +300,13 @@ struct IntegrationTests {
         let size = (attrs[.size] as? Int) ?? 0
         // PNG with a body + dimension overlay should comfortably exceed
         // ~2 KB. A blank 400×300 RGBA PNG is ~700 bytes.
-        #expect(size > 2_000, "rendered PNG was \(size) bytes — overlay may not have been drawn")
+        #expect(size > 2_000, "rendered PNG was \(size) bytes; overlay may not have been drawn")
     }
 
     @Test("generate_drawing lays out multiple bodies as a general-arrangement sheet")
     func generateDrawingAssembly() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-ga-\(UUID().uuidString)"
@@ -369,13 +369,13 @@ struct IntegrationTests {
         #expect(parsed["componentCount"] as? Int == 2)   // two bodies laid out
         #expect(parsed["partCount"] as? Int == 2)         // two parts-list rows
         let fileSize = (parsed["fileSize"] as? Int) ?? 0
-        #expect(fileSize > 4_000, "GA DXF was \(fileSize) bytes — views may not have rendered")
+        #expect(fileSize > 4_000, "GA DXF was \(fileSize) bytes; views may not have rendered")
     }
 
     @Test("pick_surface_point hits a body and composes into add_dimension")
     func pickSurfacePointMeasures() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-pick-\(UUID().uuidString)"
@@ -474,14 +474,14 @@ struct IntegrationTests {
     @Test("history-based remap survives boolean_op via per-input history")
     func historyRemapAcrossBooleanOp() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-bool-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: scene) }
 
-        // Two non-overlapping boxes — union should produce one body
+        // Two non-overlapping boxes: union should produce one body
         // whose faces include the unmodified faces of both inputs.
         guard let box1 = Shape.box(width: 10, height: 10, depth: 10),
               let box2Raw = Shape.box(width: 10, height: 10, depth: 10),
@@ -509,7 +509,7 @@ struct IntegrationTests {
         defer { harness.terminate() }
         try harness.handshake()
 
-        // Pick a face on `a` (any face will do — boxes have 6).
+        // Pick a face on `a` (any face will do; boxes have 6).
         try harness.send(.init(
             id: 50, method: "tools/call",
             params: .object([
@@ -535,7 +535,7 @@ struct IntegrationTests {
             return
         }
 
-        // Union the two bodies — non-overlapping so faces survive
+        // Union the two bodies, non-overlapping so faces survive
         // unchanged on both sides.
         try harness.send(.init(
             id: 51, method: "tools/call",
@@ -589,7 +589,7 @@ struct IntegrationTests {
     @Test("history-based remap survives apply_feature via FeatureReconstructor.histories")
     func historyRemapAcrossApplyFeature() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-feat-\(UUID().uuidString)"
@@ -642,7 +642,7 @@ struct IntegrationTests {
             return
         }
 
-        // Hole feature with non-nil id — populates BuildResult.histories
+        // Hole feature with non-nil id: populates BuildResult.histories
         // per OCCTSwift v1.0.3. Drill near a corner so most faces survive.
         try harness.send(.init(
             id: 61, method: "tools/call",
@@ -697,7 +697,7 @@ struct IntegrationTests {
     @Test("history-based remap survives apply_feature(fillet) post-OCCTSwift v1.0.4")
     func historyRemapAcrossFilletFeature() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-fillet-\(UUID().uuidString)"
@@ -746,7 +746,7 @@ struct IntegrationTests {
             return
         }
 
-        // Fillet spec with non-nil id — exercises OCCTSwift v1.0.4's
+        // Fillet spec with non-nil id: exercises OCCTSwift v1.0.4's
         // applyFillet → filletedWithFullHistory wiring (closes #166).
         // EdgeSelector defaults to .all in the JSON path.
         try harness.send(.init(
@@ -804,14 +804,17 @@ struct IntegrationTests {
         // generation reset and remap_selection's implicit-identity
         // fallback happened to still resolve the same face index"; both
         // paths report fate=preserved/split with confidenceMm=0 through
-        // the public tool surface. Per SecondMouseAU/OCCTSwift#336, hop 2
-        // currently takes the LATTER path (see
+        // the public tool surface (see
         // HistoryRegistryLineageTests.retainedLineageSurvivesTwoHops for
         // the in-process test that actually distinguishes them via
-        // graph.instanceID / graph.contains(uid:), and correctly fails
-        // pending that issue). This test still has value as a regression
-        // guard: it proves the server doesn't error and remap_selection
-        // doesn't silently mis-resolve across a real two-hop sequence.
+        // graph.instanceID / graph.contains(uid:) and confirms genuine
+        // continuation, not a lucky fallback: SecondMouseAU/OCCTSwift#336
+        // was retracted in v1.15.2 as not-a-bug, the reported "chaining
+        // absorbs zero records" was a box-centering mistake in the
+        // repro's own geometry, not a real defect in `add(_:absorbing:
+        // ...)`). This test still has value as a regression guard: it
+        // proves the server doesn't error and remap_selection doesn't
+        // silently mis-resolve across a real two-hop sequence.
         guard let binary = Self.binaryURL else {
             Issue.record("Binary not built, run `swift build` first.")
             return
@@ -1135,14 +1138,14 @@ struct IntegrationTests {
     @Test("find_correspondences maps a face across a mirror_or_pattern mirror")
     func findCorrespondencesAcrossMirror() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-corr-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: scene) }
 
-        // Place a 20×20×20 box at +X so it doesn't straddle the YZ plane —
+        // Place a 20×20×20 box at +X so it doesn't straddle the YZ plane;
         // the mirror produces a clearly-separated copy at -X.
         guard let box = Shape.box(width: 20, height: 20, depth: 20),
               let translated = box.translated(by: SIMD3(20, 0, 0)) else {
@@ -1187,7 +1190,7 @@ struct IntegrationTests {
                     "mirror_or_pattern didn't produce mirror-src body: \(mt)")
         }
 
-        // Pick a face on the source. Any face — `find_correspondences` is
+        // Pick a face on the source. Any face: `find_correspondences` is
         // about transporting the pick, not about which face it is.
         try harness.send(.init(
             id: 81, method: "tools/call",
@@ -1274,7 +1277,7 @@ struct IntegrationTests {
     @Test("find_correspondences accepts a compound (translate then mirror) transform")
     func findCorrespondencesCompoundTransform() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-corrcomp-\(UUID().uuidString)"
@@ -1388,7 +1391,7 @@ struct IntegrationTests {
     @Test("find_correspondences reads provenance when transform omitted (mirror_or_pattern path)")
     func findCorrespondencesProvenanceFallback() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-corrprov-\(UUID().uuidString)"
@@ -1410,7 +1413,7 @@ struct IntegrationTests {
         defer { harness.terminate() }
         try harness.handshake()
 
-        // Mirror via the tool — this is what writes the provenance entry.
+        // Mirror via the tool: this is what writes the provenance entry.
         try harness.send(.init(
             id: 110, method: "tools/call",
             params: .object([
@@ -1453,7 +1456,7 @@ struct IntegrationTests {
             return
         }
 
-        // No transform argument — should pick up the provenance record.
+        // No transform argument: should pick up the provenance record.
         try harness.send(.init(
             id: 112, method: "tools/call",
             params: .object([
@@ -1485,7 +1488,7 @@ struct IntegrationTests {
     @Test("find_correspondences infers a translation from bbox alignment when no hint")
     func findCorrespondencesBboxInference() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-corrbbox-\(UUID().uuidString)"
@@ -1570,14 +1573,14 @@ struct IntegrationTests {
     @Test("annotation tools round-trip via the sidecar")
     func annotationsRoundTrip() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-anno-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: scene) }
 
-        // No BREP needed for these tools — annotations are pure scene
+        // No BREP needed for these tools; annotations are pure scene
         // sidecar mutation. We do still need a manifest so other tools
         // don't fail; an empty bodies array is fine.
         let manifest = ScriptManifest(
@@ -1640,7 +1643,7 @@ struct IntegrationTests {
     @Test("ping responds and the scene tools resolve a tempdir manifest")
     func pingAndScene() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
 
@@ -1678,7 +1681,7 @@ struct IntegrationTests {
         let pingResp = try harness.recv(timeout: 5)
         #expect(pingResp["error"] == nil)
 
-        // get_scene — should round-trip our seeded manifest
+        // get_scene: should round-trip our seeded manifest
         try harness.send(.init(
             id: 11, method: "tools/call",
             params: .object([
@@ -1700,7 +1703,7 @@ struct IntegrationTests {
     @Test("history-based remap: a face split by a boolean resolves to both successors (#90/#93)")
     func historyRemapSplitFaceResolvesToTwoSuccessors() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-split-\(UUID().uuidString)"
@@ -1710,7 +1713,7 @@ struct IntegrationTests {
         // Shape.box(width:height:depth:) is centred at the origin, so a
         // 20x20x20 box spans x/y/z: -10..10 (top face at z=10). `tool`
         // is a shallow slot cut down from the top face only (z: 0..10
-        // vs box z: -10..10 — doesn't reach the bottom), off-centre in
+        // vs box z: -10..10, doesn't reach the bottom), off-centre in
         // x (6..8 of -10..10, full y width) so it splits the top face
         // into two unequal, individually-addressable pieces rather than
         // deleting it outright.
@@ -1734,7 +1737,7 @@ struct IntegrationTests {
         defer { harness.terminate() }
         try harness.handshake()
 
-        // Pick the top face specifically (outward normal +Z) — the one
+        // Pick the top face specifically (outward normal +Z), the one
         // the slot cut will split into two.
         try harness.send(.init(
             id: 70, method: "tools/call",
@@ -1808,7 +1811,7 @@ struct IntegrationTests {
     @Test("history-based remap: a face fully consumed by a boolean reports fate=lost, not a false match (#90/#93)")
     func historyRemapDistinguishesDeletedFromModified() async throws {
         guard let binary = Self.binaryURL else {
-            Issue.record("Binary not built — run `swift build` first.")
+            Issue.record("Binary not built; run `swift build` first.")
             return
         }
         let scene = NSTemporaryDirectory() + "occtmcp-it-deleted-\(UUID().uuidString)"
@@ -1819,7 +1822,7 @@ struct IntegrationTests {
         // 10x10x10 box spans x/y/z: -5..5 (top face at z=5). `tool`
         // engulfs the entire top half (z: 0..5) and then some in x/y
         // too, so the original top face has no image at all in the
-        // result — fully consumed, not merely reshaped.
+        // result: fully consumed, not merely reshaped.
         guard let box = Shape.box(width: 10, height: 10, depth: 10),
               let toolRaw = Shape.box(width: 20, height: 20, depth: 10),
               let tool = toolRaw.translated(by: SIMD3(-5, -5, 5)) else {
