@@ -797,6 +797,341 @@ struct IntegrationTests {
         }
     }
 
+    @Test("remap_selection resolves cleanly across TWO chained apply_feature hops on the same body (#90/#91/#93)")
+    func historyRemapAcrossTwoApplyFeatureHops() async throws {
+        // NOTE: this black-box test can't distinguish "hop 2 genuinely
+        // absorbed into the retained BRepGraph" from "hop 2 degraded to a
+        // generation reset and remap_selection's implicit-identity
+        // fallback happened to still resolve the same face index"; both
+        // paths report fate=preserved/split with confidenceMm=0 through
+        // the public tool surface. Per SecondMouseAU/OCCTSwift#336, hop 2
+        // currently takes the LATTER path (see
+        // HistoryRegistryLineageTests.retainedLineageSurvivesTwoHops for
+        // the in-process test that actually distinguishes them via
+        // graph.instanceID / graph.contains(uid:), and correctly fails
+        // pending that issue). This test still has value as a regression
+        // guard: it proves the server doesn't error and remap_selection
+        // doesn't silently mis-resolve across a real two-hop sequence.
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built, run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-twohop-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        guard let box = Shape.box(width: 40, height: 40, depth: 40) else {
+            Issue.record("Failed to synthesise box")
+            return
+        }
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(scene)/part.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "two-hop history test",
+            bodies: [BodyDescriptor(id: "part", file: "part.brep", color: [1, 0, 0, 1])]
+        ))
+
+        let harness = try Harness(
+            binary: binary,
+            extraEnv: ["OCCTMCP_OUTPUT_DIR": scene]
+        )
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        try harness.send(.init(
+            id: 80, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = try JSONSerialization.jsonObject(with: d1) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        // Hop 1: drill a hole near a corner, in place.
+        try harness.send(.init(
+            id: 81, method: "tools/call",
+            params: .object([
+                "name": .string("apply_feature"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "feature": .object([
+                        "id": .string("h1"),
+                        "kind": .string("hole"),
+                        "axisPoint": .array([.double(5), .double(5), .double(0)]),
+                        "axisDirection": .array([.double(0), .double(0), .double(1)]),
+                        "diameter": .double(4),
+                    ]),
+                ]),
+            ])
+        ))
+        let hop1Resp = try harness.recv(timeout: 30)
+        #expect(hop1Resp["error"] == nil, "apply_feature(hole) errored: \(hop1Resp)")
+
+        // Hop 2: fillet, in place, on the SAME body. This is the hop that
+        // fails pre-#93: hop 2's apply_feature used to reload the body
+        // from disk into a fresh Shape/TShape tree, discarding hop 1's
+        // retained graph, so add(_:absorbing:...)'s TShape-identity
+        // correlation silently absorbed zero records.
+        try harness.send(.init(
+            id: 82, method: "tools/call",
+            params: .object([
+                "name": .string("apply_feature"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "feature": .object([
+                        "id": .string("f1"),
+                        "kind": .string("fillet"),
+                        "radius": .double(1.0),
+                    ]),
+                ]),
+            ])
+        ))
+        let hop2Resp = try harness.recv(timeout: 30)
+        #expect(hop2Resp["error"] == nil, "apply_feature(fillet) errored: \(hop2Resp)")
+
+        try harness.send(.init(
+            id: 83, method: "tools/call",
+            params: .object([
+                "name": .string("remap_selection"),
+                "arguments": .object([
+                    "selectionIds": .array([.string(selectionId)]),
+                ]),
+            ])
+        ))
+        let rmResp = try harness.recv(timeout: 5)
+        guard case .object(let r2)? = rmResp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let p2 = try JSONSerialization.jsonObject(with: d2) as? [String: Any],
+              let remapped = p2["remapped"] as? [[String: Any]],
+              let entry = remapped.first else {
+            Issue.record("remap_selection response shape unexpected")
+            return
+        }
+        let fate = entry["fate"] as? String ?? "<missing>"
+        #expect(
+            fate == "preserved" || fate == "split",
+            "two-hop chain should resolve to preserved or split via history (got \(fate)); fate=approximate/lost with a nonzero confidenceMm means the retained lineage broke between hops and remap_selection fell back to the centroid heuristic"
+        )
+        if let conf = entry["confidenceMm"] as? Double {
+            #expect(conf == 0, "history path should report confidenceMm=0 (got \(conf)); nonzero means the centroid heuristic answered instead of history")
+        }
+    }
+
+    @Test("selection survives heal_shape (#93): history path when available, graceful fallback otherwise")
+    func remapSurvivesHealShape() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built, run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-heal-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        guard let box = Shape.box(width: 20, height: 20, depth: 20) else {
+            Issue.record("Failed to synthesise box")
+            return
+        }
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(scene)/part.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "heal_shape history test",
+            bodies: [BodyDescriptor(id: "part", file: "part.brep", color: [1, 0, 0, 1])]
+        ))
+
+        let harness = try Harness(
+            binary: binary,
+            extraEnv: ["OCCTMCP_OUTPUT_DIR": scene]
+        )
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        try harness.send(.init(
+            id: 84, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = try JSONSerialization.jsonObject(with: d1) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        try harness.send(.init(
+            id: 85, method: "tools/call",
+            params: .object([
+                "name": .string("heal_shape"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                ]),
+            ])
+        ))
+        let healResp = try harness.recv(timeout: 30)
+        #expect(healResp["error"] == nil, "heal_shape errored: \(healResp)")
+
+        try harness.send(.init(
+            id: 86, method: "tools/call",
+            params: .object([
+                "name": .string("remap_selection"),
+                "arguments": .object([
+                    "selectionIds": .array([.string(selectionId)]),
+                ]),
+            ])
+        ))
+        let rmResp = try harness.recv(timeout: 5)
+        guard case .object(let r2)? = rmResp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let p2 = try JSONSerialization.jsonObject(with: d2) as? [String: Any],
+              let remapped = p2["remapped"] as? [[String: Any]],
+              let entry = remapped.first else {
+            Issue.record("remap_selection response shape unexpected")
+            return
+        }
+        let fate = entry["fate"] as? String ?? "<missing>"
+        // A pristine box may heal as a total no-op (healedWithFullHistory
+        // absorbing zero records), which degrades to a generation reset
+        // per the commit() decision tree, so this can't strictly assert
+        // confidenceMm == 0 the way the apply_feature/boolean_op history
+        // tests do. It can assert the selection wasn't lost or forced
+        // onto the (positive-distance) centroid heuristic's "approximate"
+        // path, which is the observable contract heal_shape promises
+        // regardless of which path served the answer.
+        #expect(
+            fate == "preserved" || fate == "split",
+            "heal_shape should resolve to preserved or split (got \(fate))"
+        )
+    }
+
+    @Test("out-of-band BREP rewrite (execute_script-style) is detected as stale: HistoryRegistry reloads fresh rather than operating on a cached shape (#93)")
+    func staleFingerprintForcesFreshReload() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built, run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-stale-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        guard let box1 = Shape.box(width: 10, height: 10, depth: 10) else {
+            Issue.record("Failed to synthesise box fixture")
+            return
+        }
+        let partPath = "\(scene)/part.brep"
+        try Exporter.writeBREP(shape: box1, to: URL(fileURLWithPath: partPath))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "staleness test",
+            bodies: [BodyDescriptor(id: "part", file: "part.brep", color: [1, 0, 0, 1])]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // Establish a retained lineage for "part" via an in-place no-op transform.
+        try harness.send(.init(
+            id: 87, method: "tools/call",
+            params: .object([
+                "name": .string("transform_body"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "translate": .array([.double(0), .double(0), .double(0)]),
+                ]),
+            ])
+        ))
+        let t1 = try harness.recv(timeout: 10)
+        #expect(t1["error"] == nil, "first transform_body errored: \(t1)")
+
+        // Out-of-band rewrite: mimics execute_script writing a brand new
+        // body file directly, bypassing every tool in this process. A
+        // totally different, recognisably-sized box.
+        guard let box2 = Shape.box(width: 50, height: 60, depth: 70) else {
+            Issue.record("Failed to synthesise replacement box fixture")
+            return
+        }
+        try FileManager.default.removeItem(atPath: partPath)
+        try Exporter.writeBREP(shape: box2, to: URL(fileURLWithPath: partPath))
+
+        // Mutate again: if HistoryRegistry served the STALE cached
+        // liveShape (the original 10x10x10 box) instead of re-detecting
+        // the rewrite via the fingerprint mismatch, this transform would
+        // silently apply to the wrong geometry and overwrite part.brep
+        // with a corrupted result instead of the expected 50x60x70 box.
+        try harness.send(.init(
+            id: 88, method: "tools/call",
+            params: .object([
+                "name": .string("transform_body"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "translate": .array([.double(1), .double(0), .double(0)]),
+                ]),
+            ])
+        ))
+        let t2 = try harness.recv(timeout: 10)
+        #expect(t2["error"] == nil, "second transform_body errored: \(t2)")
+
+        try harness.send(.init(
+            id: 89, method: "tools/call",
+            params: .object([
+                "name": .string("compute_metrics"),
+                "arguments": .object([
+                    "bodyId": .string("part"),
+                    "metrics": .array([.string("boundingBox")]),
+                ]),
+            ])
+        ))
+        let metricsResp = try harness.recv(timeout: 10)
+        guard case .object(let r)? = metricsResp["result"],
+              case .array(let c)? = r["content"],
+              case .object(let f)? = c.first,
+              let t = f["text"]?.stringValue,
+              let d = t.data(using: .utf8),
+              let parsed = try JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let bbox = parsed["boundingBox"] as? [String: Any],
+              let minV = bbox["min"] as? [Double], minV.count == 3,
+              let maxV = bbox["max"] as? [Double], maxV.count == 3 else {
+            Issue.record("compute_metrics response shape unexpected: \(metricsResp)")
+            return
+        }
+        let size = zip(minV, maxV).map { abs($1 - $0) }.sorted()
+        #expect(
+            abs(size[0] - 50) < 0.5 && abs(size[1] - 60) < 0.5 && abs(size[2] - 70) < 0.5,
+            "compute_metrics reports size \(size), expected ~[50,60,70] (box2, the out-of-band rewrite); a stale cached liveShape would report ~[10,10,10] (box1)"
+        )
+    }
+
     @Test("find_correspondences maps a face across a mirror_or_pattern mirror")
     func findCorrespondencesAcrossMirror() async throws {
         guard let binary = Self.binaryURL else {

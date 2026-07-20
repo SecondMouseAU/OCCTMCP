@@ -330,10 +330,10 @@ public enum AnalysisTools {
     // Local B-rep graph adjacency / selection queries without dumping the
     // whole graph (graph_ml). Mirrors the OCCTSwiftScripts `graph-select` verb,
     // backed directly by the kernel AAG (face queries + convexity) and
-    // TopologyGraph (edge/vertex adjacency). Convexity is a dihedral-between-two-
+    // BRepGraph (edge/vertex adjacency). Convexity is a dihedral-between-two-
     // faces property, so it is reported on face *adjacencies* (the gAAG edge
     // attribute). Face indices follow shape.faces() order (the `face[N]` scheme
-    // query_topology emits); edge/vertex indices are TopologyGraph indices.
+    // query_topology emits); edge/vertex indices are BRepGraph indices.
     // OCCTMCP#38.
 
     private static func convexityLabel(_ c: EdgeConvexity) -> String {

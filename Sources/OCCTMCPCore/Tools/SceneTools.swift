@@ -148,6 +148,12 @@ public enum SceneTools {
             return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
         }
         _ = target
+        // Re-key the retained lineage (#93) so a body's history survives a
+        // rename. selectionIds embed bodyId, so old selection strings
+        // still go stale here (unchanged, documented behaviour); this
+        // only keeps the GRAPH itself (and any future mutation chained
+        // off it) alive under the new id.
+        await HistoryRegistry.shared.rename(bodyId: bodyId, to: newBodyId)
         return .init("Renamed \"\(bodyId)\" → \"\(newBodyId)\".")
     }
 

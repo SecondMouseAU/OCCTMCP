@@ -1,7 +1,7 @@
-// ReconstructRegistry — actor-backed store of `sessionId → TopologyGraph`
+// ReconstructRegistry — actor-backed store of `sessionId → BRepGraph`
 // for the `reconstruct_*` tool group (OCCTMCP #33).
 //
-// A "reconstruction session" is a live `TopologyGraph` plus its per-node
+// A "reconstruction session" is a live `BRepGraph` plus its per-node
 // attribute overlay (OCCTSwift 1.2.0's `NodeAttributeStore`). The
 // reconstruction *engine* — surface fitting, congruence detection, the
 // math behind residuals/confidence — lives downstream in OCCTReconstruct.
@@ -10,7 +10,7 @@
 // instance clusters) and have them persist via `GraphSnapshot`.
 //
 // All graph access is funnelled through the actor so the (`@unchecked
-// Sendable`) `TopologyGraph` reference type is never mutated concurrently:
+// Sendable`) `BRepGraph` reference type is never mutated concurrently:
 // the tool layer builds a graph (from a body's BREP or an imported
 // snapshot), hands it to `store(id:graph:)`, and never touches it again —
 // every subsequent read/write goes through an actor-isolated method.
@@ -99,11 +99,11 @@ public actor ReconstructRegistry {
     /// live session graph — if a future `reconstruct_*` tool wires
     /// compaction into a live session, indices can shift out from under
     /// stored attribute keys with nothing to catch it (unlike a
-    /// `GraphUID`, which `TopologyGraph` resolves to `nil` rather than a
+    /// `GraphUID`, which `BRepGraph` resolves to `nil` rather than a
     /// wrong node on a stale reference). Switch node addressing to
     /// `GraphUID` (minted via `graph.uid(ofNodeKind:index:)`) before
     /// adding any compaction/dedup path here.
-    private var sessions: [String: TopologyGraph] = [:]
+    private var sessions: [String: BRepGraph] = [:]
 
     public init() {}
 
@@ -112,7 +112,7 @@ public actor ReconstructRegistry {
     public func hasSession(id: String) -> Bool { sessions[id] != nil }
 
     /// Register (or replace) the graph backing a session.
-    public func store(id: String, graph: TopologyGraph) { sessions[id] = graph }
+    public func store(id: String, graph: BRepGraph) { sessions[id] = graph }
 
     public func sessionIds() -> [String] { sessions.keys.sorted() }
 
@@ -204,18 +204,18 @@ public actor ReconstructRegistry {
 
     // MARK: helpers
 
-    private static func attrsOut(_ g: TopologyGraph, _ node: TopologyGraph.NodeRef) -> [String: AnyCodable] {
+    private static func attrsOut(_ g: BRepGraph, _ node: BRepGraph.NodeRef) -> [String: AnyCodable] {
         var out: [String: AnyCodable] = [:]
         for (k, v) in g.attributes.storage[node] ?? [:] { out[k] = anyCodable(v) }
         return out
     }
 
-    private static func nodeOrder(_ a: TopologyGraph.NodeRef, _ b: TopologyGraph.NodeRef) -> Bool {
+    private static func nodeOrder(_ a: BRepGraph.NodeRef, _ b: BRepGraph.NodeRef) -> Bool {
         if a.kind.rawValue != b.kind.rawValue { return a.kind.rawValue < b.kind.rawValue }
         return a.index < b.index
     }
 
-    static func anyCodable(_ v: TopologyGraph.AttrValue) -> AnyCodable {
+    static func anyCodable(_ v: BRepGraph.AttrValue) -> AnyCodable {
         switch v {
         case .bool(let b):    return .bool(b)
         case .int(let i):     return .number(Double(i))
@@ -227,7 +227,7 @@ public actor ReconstructRegistry {
     }
 
     // Self-describing "<kind>:<index>" node addressing (parseable both ways).
-    static func kindName(_ k: TopologyGraph.NodeKind) -> String {
+    static func kindName(_ k: BRepGraph.NodeKind) -> String {
         switch k {
         case .solid:      return "solid"
         case .shell:      return "shell"
@@ -243,7 +243,7 @@ public actor ReconstructRegistry {
         }
     }
 
-    static func kind(from name: String) -> TopologyGraph.NodeKind? {
+    static func kind(from name: String) -> BRepGraph.NodeKind? {
         switch name.lowercased() {
         case "solid":      return .solid
         case "shell":      return .shell
@@ -260,15 +260,15 @@ public actor ReconstructRegistry {
         }
     }
 
-    static func format(_ ref: TopologyGraph.NodeRef) -> String {
+    static func format(_ ref: BRepGraph.NodeRef) -> String {
         "\(kindName(ref.kind)):\(ref.index)"
     }
 
-    static func parse(_ s: String) -> TopologyGraph.NodeRef? {
+    static func parse(_ s: String) -> BRepGraph.NodeRef? {
         let parts = s.split(separator: ":", maxSplits: 1)
         guard parts.count == 2,
               let k = kind(from: String(parts[0])),
               let idx = Int(parts[1]) else { return nil }
-        return TopologyGraph.NodeRef(kind: k, index: idx)
+        return BRepGraph.NodeRef(kind: k, index: idx)
     }
 }

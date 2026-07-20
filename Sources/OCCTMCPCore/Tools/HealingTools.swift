@@ -42,18 +42,32 @@ public enum HealingTools {
             return .init("Output body id \"\(id)\" already exists.")
         }
 
-        let inputShape: Shape
+        let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            inputShape = try Shape.loadBREP(fromPath: inputPath)
+            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: inputPath)
         } catch {
-            return .init("Failed to load BREP: \(error.localizedDescription)", isError: true)
+            return .init("Failed to load BREP: \(error)", isError: true)
         }
+        let inputShape = lineage.shape
         let before = HealReport.HealthSnapshot(
             faceCount: inputShape.faces().count,
             edgeCount: inputShape.edges().count,
             isValid: inputShape.isValid
         )
-        guard let healed = inputShape.healed() else {
+
+        // OCCTSwift 1.13.0 (#327) added healedWithFullHistory(); prefer
+        // real per-input-subshape history over the old topology-count
+        // heuristic; fall back to the plain (history-less) heal only if
+        // the *WithFullHistory variant itself returns nil.
+        let healed: Shape
+        let healHistory: ShapeHistoryRef?
+        if let full = inputShape.healedWithFullHistory() {
+            healed = full.result
+            healHistory = full.history
+        } else if let plain = inputShape.healed() {
+            healed = plain
+            healHistory = nil
+        } else {
             return .init("Healing failed (Shape.healed returned nil).", isError: true)
         }
         let after = HealReport.HealthSnapshot(
@@ -76,16 +90,13 @@ public enum HealingTools {
 
         await history.snapshot(store: store)
 
-        // v0.7: opt into history-based remap when heal preserved
-        // topology (which is the typical case — heal mostly tightens
-        // tolerances and merges duplicate vertices). When heal
-        // actually rewires geometry, the count check fails and
-        // remap_selection falls back to the centroid heuristic.
         let recordedBodyId = isInPlace ? bodyId : (outputBodyId ?? bodyId)
-        let topologyPreserved = await HistoryRegistry.shared.recordIdentityHistoryIfTopologyPreserved(
+        let historyRecorded = await HistoryRegistry.shared.commit(
             bodyId: recordedBodyId,
-            preMutationShape: inputShape,
-            postMutationShape: healed,
+            path: outputPath,
+            output: healed,
+            ref: healHistory,
+            from: (lineage.graph, lineage.root),
             operationName: "heal_shape"
         )
 
@@ -95,8 +106,8 @@ public enum HealingTools {
             before.isValid == after.isValid {
             warnings.append("Shape.healed() reported no structural change; before/after may be identical")
         }
-        if !topologyPreserved {
-            warnings.append("Heal changed topology — remap_selection will fall back to the centroid heuristic for selections on this body.")
+        if !historyRecorded {
+            warnings.append("Heal history unavailable or absorbed no records: remap_selection will fall back to the centroid heuristic for selections on this body.")
         }
 
         if !isInPlace, let newId = outputBodyId {

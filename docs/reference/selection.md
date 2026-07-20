@@ -67,7 +67,18 @@ ends.
 Remap one or more `selectionId`s to their post-mutation equivalents on the same body. Uses
 history-backed resolution (exact, zero-distance) for tools that record topology history
 (`transform_body`, `heal_shape`, `boolean_op`, `apply_feature`); falls back to a
-closest-centroid heuristic for all other mutations.
+closest-centroid heuristic for all other mutations. `heal_shape` resolves via real per-subshape
+history (OCCTSwift v1.13.0) rather than a topology-count heuristic. `select_topology` mints a
+durable GraphUID per pick in addition to its `selectionId`; `remap_selection` tries that GraphUID
+first, then the recorded history graph, then the centroid heuristic.
+
+**Known limitation:** a body mutated twice in a row by history-bearing tools (e.g. `apply_feature`
+called twice) currently loses the connecting history on the second mutation, a gap in the upstream
+OCCTSwift `*WithFullHistory` chaining mechanism, not this tool
+([SecondMouseAU/OCCTSwift#336](https://github.com/SecondMouseAU/OCCTSwift/issues/336)). Selections
+still resolve after such a chain (falling back to a fresh per-mutation graph), but `fate` may read
+`"preserved"` via implicit identity rather than genuine history in that case; a single mutation
+always resolves via real history when the underlying op supports it.
 
 **Server:** Swift only
 

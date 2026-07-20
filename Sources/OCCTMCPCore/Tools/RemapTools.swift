@@ -85,14 +85,16 @@ public enum RemapTools {
             let diag = simd_length(bb.max - bb.min)
             let tolerance = max(diag * toleranceMmFraction, 1e-6)
 
-            // v0.6: prefer the recorded TopologyGraph history over the
-            // centroid heuristic when a mutating tool opted in.
+            // Prefer the recorded BRepGraph history over the centroid
+            // heuristic when a mutating tool opted in. Post-#93 this is
+            // the RETAINED lineage graph: it accumulates history across
+            // every hop committed so far, not just the most recent one.
             let recordedGraph = await historyRegistry.graph(for: bodyId)
             // #91: the centroid-fallback path below mints selectionIds
             // too (pickClosest → registry.record), so it has to agree
-            // with select_topology's index convention — the shape's own
-            // TopologyGraph node index, not the enumeration loop index.
-            let currentGraph = TopologyGraph(shape: shape)
+            // with select_topology's index convention: the shape's own
+            // BRepGraph node index, not the enumeration loop index.
+            let currentGraph = BRepGraph(shape: shape)
 
             for id in ids {
                 guard let anchor = await registry.anchor(for: id) else {
@@ -104,6 +106,21 @@ public enum RemapTools {
                     ))
                     continue
                 }
+
+                // Rung 1 (preferred, #93): GraphUID. Unlike the anchor's
+                // embedded literal index, a UID survives index
+                // renumbering within the graph across multiple hops;
+                // resolve it against the retained lineage graph before
+                // falling back to the index-based rung.
+                if let graph = recordedGraph,
+                   let uid = await registry.graphUID(for: id),
+                   let entry = remapViaGraphUID(originalId: id, uid: uid, graph: graph, bodyId: bodyId) {
+                    await refreshAfterHistoryRemap(entry: entry, originalId: id, registry: registry, graph: graph)
+                    remapped.append(entry)
+                    continue
+                }
+
+                // Rung 2: recorded history graph, anchor's embedded index.
                 if let graph = recordedGraph,
                    let entry = remapViaHistory(
                        originalId: id,
@@ -111,17 +128,12 @@ public enum RemapTools {
                        graph: graph,
                        bodyId: bodyId
                    ) {
-                    // Refresh the registry so the new selectionId
-                    // (same string in 1:1 cases) keeps anchor metadata
-                    // up-to-date if the snapshot needs rebuilding.
-                    if let snapshot = await registry.snapshot(for: id),
-                       let newId = entry.newSelectionIds.first,
-                       let newAnchor = TopologyAnchor.parse(newId) {
-                        await registry.record(anchor: newAnchor, snapshot: snapshot)
-                    }
+                    await refreshAfterHistoryRemap(entry: entry, originalId: id, registry: registry, graph: graph)
                     remapped.append(entry)
                     continue
                 }
+
+                // Rung 3: centroid heuristic (unchanged, last resort).
                 let snapshot = await registry.snapshot(for: id)
                 let entry = await remapOne(
                     originalId: id,
@@ -141,7 +153,7 @@ public enum RemapTools {
     }
 
     /// History-based remap path. Mirrors the AIS InteractiveContext.remap
-    /// algorithm: TopologyGraph.findDerivedOrSelf(of:) returns either
+    /// algorithm: BRepGraph.findDerivedOrSelf(of:) returns either
     /// the modification chain (touched nodes), [self] (untouched —
     /// either no record or implicit identity), or [] (explicitly
     /// recorded as deleted). Returns nil if the anchor isn't a
@@ -150,10 +162,10 @@ public enum RemapTools {
     static func remapViaHistory(
         originalId: String,
         anchor: TopologyAnchor,
-        graph: TopologyGraph,
+        graph: BRepGraph,
         bodyId: String
     ) -> RemapEntry? {
-        let kind: TopologyGraph.NodeKind
+        let kind: BRepGraph.NodeKind
         let originalIndex: Int
         switch anchor {
         case .body:
@@ -170,6 +182,42 @@ public enum RemapTools {
         case .vertex(_, let idx):
             kind = .vertex; originalIndex = idx
         }
+        return remapViaHistoryCore(originalId: originalId, kind: kind, originalIndex: originalIndex, graph: graph, bodyId: bodyId)
+    }
+
+    /// GraphUID rung (#93): resolves the node address via `node(forUID:)`
+    /// instead of trusting the selectionId's embedded literal index, so it
+    /// still finds the right starting node even if the graph renumbered
+    /// indices between when the UID was minted and now. Returns nil (not
+    /// "lost") when the UID doesn't resolve against THIS graph at all,
+    /// e.g. it was minted from a disposable graph, or a different graph
+    /// instance entirely, deferring to the index-based rung rather than
+    /// asserting deletion on a lookup failure that isn't one.
+    static func remapViaGraphUID(
+        originalId: String,
+        uid: BRepGraph.GraphUID,
+        graph: BRepGraph,
+        bodyId: String
+    ) -> RemapEntry? {
+        guard let resolved = graph.node(forUID: uid),
+              let kind = BRepGraph.NodeKind(rawValue: Int32(resolved.kind)) else {
+            return nil
+        }
+        return remapViaHistoryCore(originalId: originalId, kind: kind, originalIndex: resolved.index, graph: graph, bodyId: bodyId)
+    }
+
+    /// Shared history-walk core: given an already-resolved (kind, index)
+    /// graph node address (from either the GraphUID rung or the anchor's
+    /// embedded-index rung), walk `findDerivedOrSelf` and build the
+    /// resulting RemapEntry. Body-level picks never reach here: both
+    /// callers short-circuit those before resolving a node address.
+    private static func remapViaHistoryCore(
+        originalId: String,
+        kind: BRepGraph.NodeKind,
+        originalIndex: Int,
+        graph: BRepGraph,
+        bodyId: String
+    ) -> RemapEntry? {
         let kindCount: Int
         switch kind {
         case .face:    kindCount = graph.faceCount
@@ -213,12 +261,47 @@ public enum RemapTools {
         )
     }
 
+    /// After any successful history-based remap (either rung): refresh the
+    /// snapshot under each new selectionId, and re-mint a fresh GraphUID
+    /// for it from `graph`, which callers MUST pass as the retained
+    /// lineage graph (`historyRegistry.graph(for:)`), never the disposable
+    /// `currentGraph` built fresh per remap_selection call. A UID minted
+    /// from an unretained graph is permanently unresolvable on the next
+    /// remap, which would silently degrade a multi-hop remap chain back to
+    /// the index-based rung (or worse, the centroid heuristic) after just
+    /// one hop instead of staying UID-exact.
+    static func refreshAfterHistoryRemap(
+        entry: RemapEntry,
+        originalId: String,
+        registry: SelectionRegistry,
+        graph: BRepGraph
+    ) async {
+        let snapshot = await registry.snapshot(for: originalId)
+        for newId in entry.newSelectionIds {
+            guard let newAnchor = TopologyAnchor.parse(newId) else { continue }
+            if let snapshot {
+                await registry.record(anchor: newAnchor, snapshot: snapshot)
+            }
+            let kindIndex: (BRepGraph.NodeKind, Int)?
+            switch newAnchor {
+            case .body:              kindIndex = nil
+            case .face(_, let idx):  kindIndex = (.face, idx)
+            case .edge(_, let idx):  kindIndex = (.edge, idx)
+            case .vertex(_, let idx): kindIndex = (.vertex, idx)
+            }
+            guard let (kind, index) = kindIndex else { continue }
+            if let uid = graph.uid(ofNodeKind: Int(kind.rawValue), index: index) {
+                await registry.recordGraphUID(selectionId: newId, uid: uid)
+            }
+        }
+    }
+
     static func remapOne(
         originalId: String,
         anchor: TopologyAnchor,
         priorSnapshot: AnchorSnapshot?,
         shape: Shape,
-        graph: TopologyGraph?,
+        graph: BRepGraph?,
         bodyId: String,
         tolerance: Double,
         registry: SelectionRegistry

@@ -2,8 +2,8 @@
 // used to enumerate shape.faces()/.edges()/.vertices() directly and
 // encode the loop index into the selectionId; remap_selection's history
 // path (RemapTools.remapViaHistory) reinterprets that same integer as a
-// TopologyGraph.NodeRef(kind:, index:) index. Nothing previously
-// asserted that Shape enumeration order equals TopologyGraph(shape:)'s
+// BRepGraph.NodeRef(kind:, index:) index. Nothing previously
+// asserted that Shape enumeration order equals BRepGraph(shape:)'s
 // own per-kind node index order for the same shape — IntegrationTests
 // covered it only incidentally, through whichever scenarios it happened
 // to exercise.
@@ -12,7 +12,7 @@
 // only for faces) — see `rawEnumerationIndexDivergesFromGraphIndex`
 // below, which proves it on a plain box. SelectionTools.graphIndex(...)
 // / RemapTools' matching fix now resolve every selectionId's embedded
-// index through TopologyGraph.findNode(for:) instead of trusting the
+// index through BRepGraph.findNode(for:) instead of trusting the
 // enumeration loop; `graphIndexRoundTripsToGraphNode` verifies that
 // resolution is actually correct rather than just present.
 //
@@ -26,13 +26,13 @@ import simd
 import OCCTSwift
 @testable import OCCTMCPCore
 
-@Suite("TopologyGraph node-index resolution (#91)")
+@Suite("BRepGraph node-index resolution (#91)")
 struct TopologyIdentityTests {
 
     @Test("select_topology's graphIndex(...) resolves faces/edges/vertices to the correct graph node")
     func graphIndexRoundTripsToGraphNode() throws {
         let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
-        let graph = try #require(TopologyGraph(shape: box))
+        let graph = try #require(BRepGraph(shape: box))
 
         for (i, face) in box.faces().enumerated() {
             let faceShape = try #require(Shape.fromFace(face))
@@ -64,7 +64,7 @@ struct TopologyIdentityTests {
     @Test("raw Shape enumeration index diverges from the graph's own index for edges/vertices — proves graphIndex(...) isn't a no-op")
     func rawEnumerationIndexDivergesFromGraphIndex() throws {
         let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
-        let graph = try #require(TopologyGraph(shape: box))
+        let graph = try #require(BRepGraph(shape: box))
 
         let edgeDivergences = box.edges().enumerated().filter { (i, edge) in
             guard let edgeShape = Shape.fromEdge(edge), let node = graph.findNode(for: edgeShape) else { return false }

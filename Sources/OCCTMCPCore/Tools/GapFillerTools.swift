@@ -192,53 +192,55 @@ public enum GapFillerTools {
         } catch {
             return .init("\(error)")
         }
-        let aag = AAG(shape: loaded.shape)
+        // #91/#93: resolve through the retained lineage graph rather than
+        // trusting AAG's floorFaceIndex/faceIndex; those address
+        // shape.faces() enumeration order, which the graph's own node
+        // index doesn't always match (true for faces only by coincidence,
+        // see TopologyIdentityTests).
+        let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
+        do {
+            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: loaded.path)
+        } catch {
+            return .init("\(error)")
+        }
+        let shape = lineage.shape
+        let graph = lineage.graph
+        let aag = AAG(shape: shape)
         let wantPockets = kinds.map { $0.contains("pocket") } ?? true
         let wantHoles = kinds.map { $0.contains("hole") } ?? true
 
-        let allFaces = loaded.shape.faces()
+        let allFaces = shape.faces()
         var results: [FeatureSelection] = []
+
+        func mintFaceSelection(kind: String, faceIndex: Int) async {
+            guard faceIndex < allFaces.count else { return }
+            let face = allFaces[faceIndex]
+            let (centre, normal) = SelectionTools.faceCenterAndNormal(face: face)
+            let snap = AnchorSnapshot(
+                center: [centre.x, centre.y, centre.z],
+                normal: normal.map { [$0.x, $0.y, $0.z] },
+                area: face.area(),
+                surfaceType: String(describing: face.surfaceType)
+            )
+            let resolvedIndex = SelectionTools.graphIndex(
+                for: Shape.fromFace(face), kind: .face, in: graph, fallback: faceIndex
+            )
+            let anchor = TopologyAnchor.face(bodyId: bodyId, index: resolvedIndex)
+            await registry.record(anchor: anchor, snapshot: snap)
+            if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: resolvedIndex) {
+                await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
+            }
+            results.append(.init(kind: kind, selectionId: anchor.selectionId, detail: snap))
+        }
 
         if wantPockets {
             for pocket in aag.detectPockets() {
-                let faceIndex = pocket.floorFaceIndex
-                guard faceIndex < allFaces.count else { continue }
-                let face = allFaces[faceIndex]
-                let (centre, normal) = SelectionTools.faceCenterAndNormal(face: face)
-                let snap = AnchorSnapshot(
-                    center: [centre.x, centre.y, centre.z],
-                    normal: normal.map { [$0.x, $0.y, $0.z] },
-                    area: face.area(),
-                    surfaceType: String(describing: face.surfaceType)
-                )
-                let anchor = TopologyAnchor.face(bodyId: bodyId, index: faceIndex)
-                await registry.record(anchor: anchor, snapshot: snap)
-                results.append(.init(
-                    kind: "pocket",
-                    selectionId: anchor.selectionId,
-                    detail: snap
-                ))
+                await mintFaceSelection(kind: "pocket", faceIndex: pocket.floorFaceIndex)
             }
         }
         if wantHoles {
             for hole in aag.detectHoles() {
-                let faceIndex = hole.faceIndex
-                guard faceIndex < allFaces.count else { continue }
-                let face = allFaces[faceIndex]
-                let (centre, normal) = SelectionTools.faceCenterAndNormal(face: face)
-                let snap = AnchorSnapshot(
-                    center: [centre.x, centre.y, centre.z],
-                    normal: normal.map { [$0.x, $0.y, $0.z] },
-                    area: face.area(),
-                    surfaceType: String(describing: face.surfaceType)
-                )
-                let anchor = TopologyAnchor.face(bodyId: bodyId, index: faceIndex)
-                await registry.record(anchor: anchor, snapshot: snap)
-                results.append(.init(
-                    kind: "hole",
-                    selectionId: anchor.selectionId,
-                    detail: snap
-                ))
+                await mintFaceSelection(kind: "hole", faceIndex: hole.faceIndex)
             }
         }
         return IntrospectionTools.encode(FeatureSelectionsResult(

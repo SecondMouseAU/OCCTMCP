@@ -57,15 +57,28 @@ public enum SelectionTools {
         } catch {
             return .init("\(error)")
         }
-        let shape = loaded.shape
         // #91: shape.faces()/.edges()/.vertices() enumeration order is
-        // NOT guaranteed to equal TopologyGraph(shape:)'s own per-kind
-        // node index order (verified false for edges/vertices — see
+        // NOT guaranteed to equal the graph's own per-kind node index
+        // order (verified false for edges/vertices, per
         // TopologyIdentityTests). remap_selection's history path
         // (RemapTools.remapViaHistory) reinterprets a selectionId's
-        // embedded index as a TopologyGraph.NodeRef index, so that
-        // index has to come from the graph, not the enumeration loop.
-        let graph = TopologyGraph(shape: shape)
+        // embedded index as a BRepGraph.NodeRef index, so that index
+        // has to come from the graph, not the enumeration loop.
+        //
+        // #93: resolve through the HistoryRegistry-retained lineage
+        // instead of a disposable per-call graph: establishes (or
+        // reuses) the SAME graph object a later history-aware mutation
+        // (apply_feature, boolean_op, heal_shape, ...) will absorb into,
+        // so a GraphUID minted here still resolves after the mutation
+        // instead of being permanently unresolvable.
+        let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
+        do {
+            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: loaded.path)
+        } catch {
+            return .init("\(error)")
+        }
+        let shape = lineage.shape
+        let graph = lineage.graph
 
         var entries: [SelectionEntry] = []
         var totalScanned = 0
@@ -115,6 +128,9 @@ public enum SelectionTools {
                     surfaceType: surfaceType
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
+                if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: index) {
+                    await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
+                }
                 entries.append(SelectionEntry(
                     selectionId: anchor.selectionId,
                     bodyId: bodyId,
@@ -158,6 +174,9 @@ public enum SelectionTools {
                     circleCenter: circleCenter
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
+                if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: index) {
+                    await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
+                }
                 entries.append(SelectionEntry(
                     selectionId: anchor.selectionId,
                     bodyId: bodyId,
@@ -182,6 +201,9 @@ public enum SelectionTools {
                     center: [point.x, point.y, point.z]
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
+                if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.vertex.rawValue), index: index) {
+                    await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
+                }
                 entries.append(SelectionEntry(
                     selectionId: anchor.selectionId,
                     bodyId: bodyId,
@@ -238,8 +260,8 @@ public enum SelectionTools {
     /// dropping the selection outright.
     static func graphIndex(
         for sub: Shape?,
-        kind: TopologyGraph.NodeKind,
-        in graph: TopologyGraph?,
+        kind: BRepGraph.NodeKind,
+        in graph: BRepGraph?,
         fallback: Int
     ) -> Int {
         guard let graph, let sub,
