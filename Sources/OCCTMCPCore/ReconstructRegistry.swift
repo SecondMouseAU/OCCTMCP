@@ -1,10 +1,10 @@
-// ReconstructRegistry — actor-backed store of `sessionId → BRepGraph`
+// ReconstructRegistry: actor-backed store of `sessionId → BRepGraph`
 // for the `reconstruct_*` tool group (OCCTMCP #33).
 //
-// A "reconstruction session" is a live `BRepGraph` plus its per-node
-// attribute overlay (OCCTSwift 1.2.0's `NodeAttributeStore`). The
-// reconstruction *engine* — surface fitting, congruence detection, the
-// math behind residuals/confidence — lives downstream in OCCTReconstruct.
+// A "reconstruction session" is a live `BRepGraph` plus a `GraphUID`-keyed
+// per-node attribute overlay (#95; see the class doc comment below). The
+// reconstruction *engine* (surface fitting, congruence detection, the
+// math behind residuals/confidence) lives downstream in OCCTReconstruct.
 // OCCTMCP only reads and writes the attributed graph so an LLM-in-the-loop
 // can annotate decisions (`decidedBy`, accept/reject, forced surface type,
 // instance clusters) and have them persist via `GraphSnapshot`.
@@ -12,8 +12,8 @@
 // All graph access is funnelled through the actor so the (`@unchecked
 // Sendable`) `BRepGraph` reference type is never mutated concurrently:
 // the tool layer builds a graph (from a body's BREP or an imported
-// snapshot), hands it to `store(id:graph:)`, and never touches it again —
-// every subsequent read/write goes through an actor-isolated method.
+// snapshot), hands it to `store(id:graph:)`, and never touches it again.
+// Every subsequent read/write goes through an actor-isolated method.
 
 import Foundation
 import OCCTSwift
@@ -89,21 +89,44 @@ public enum ReconstructError: Error, CustomStringConvertible, Sendable {
 public actor ReconstructRegistry {
     public static let shared = ReconstructRegistry()
 
-    /// Invariant (#92): a session's graph must never be structurally
-    /// mutated — no node removal/compaction/dedup — while
-    /// `reconstruct.*` attributes are attached. Every write in this file
-    /// goes through `setAttribute`, never through a graph-mutating call,
-    /// so the `<kind>:<index>` node addressing below (`format`/`parse`)
-    /// stays valid for a session's lifetime. `AnalysisTools.graph_compact`
-    /// / `graph_dedup` are one-shot, file-path-only, and never touch a
-    /// live session graph — if a future `reconstruct_*` tool wires
-    /// compaction into a live session, indices can shift out from under
-    /// stored attribute keys with nothing to catch it (unlike a
-    /// `GraphUID`, which `BRepGraph` resolves to `nil` rather than a
-    /// wrong node on a stale reference). Switch node addressing to
-    /// `GraphUID` (minted via `graph.uid(ofNodeKind:index:)`) before
-    /// adding any compaction/dedup path here.
+    /// #95/#92: node addressing and attribute storage are both `GraphUID`-based,
+    /// not raw `NodeRef(kind, index)`. The `<kind>:<index>` wire format
+    /// (`format`/`parse`) is unchanged for the agent-facing protocol (every
+    /// existing `reconstruct_*` caller and stored `GraphSnapshot` still
+    /// sees/round-trips the same strings), but internally:
+    ///
+    /// - `nodeUIDs` caches `wireString → GraphUID`: the FIRST resolution of a
+    ///   given wire string parses it and mints a UID for whatever node it
+    ///   named at the time (`resolveUID(id:nodeStr:in:)`); every later
+    ///   resolution of the SAME string re-resolves via that UID rather than
+    ///   the string's embedded index, returning `nil` (a clear "unknown
+    ///   node" outcome) if the UID no longer resolves in this graph, never a
+    ///   silent wrong-node match.
+    /// - `attrStore` holds every `reconstruct.*` attribute keyed by
+    ///   `GraphUID` directly, not by `BRepGraph.NodeRef`. A `GraphUID` never
+    ///   encodes an index, so an attribute set before a hypothetical future
+    ///   `compact()`/`deduplicate()` on a live session keeps applying to the
+    ///   SAME node after one, without any re-keying step: there is no
+    ///   pre-compaction/post-compaction index to migrate between. `store(
+    ///   id:graph:)` converts an imported `GraphSnapshot`'s NodeRef-keyed
+    ///   attributes into this UID-keyed form once, at session start;
+    ///   `makeSnapshot(id:)` converts back to NodeRef-keyed (the only wire
+    ///   format `GraphSnapshot`/`BRepGraph.snapshot()` understands) by
+    ///   resolving each UID to its CURRENT node right before serializing.
+    ///
+    /// Verified (regression test `resolveSurvivesCompaction`) against a real
+    /// `compact()` renumbering: a node's full attribute set, including
+    /// attributes set both before and after the renumbering, is intact and
+    /// attached to the SAME logical node afterwards, not split across the
+    /// old and new indices or misattributed to whatever else now sits at
+    /// the wire string's literal index. `AnalysisTools.graph_compact` /
+    /// `graph_dedup` remain one-shot and file-path-only today and never
+    /// touch a live session graph, so this is a guard-rail against a future
+    /// `reconstruct_*` tool wiring one in, not a path exercised in
+    /// production yet.
     private var sessions: [String: BRepGraph] = [:]
+    private var nodeUIDs: [String: [String: BRepGraph.GraphUID]] = [:]
+    private var attrStore: [String: [BRepGraph.GraphUID: [String: BRepGraph.AttrValue]]] = [:]
 
     public init() {}
 
@@ -111,12 +134,51 @@ public actor ReconstructRegistry {
 
     public func hasSession(id: String) -> Bool { sessions[id] != nil }
 
-    /// Register (or replace) the graph backing a session.
-    public func store(id: String, graph: BRepGraph) { sessions[id] = graph }
+    /// Register (or replace) the graph backing a session. A replacement
+    /// graph is always a NEW `BRepGraph` instance, so any UIDs cached
+    /// under `id` from the old instance are foreign to it and must be
+    /// dropped rather than left to resolve `nil` forever. Any attributes
+    /// already on `graph` (from `BRepGraph(snapshot:)` rebuilding an
+    /// imported session) are NodeRef-keyed; convert them into this
+    /// registry's UID-keyed `attrStore` once, here, rather than reading
+    /// `graph.attributes` directly on every subsequent call.
+    public func store(id: String, graph: BRepGraph) {
+        sessions[id] = graph
+        nodeUIDs[id] = nil
+        var byUID: [BRepGraph.GraphUID: [String: BRepGraph.AttrValue]] = [:]
+        for (ref, attrs) in graph.attributes.storage {
+            if let uid = graph.uid(ofNodeKind: Int(ref.kind.rawValue), index: ref.index) {
+                byUID[uid] = attrs
+            }
+        }
+        attrStore[id] = byUID
+    }
 
     public func sessionIds() -> [String] { sessions.keys.sorted() }
 
-    public func clear() { sessions.removeAll() }
+    public func clear() {
+        sessions.removeAll()
+        nodeUIDs.removeAll()
+        attrStore.removeAll()
+    }
+
+    /// Resolve `nodeStr` to the `GraphUID` it currently names in `id`'s
+    /// session graph. First resolution of a given string: parse the wire
+    /// format and mint a UID for future calls. Later resolutions of the
+    /// SAME string: re-validate the cached UID against the graph rather
+    /// than re-parsing the string's embedded index, returning `nil` if the
+    /// UID no longer resolves.
+    private func resolveUID(id: String, nodeStr: String, in g: BRepGraph) -> BRepGraph.GraphUID? {
+        if let uid = nodeUIDs[id]?[nodeStr] {
+            return g.node(forUID: uid) != nil ? uid : nil
+        }
+        guard let node = Self.parse(nodeStr),
+              let uid = g.uid(ofNodeKind: Int(node.kind.rawValue), index: node.index) else {
+            return nil
+        }
+        nodeUIDs[id, default: [:]][nodeStr] = uid
+        return uid
+    }
 
     // MARK: read
 
@@ -128,16 +190,21 @@ public actor ReconstructRegistry {
             edges: s.edges, vertices: s.vertices, compounds: s.compounds,
             totalNodes: s.totalNodes
         )
-        let storage = g.attributes.storage
-        let orderedRefs = storage.keys.sorted(by: Self.nodeOrder)
+
+        // Resolve each attributed UID to its CURRENT node. A UID that no
+        // longer resolves (its node was deleted since annotation) is
+        // skipped rather than reported at a stale or reused index.
+        var resolved: [(ref: BRepGraph.NodeRef, attrs: [String: BRepGraph.AttrValue])] = []
+        for (uid, attrs) in attrStore[id] ?? [:] {
+            guard let r = g.node(forUID: uid), let kind = BRepGraph.NodeKind(rawValue: Int32(r.kind)) else { continue }
+            resolved.append((BRepGraph.NodeRef(kind: kind, index: r.index), attrs))
+        }
+        resolved.sort { Self.nodeOrder($0.ref, $1.ref) }
 
         var nodes: [ReconstructGraphState.NodeAttrs] = []
         var clusters: [String: (members: [String], confirmed: Bool)] = [:]
-        for ref in orderedRefs {
-            guard let attrs = storage[ref] else { continue }
-            var out: [String: AnyCodable] = [:]
-            for (k, v) in attrs { out[k] = Self.anyCodable(v) }
-            nodes.append(.init(node: Self.format(ref), attributes: out))
+        for (ref, attrs) in resolved {
+            nodes.append(.init(node: Self.format(ref), attributes: Self.anyCodableMap(attrs)))
 
             if let cid = attrs[ReconstructKeys.instanceCluster]?.stringValue {
                 let confirmed = attrs[ReconstructKeys.instanceConfirmed]?.boolValue ?? false
@@ -154,7 +221,7 @@ public actor ReconstructRegistry {
         }
         return ReconstructGraphState(
             sessionId: id, topology: counts,
-            annotatedNodeCount: g.attributes.annotatedNodeCount,
+            annotatedNodeCount: nodes.count,
             nodes: nodes, instanceClusters: clusterList
         )
     }
@@ -165,49 +232,74 @@ public actor ReconstructRegistry {
         id: String, nodeStr: String, decidedBy: String?, accepted: Bool?
     ) -> ReconstructWriteOutcome {
         guard let g = sessions[id] else { return .noSession(id) }
-        guard let node = Self.parse(nodeStr) else { return .badNode(nodeStr) }
-        if let d = decidedBy { g.setAttribute(ReconstructKeys.decidedBy, .string(d), for: node) }
-        if let a = accepted { g.setAttribute(ReconstructKeys.accepted, .bool(a), for: node) }
-        return .ok(node: nodeStr, attributes: Self.attrsOut(g, node))
+        guard let uid = resolveUID(id: id, nodeStr: nodeStr, in: g) else { return .badNode(nodeStr) }
+        if let d = decidedBy { attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.decidedBy] = .string(d) }
+        if let a = accepted { attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.accepted] = .bool(a) }
+        return .ok(node: nodeStr, attributes: Self.anyCodableMap(attrStore[id]?[uid] ?? [:]))
     }
 
     public func forceFit(
         id: String, nodeStr: String, surfaceType: String
     ) -> ReconstructWriteOutcome {
         guard let g = sessions[id] else { return .noSession(id) }
-        guard let node = Self.parse(nodeStr) else { return .badNode(nodeStr) }
-        g.setAttribute(ReconstructKeys.forcedSurfaceType, .string(surfaceType), for: node)
-        return .ok(node: nodeStr, attributes: Self.attrsOut(g, node))
+        guard let uid = resolveUID(id: id, nodeStr: nodeStr, in: g) else { return .badNode(nodeStr) }
+        attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.forcedSurfaceType] = .string(surfaceType)
+        return .ok(node: nodeStr, attributes: Self.anyCodableMap(attrStore[id]?[uid] ?? [:]))
     }
 
     public func confirmInstances(
         id: String, clusterId: String, nodeStrs: [String], confirmed: Bool
     ) -> ReconstructClusterOutcome {
         guard let g = sessions[id] else { return .noSession(id) }
-        let parsed = nodeStrs.map { (raw: $0, ref: Self.parse($0)) }
-        let bad = parsed.filter { $0.ref == nil }.map { $0.raw }
+        let parsed = nodeStrs.map { (raw: $0, uid: resolveUID(id: id, nodeStr: $0, in: g)) }
+        let bad = parsed.filter { $0.uid == nil }.map { $0.raw }
         guard bad.isEmpty else { return .badNodes(bad) }
         for entry in parsed {
-            guard let ref = entry.ref else { continue }
-            g.setAttribute(ReconstructKeys.instanceCluster, .string(clusterId), for: ref)
-            g.setAttribute(ReconstructKeys.instanceConfirmed, .bool(confirmed), for: ref)
+            guard let uid = entry.uid else { continue }
+            attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.instanceCluster] = .string(clusterId)
+            attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.instanceConfirmed] = .bool(confirmed)
         }
         return .ok(clusterId: clusterId, members: nodeStrs, confirmed: confirmed)
     }
 
     // MARK: persistence
 
+    /// `BRepGraph.snapshot()` is the only public source of a session's
+    /// `brep` (`sourceBREP` is internal to OCCTSwift), so it still runs
+    /// here for that half; its own `.attributes` field is discarded and
+    /// rebuilt from `attrStore`, resolving each UID to its CURRENT node
+    /// right before serializing (the wire format `GraphSnapshot` round-trips
+    /// is NodeRef-keyed, not UID-keyed: a UID is only durable within the
+    /// `BRepGraph` instance that minted it, per `BRepGraph.GraphUID`'s own
+    /// documented instance-scoping, so it can't be the persisted form).
     public func makeSnapshot(id: String) throws -> GraphSnapshot {
         guard let g = sessions[id] else { throw ReconstructError.noSession(id) }
-        return try g.snapshot()
+        let base = try g.snapshot()
+        return GraphSnapshot(
+            brep: base.brep,
+            attributes: Self.nodeAttributeStore(from: attrStore[id] ?? [:], graph: g),
+            formatVersion: base.formatVersion
+        )
     }
 
     // MARK: helpers
 
-    private static func attrsOut(_ g: BRepGraph, _ node: BRepGraph.NodeRef) -> [String: AnyCodable] {
+    private static func anyCodableMap(_ attrs: [String: BRepGraph.AttrValue]) -> [String: AnyCodable] {
         var out: [String: AnyCodable] = [:]
-        for (k, v) in g.attributes.storage[node] ?? [:] { out[k] = anyCodable(v) }
+        for (k, v) in attrs { out[k] = anyCodable(v) }
         return out
+    }
+
+    private static func nodeAttributeStore(
+        from byUID: [BRepGraph.GraphUID: [String: BRepGraph.AttrValue]], graph: BRepGraph
+    ) -> NodeAttributeStore {
+        var store = NodeAttributeStore()
+        for (uid, attrs) in byUID {
+            guard let r = graph.node(forUID: uid), let kind = BRepGraph.NodeKind(rawValue: Int32(r.kind)) else { continue }
+            let ref = BRepGraph.NodeRef(kind: kind, index: r.index)
+            for (k, v) in attrs { store.set(k, v, for: ref) }
+        }
+        return store
     }
 
     private static func nodeOrder(_ a: BRepGraph.NodeRef, _ b: BRepGraph.NodeRef) -> Bool {
