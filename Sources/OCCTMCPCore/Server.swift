@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag: clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.19.1"
+    public static let serverVersion = "1.20.0"
 }
 
 /// Shared by the three tools that share DeviationTools' signed-distance engine
@@ -1230,6 +1230,74 @@ func catalogTools() -> [Tool] {
                 "additionalProperties": .bool(false),
             ])
         ),
+        // ── mesh zone tools (#101/#102) ─────────────────────────────────
+        Tool(
+            name: "segment_mesh_zones",
+            description: "Split a body's mesh into surface zones (plane / cylinder / sphere / cone) via OCCTSwiftMesh's dihedral region-growing + primitive-fit merge. Each zone gets a stable `zone:<bodyId>#<n>` id (largest-first) plus a fitted primitive (kind, params, residual, inlier ratio) and is minted into the zone registry (<output_dir>/zones.json) so a later zone_continuity_sweep can resolve it without re-segmenting. Optionally renders a categorical per-zone PNG and/or registers each zone as its own scene body (facet-shell BREP) for downstream measurement tools.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "maxDihedralDegrees": .object(["type": .string("number"), "description": .string("Region-growing breaks where adjacent face normals exceed this angle. Default 20.")]),
+                    "mergeToleranceMm": .object(["type": .string("number"), "description": .string("Absolute mm merge tolerance (converted internally to a fraction of the body's bbox diagonal). Default: library default (0.4% of bbox diagonal).")]),
+                    "minRegionTriangles": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Regions smaller than this after growing + merging are dropped and counted in truncatedTriangleCount. Default 8.")]),
+                    "maxZones": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on returned zones; the largest are kept, the rest counted in truncatedTriangleCount. Default 64.")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
+                    "registerZones": .object(["type": .string("boolean"), "description": .string("If true, register each zone (up to registerCap, largest-first) as its own scene body `<bodyId>_zone<n>` (facet-shell BREP via writeBREP(allowInvalid:)). Default false.")]),
+                    "registerCap": .object(["type": .string("integer"), "minimum": .int(0), "description": .string("Max zones to register as bodies when registerZones is true. Default 32.")]),
+                    "render": .object(["type": .string("boolean"), "description": .string("Render a categorical per-zone PNG with a legend. Default true.")]),
+                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_zones.png).")]),
+                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                ]),
+                "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "zone_continuity_sweep",
+            description: "Per-zone (or whole-body) loftable-extent map: slices along an axis at N stations, compares each station's 2D profile against a running reference, and reports maximal within-tolerance runs (the completable/loftable extents) plus deviation intervals between them, each with world axisCoord spans and magnitudes. Pass zoneId (from segment_mesh_zones) to sweep only that zone's own triangles — slicing just the zone keeps a neighbouring feature from polluting its verdict; omit it to sweep the whole body. Axis defaults to the zone/body's principal axis via PCA; pass an explicit axis to override. Optional render (zone/body colored by nearest-station verdict: constant=blue, deviating=red, missed=grey) and per-station strip chart.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "zoneId": .object(["type": .string("string"), "description": .string("A zone:<bodyId>#<n> id from segment_mesh_zones. Omit to sweep the whole body.")]),
+                    "axis": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("[x,y,z] sweep axis. Default: the zone/body's principal axis via PCA over its triangle vertices.")]),
+                    "stations": .object(["type": .string("integer"), "minimum": .int(2), "description": .string("Number of evenly-spaced cut planes across the zone/body's axis extent (2% end margin). Default 32.")]),
+                    "toleranceMm": .object(["type": .string("number"), "description": .string("Within-tolerance verdict threshold on profile RMS (mm). Default 0.5.")]),
+                    "lateralToleranceMm": .object(["type": .string("number"), "description": .string("Within-tolerance verdict threshold on profile centroid offset (mm). Default: same as toleranceMm.")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection for a whole-body sweep. Default 0.5% of the body's bbox diagonal. Ignored (and warned) for a zoneId-scoped sweep, which always re-meshes at the zone's own segmentation deflection so triangleIndices stay valid.")]),
+                    "render": .object(["type": .string("boolean"), "description": .string("Render the zone/body colored by nearest-station verdict. Default true.")]),
+                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path.")]),
+                    "chart": .object(["type": .string("boolean"), "description": .string("Render a per-station profileRmsMm-vs-axisCoord strip chart PNG with the tolerance line. Default false.")]),
+                    "chartPath": .object(["type": .string("string"), "description": .string("Override the default chart path.")]),
+                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options.")]),
+                ]),
+                "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "list_zones",
+            description: "Return every zone in the zone registry (<output_dir>/zones.json), optionally filtered to one body. Cheap introspection — see what segment_mesh_zones has minted without re-segmenting.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string"), "description": .string("Restrict to this body's zones. Omit to list every zone across all bodies.")]),
+                ]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "clear_zones",
+            description: "Drop zones from the zone registry and its <output_dir>/zones.json sidecar, optionally for one body only. Returns the count cleared.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string"), "description": .string("Clear only this body's zones. Omit to clear every zone.")]),
+                ]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
     ]
 }
 
@@ -2007,6 +2075,54 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         return await ReconstructTools.importSession(
             path: path, sessionId: arguments["sessionId"]?.stringValue
         ).asCallToolResult()
+
+    case "segment_mesh_zones":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("segment_mesh_zones requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        return await MeshZoneTools.segmentMeshZones(
+            bodyId: bodyId,
+            maxDihedralDegrees: arguments["maxDihedralDegrees"]?.numberValue ?? 20,
+            mergeToleranceMm: arguments["mergeToleranceMm"]?.numberValue,
+            minRegionTriangles: arguments["minRegionTriangles"]?.intValue ?? 8,
+            maxZones: arguments["maxZones"]?.intValue ?? 64,
+            deflection: arguments["deflection"]?.numberValue,
+            registerZones: arguments["registerZones"]?.boolValue ?? false,
+            registerCap: arguments["registerCap"]?.intValue ?? 32,
+            render: arguments["render"]?.boolValue ?? true,
+            renderPath: arguments["renderPath"]?.stringValue,
+            options: parseRenderOptions(arguments["options"])
+        ).asCallToolResult()
+
+    case "zone_continuity_sweep":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("zone_continuity_sweep requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        var axis: SIMD3<Double>? = nil
+        if let arr = arguments["axis"]?.arrayValue, arr.count == 3,
+           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+            axis = SIMD3(x, y, z)
+        }
+        return await ZoneSweepTool.zoneContinuitySweep(
+            bodyId: bodyId,
+            zoneId: arguments["zoneId"]?.stringValue,
+            axis: axis,
+            stations: arguments["stations"]?.intValue ?? 32,
+            toleranceMm: arguments["toleranceMm"]?.numberValue ?? 0.5,
+            lateralToleranceMm: arguments["lateralToleranceMm"]?.numberValue,
+            deflection: arguments["deflection"]?.numberValue,
+            render: arguments["render"]?.boolValue ?? true,
+            renderPath: arguments["renderPath"]?.stringValue,
+            chart: arguments["chart"]?.boolValue ?? false,
+            chartPath: arguments["chartPath"]?.stringValue,
+            options: parseRenderOptions(arguments["options"])
+        ).asCallToolResult()
+
+    case "list_zones":
+        return await RegistryIntrospectionTools.listZones(bodyId: arguments["bodyId"]?.stringValue).asCallToolResult()
+
+    case "clear_zones":
+        return await RegistryIntrospectionTools.clearZones(bodyId: arguments["bodyId"]?.stringValue).asCallToolResult()
 
     default:
         return ToolText("Unknown tool: \(callName)", isError: true).asCallToolResult()
