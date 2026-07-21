@@ -55,6 +55,43 @@ struct ZoneRegistryTests {
         #expect(everything.count == 3)
     }
 
+    @Test("recordBatch supersedes: re-segmenting a body with fewer zones drops the prior run's stale higher-numbered records, leaves other bodies untouched, and persists")
+    func recordBatchSupersedesStaleZones() async throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let store = ZonesStore(outputDir: dir)
+        let registry = ZoneRegistry()
+
+        // First segmentation: 3 zones for "box".
+        await registry.recordBatch([record("box", 0), record("box", 1), record("box", 2)], store: store)
+        // Another body, untouched by anything that follows.
+        await registry.recordBatch([record("other", 0), record("other", 1)], store: store)
+        #expect(await registry.zones(forBody: "box").count == 3)
+        #expect(await registry.zones(forBody: "other").count == 2)
+
+        // Re-segment "box" with params that yield fewer zones (same mesh,
+        // different segmentation params — the case that used to leave
+        // zone:box#2 stale-but-resolvable).
+        await registry.recordBatch([record("box", 0), record("box", 1)], store: store)
+
+        let boxZones = await registry.zones(forBody: "box")
+        #expect(boxZones.map(\.index) == [0, 1])
+        #expect(await registry.zone("zone:box#2") == nil)
+
+        // "other" body's zones must be completely untouched.
+        #expect(await registry.zones(forBody: "other").count == 2)
+
+        // Persistence: a fresh actor instance reading the same sidecar sees
+        // only the 2 superseding zones for "box", plus "other" unaffected.
+        let reloaded = ZoneRegistry()
+        await reloaded.loadSidecarIfNeeded(store: store)
+        let reloadedBox = await reloaded.zones(forBody: "box")
+        #expect(reloadedBox.map(\.zoneId).sorted() == ["zone:box#0", "zone:box#1"])
+        #expect(await reloaded.zone("zone:box#2") == nil)
+        #expect(await reloaded.zones(forBody: "other").count == 2)
+        #expect(await reloaded.all().count == 4)
+    }
+
     @Test("persist: a batch survives a fresh actor instance reading the same sidecar (process-restart simulation)")
     func persistsAcrossFreshInstance() async throws {
         let dir = try tempDir()

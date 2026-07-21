@@ -202,9 +202,25 @@ public actor ZoneRegistry {
         records.values.sorted { $0.zoneId < $1.zoneId }
     }
 
-    /// Record a batch of zones (one `segment_mesh_zones` call mints several)
-    /// and persist once, not once per zone.
+    /// Record a batch of zones (one `segment_mesh_zones` call mints several),
+    /// SUPERSEDING every existing zone for each `bodyId` present in the
+    /// batch, and persist once, not once per zone.
+    ///
+    /// A body's zone table has to reflect exactly ONE segmentation at a
+    /// time. Without the supersede, re-running `segment_mesh_zones` on a
+    /// body with params that yield FEWER zones than a prior run would leave
+    /// the prior run's stale higher-numbered `zone:<body>#<k>` records
+    /// resolvable — the underlying mesh didn't change, only the
+    /// segmentation did, so `MeshSignature` still matches — and `list_zones`
+    /// would show a mix of two different segmentations for that body.
+    /// Superseding first (remove every record whose `bodyId` is in the
+    /// batch, THEN insert the batch) guarantees a body's zones always come
+    /// from a single `segment_mesh_zones` call. Other bodies' zones are
+    /// untouched.
     public func recordBatch(_ recs: [ZoneRecord], store: ZonesStore) {
+        let bodyIds = Set(recs.map(\.bodyId))
+        let stale = records.values.filter { bodyIds.contains($0.bodyId) }.map(\.zoneId)
+        for k in stale { records.removeValue(forKey: k) }
         for r in recs { records[r.zoneId] = r }
         persist(store: store)
     }
