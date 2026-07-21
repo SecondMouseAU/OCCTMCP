@@ -300,21 +300,21 @@ struct SignedSpatialDeviationTests {
         let ref = circle(5, 160) + circle(2, 160)
 
         // Candidate matches the OUTER envelope: the inner ring must not pollute.
-        let ok = CrossSectionCompareTool.envelopeDeviation(candidate: circle(5, 160), reference: ref)
+        let ok = ProfileMath.envelopeDeviation(candidate: circle(5, 160), reference: ref)
         #expect(abs(ok.signedMean) < 0.15)
         #expect(ok.rms < 0.15)
         #expect(ok.shapeL2 < 0.03)
 
         // A uniformly smaller candidate reads shy (≈ −1) — sign is meaningful.
-        let shy = CrossSectionCompareTool.envelopeDeviation(candidate: circle(4, 160), reference: ref)
+        let shy = ProfileMath.envelopeDeviation(candidate: circle(4, 160), reference: ref)
         #expect(shy.signedMean < -0.8 && shy.signedMean > -1.2)
 
         // OPEN profiles (half arcs): shapeL2 is DEFINED (not forced 0) — same shape ≈ 0,
         // a squashed shape clearly > 0.
         let openRef = arc(5, 5, from: 0, to: .pi, 80)
-        let same = CrossSectionCompareTool.envelopeDeviation(candidate: arc(5, 5, from: 0, to: .pi, 80), reference: openRef)
+        let same = ProfileMath.envelopeDeviation(candidate: arc(5, 5, from: 0, to: .pi, 80), reference: openRef)
         #expect(same.shapeL2 < 0.05)
-        let squashed = CrossSectionCompareTool.envelopeDeviation(candidate: arc(6, 2, from: 0, to: .pi, 80), reference: openRef)
+        let squashed = ProfileMath.envelopeDeviation(candidate: arc(6, 2, from: 0, to: .pi, 80), reference: openRef)
         #expect(squashed.shapeL2 > 0.05)
     }
 

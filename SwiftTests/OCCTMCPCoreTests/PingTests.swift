@@ -10,6 +10,11 @@ struct PingTests {
         #expect(tools.contains(where: { $0.name == "ping" }))
     }
 
+    @Test("server exposes exactly 67 tools (#101/#102 add segment_mesh_zones, zone_continuity_sweep, list_zones, clear_zones)")
+    func toolCount() async throws {
+        #expect(catalogTools().count == 67)
+    }
+
     @Test("ping handler returns pong")
     func pingPongs() async throws {
         let result = await dispatch(callName: "ping", arguments: [:])

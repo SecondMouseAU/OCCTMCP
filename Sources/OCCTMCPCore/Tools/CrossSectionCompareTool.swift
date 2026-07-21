@@ -12,18 +12,23 @@
 // signedMean across the stack.
 //
 // Both bodies are meshed and sliced with OCCTSwiftMesh's `Mesh.crossSection`,
-// which derives its (u, v) plane basis deterministically from the plane normal —
+// which derives its (u, v) plane basis deterministically from the plane normal,
 // so slicing both with the SAME `CutPlane` puts the two profiles in the SAME 2D
 // frame, directly comparable with no pose alignment.
 //
 // Stations are placed across the OVERLAP of the two bodies' axis-extents (one
 // shared world point + axis for both), so every station should cut both. A
-// section can be a closed contour OR — for an open shell such as a raw-scan /
-// STL skin — an open polyline; #66 originally consumed only closed contours, so
+// section can be a closed contour OR (for an open shell such as a raw-scan /
+// STL skin) an open polyline; #66 originally consumed only closed contours, so
 // an open reference read as un-sliced (`referenceContours: 0`) at most stations.
 // Now the longest open path is used as the profile when no closed loop exists,
 // and stations that sliced only one body are surfaced as `registrationSmell` /
 // `warnings` rather than silently skewing the aggregate.
+//
+// The 2D profile helpers (envelope, radial signature, resampling) live in
+// `ProfileMath.swift`, shared with ZoneSweepTool (#102). This file's own logic
+// is unchanged by that split; it now calls `ProfileMath.*` instead of local
+// functions of the same name.
 
 import Foundation
 import OCCTSwift
@@ -174,8 +179,8 @@ public enum CrossSectionCompareTool {
 
             // Prefer a closed contour; fall back to the longest open polyline so an
             // open shell (raw scan / STL skin) still yields a comparable profile.
-            let fromMain = mainProfile(closed: fromSec?.contours ?? [], open: fromOpen)
-            let refMain = mainProfile(closed: refSec?.contours ?? [], open: refOpen)
+            let fromMain = ProfileMath.mainProfile(closed: fromSec?.contours ?? [], open: fromOpen)
+            let refMain = ProfileMath.mainProfile(closed: refSec?.contours ?? [], open: refOpen)
 
             let fromHit = !fromLoops.isEmpty || !fromOpen.isEmpty
             let refHit = !refLoops.isEmpty || !refOpen.isEmpty
@@ -211,17 +216,17 @@ public enum CrossSectionCompareTool {
                     // aggregate. All section geometry feeds the envelope.
                     let candPts = fromLoops.flatMap { $0 } + fromOpen.flatMap { $0 }
                     let refPts = refLoops.flatMap { $0 } + refOpen.flatMap { $0 }
-                    let e = envelopeDeviation(candidate: candPts, reference: refPts)
+                    let e = ProfileMath.envelopeDeviation(candidate: candPts, reference: refPts)
                     (signedMean, rms, maxAbs, shapeL2) = (e.signedMean, e.rms, e.maxAbs, e.shapeL2)
                 } else {
-                    (signedMean, rms, maxAbs) = signedProfileDeviation(
+                    (signedMean, rms, maxAbs) = ProfileMath.signedProfileDeviation(
                         from: fromMain.points, reference: refMain.points, referenceClosed: refMain.closed)
                     shapeL2 = (fromMain.closed && refMain.closed)
-                        ? radialShapeL2(fromMain.points, refMain.points, samples: 180) : 0
+                        ? ProfileMath.radialShapeL2(fromMain.points, refMain.points, samples: 180) : 0
                 }
-                let fa = fromMain.closed ? abs(shoelace(fromMain.points)) : 0
-                let ra = refMain.closed ? abs(shoelace(refMain.points)) : 0
-                let cFrom = centroid(fromMain.points), cRef = centroid(refMain.points)
+                let fa = fromMain.closed ? abs(ProfileMath.shoelace(fromMain.points)) : 0
+                let ra = refMain.closed ? abs(ProfileMath.shoelace(refMain.points)) : 0
+                let cFrom = ProfileMath.centroid(fromMain.points), cRef = ProfileMath.centroid(refMain.points)
                 results.append(SectionResult(
                     station: s, offset: t - lo, axisCoord: axisBase + t,
                     fromContours: fromLoops.count, referenceContours: refLoops.count,
@@ -298,248 +303,5 @@ public enum CrossSectionCompareTool {
             if d > hi { hi = d }
         }
         return (lo, hi)
-    }
-
-    // MARK: - 2D contour math
-
-    /// The best comparable profile a section offers: a closed loop when present,
-    /// else the longest open polyline. `usable` gates the numeric comparison.
-    struct Profile {
-        let points: [SIMD2<Double>]
-        let closed: Bool
-        var usable: Bool { closed ? points.count >= 3 : points.count >= 2 }
-    }
-
-    /// Prefer the largest-area outermost closed contour; if the section is only
-    /// open polylines (an open shell / raw scan), fall back to the longest one so
-    /// the station still contributes a profile (#66).
-    static func mainProfile(closed contours: [MeshContour], open openPaths: [[SIMD2<Double>]]) -> Profile? {
-        if let ring = mainLoop(contours) { return Profile(points: ring, closed: true) }
-        if let path = openPaths.max(by: { polylineLength($0) < polylineLength($1) }), path.count >= 2 {
-            return Profile(points: path, closed: false)
-        }
-        return nil
-    }
-
-    /// Largest-area outermost (depth 0) loop of a section.
-    static func mainLoop(_ contours: [MeshContour]) -> [SIMD2<Double>]? {
-        let outer = contours.filter { $0.depth == 0 }
-        let pool = outer.isEmpty ? contours : outer
-        return pool.max(by: { $0.area < $1.area })?.points
-    }
-
-    static func polylineLength(_ path: [SIMD2<Double>]) -> Double {
-        guard path.count >= 2 else { return 0 }
-        var sum = 0.0
-        for i in 0..<(path.count - 1) { sum += simd_distance(path[i], path[i + 1]) }
-        return sum
-    }
-
-    // MARK: - Outer-envelope comparison (#70)
-
-    /// Signed deviation of the candidate's outer boundary vs the reference's
-    /// outer boundary, both sampled as a radial function about the REFERENCE
-    /// centroid so a lateral offset shows up as an asymmetric (proud one side /
-    /// shy the other) signature rather than cancelling. Inner window-return /
-    /// frame paths have a smaller radius per direction and are dropped by the
-    /// max, so they no longer pollute the aggregate.
-    static func envelopeDeviation(candidate candPts: [SIMD2<Double>],
-                                  reference refPts: [SIMD2<Double>],
-                                  bins: Int = 360)
-        -> (signedMean: Double, rms: Double, maxAbs: Double, shapeL2: Double)
-    {
-        guard candPts.count >= 3, refPts.count >= 3 else { return (0, 0, 0, 0) }
-        let c = centroid(refPts)
-        let refEnv = outerEnvelope(points: refPts, center: c, bins: bins)
-        let candEnv = outerEnvelope(points: candPts, center: c, bins: bins)
-        var sum = 0.0, sumSq = 0.0, maxAbs = 0.0, count = 0.0
-        for b in 0..<bins where refEnv[b] > 0 && candEnv[b] > 0 {
-            let d = candEnv[b] - refEnv[b]           // + = candidate proud
-            sum += d; sumSq += d * d
-            if abs(d) > maxAbs { maxAbs = abs(d) }
-            count += 1
-        }
-        guard count > 0 else { return (0, 0, 0, 0) }
-        return (sum / count, (sumSq / count).squareRoot(), maxAbs,
-                envelopeShapeL2(candEnv, refEnv))
-    }
-
-    /// Outer silhouette as a radial function: for each of `bins` angular sectors
-    /// about `center`, the MAX point radius. Empty sectors (an open section /
-    /// window cut) are filled by circular interpolation across their nearest
-    /// occupied neighbours, so the envelope spans the opening at the outer skin.
-    static func outerEnvelope(points: [SIMD2<Double>], center: SIMD2<Double>, bins: Int) -> [Double] {
-        var env = [Double](repeating: 0, count: bins)
-        var filled = [Bool](repeating: false, count: bins)
-        let twoPi = 2.0 * Double.pi
-        for p in points {
-            let d = p - center
-            let r = simd_length(d)
-            guard r > 1e-12 else { continue }
-            var a = atan2(d.y, d.x); if a < 0 { a += twoPi }
-            var b = Int(a / twoPi * Double(bins))
-            if b >= bins { b = bins - 1 }
-            if !filled[b] || r > env[b] { env[b] = r; filled[b] = true }
-        }
-        fillGapsCircular(&env, filled)
-        return env
-    }
-
-    static func fillGapsCircular(_ env: inout [Double], _ filled: [Bool]) {
-        let n = env.count
-        guard filled.contains(true), filled.contains(false) else { return }
-        for i in 0..<n where !filled[i] {
-            var df = 1; while !filled[(i + df) % n] { df += 1 }
-            var db = 1; while !filled[(i - db + n) % n] { db += 1 }
-            let fwd = env[(i + df) % n], bwd = env[(i - db + n) % n]
-            env[i] = bwd + (fwd - bwd) * Double(db) / Double(db + df)
-        }
-    }
-
-    /// Size- and pose-invariant shape distance between two radial envelopes:
-    /// normalise each by its own mean radius, RMS of the per-sector difference.
-    /// 0 ⇒ same silhouette. Works for open sections (the envelope is defined
-    /// everywhere after gap-fill), unlike the closed-ring `radialShapeL2`.
-    static func envelopeShapeL2(_ a: [Double], _ b: [Double]) -> Double {
-        guard a.count == b.count, !a.isEmpty else { return 0 }
-        let ma = a.reduce(0, +) / Double(a.count)
-        let mb = b.reduce(0, +) / Double(b.count)
-        guard ma > 1e-12, mb > 1e-12 else { return 0 }
-        var s = 0.0
-        for i in a.indices { let d = a[i] / ma - b[i] / mb; s += d * d }
-        return (s / Double(a.count)).squareRoot()
-    }
-
-    static func shoelace(_ ring: [SIMD2<Double>]) -> Double {
-        guard ring.count >= 3 else { return 0 }
-        var s = 0.0
-        for i in ring.indices {
-            let a = ring[i], b = ring[(i + 1) % ring.count]
-            s += a.x * b.y - b.x * a.y
-        }
-        return s * 0.5
-    }
-
-    static func centroid(_ ring: [SIMD2<Double>]) -> SIMD2<Double> {
-        guard !ring.isEmpty else { return .zero }
-        var c = SIMD2<Double>.zero
-        for p in ring { c += p }
-        return c / Double(ring.count)
-    }
-
-    /// Even-odd point-in-polygon.
-    static func contains(_ ring: [SIMD2<Double>], _ p: SIMD2<Double>) -> Bool {
-        var inside = false
-        var j = ring.count - 1
-        for i in ring.indices {
-            let a = ring[i], b = ring[j]
-            if (a.y > p.y) != (b.y > p.y) {
-                let x = a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x)
-                if p.x < x { inside.toggle() }
-            }
-            j = i
-        }
-        return inside
-    }
-
-    static func pointToLoopDistance(_ p: SIMD2<Double>, _ loop: [SIMD2<Double>], closed: Bool = true) -> Double {
-        guard loop.count >= 2 else { return loop.first.map { simd_distance(p, $0) } ?? .greatestFiniteMagnitude }
-        var best = Double.greatestFiniteMagnitude
-        let segs = closed ? loop.count : loop.count - 1
-        for i in 0..<segs {
-            let a = loop[i], b = loop[(i + 1) % loop.count]
-            best = min(best, pointSegmentDistance(p, a, b))
-        }
-        return best
-    }
-
-    static func pointSegmentDistance(_ p: SIMD2<Double>, _ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double {
-        let ab = b - a
-        let len2 = simd_dot(ab, ab)
-        if len2 < 1e-18 { return simd_distance(p, a) }
-        var t = simd_dot(p - a, ab) / len2
-        t = max(0, min(1, t))
-        return simd_distance(p, a + ab * t)
-    }
-
-    /// Signed point-to-profile deviation of `from` vs `reference`. Sign is + when
-    /// the `from` point lies OUTSIDE the reference profile (proud), − inside (shy).
-    ///
-    /// When the reference is a closed loop the sign is inside/outside containment.
-    /// When it is an OPEN polyline (open shell / raw scan) containment is
-    /// undefined, so the sign falls back to a radial test against the reference
-    /// centroid: a `from` point farther from the centroid than the reference
-    /// boundary in its direction is proud (+), nearer is shy (−). For the roughly
-    /// convex sections this tool targets the two conventions agree.
-    static func signedProfileDeviation(from: [SIMD2<Double>], reference: [SIMD2<Double>], referenceClosed: Bool = true)
-        -> (signedMean: Double, rms: Double, maxAbs: Double)
-    {
-        let cRef = referenceClosed ? .zero : centroid(reference)
-        var sum = 0.0, sumSq = 0.0, maxAbs = 0.0
-        for p in from {
-            let d = pointToLoopDistance(p, reference, closed: referenceClosed)
-            let signed: Double
-            if referenceClosed {
-                signed = contains(reference, p) ? -d : d
-            } else {
-                // Nearest reference vertex approximates the boundary radius in p's
-                // direction; compare radii for a proud/shy sign.
-                let nearest = reference.min(by: { simd_distance($0, p) < simd_distance($1, p) }) ?? cRef
-                signed = simd_distance(p, cRef) >= simd_distance(nearest, cRef) ? d : -d
-            }
-            sum += signed
-            sumSq += signed * signed
-            if abs(signed) > maxAbs { maxAbs = abs(signed) }
-        }
-        let n = Double(from.count)
-        return (sum / n, (sumSq / n).squareRoot(), maxAbs)
-    }
-
-    /// Arc-length resample of a closed loop to `n` evenly-spaced points.
-    static func resampleClosed(_ loop: [SIMD2<Double>], _ n: Int) -> [SIMD2<Double>] {
-        guard loop.count >= 2, n >= 3 else { return loop }
-        var cum: [Double] = [0]
-        var total = 0.0
-        for i in loop.indices {
-            let a = loop[i], b = loop[(i + 1) % loop.count]
-            total += simd_distance(a, b)
-            cum.append(total)
-        }
-        guard total > 1e-12 else { return loop }
-        var out: [SIMD2<Double>] = []
-        out.reserveCapacity(n)
-        var seg = 0
-        for k in 0..<n {
-            let target = total * Double(k) / Double(n)
-            while seg < loop.count && cum[seg + 1] < target { seg += 1 }
-            let a = loop[seg % loop.count], b = loop[(seg + 1) % loop.count]
-            let segLen = cum[seg + 1] - cum[seg]
-            let t = segLen > 1e-12 ? (target - cum[seg]) / segLen : 0
-            out.append(a + (b - a) * t)
-        }
-        return out
-    }
-
-    /// Pose-robust radial-signature L2. Resample both, take distance-from-centroid
-    /// as a function of normalized arc length, scale each by its own mean radius,
-    /// and return the RMS difference. 0 ⇒ same shape regardless of size/position.
-    /// Both loops already share the section's (u, v) frame, so no rotation
-    /// alignment is required.
-    static func radialShapeL2(_ a: [SIMD2<Double>], _ b: [SIMD2<Double>], samples: Int) -> Double {
-        let ra = radialSignature(a, samples)
-        let rb = radialSignature(b, samples)
-        guard ra.count == rb.count, !ra.isEmpty else { return 0 }
-        var s = 0.0
-        for i in ra.indices { let d = ra[i] - rb[i]; s += d * d }
-        return (s / Double(ra.count)).squareRoot()
-    }
-
-    static func radialSignature(_ loop: [SIMD2<Double>], _ n: Int) -> [Double] {
-        let rs = resampleClosed(loop, n)
-        let c = centroid(rs)
-        var radii = rs.map { simd_distance($0, c) }
-        let mean = radii.reduce(0, +) / Double(max(1, radii.count))
-        if mean > 1e-12 { for i in radii.indices { radii[i] /= mean } }
-        return radii
     }
 }

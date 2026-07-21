@@ -1,7 +1,8 @@
 // IntrospectionRegistryTools — list_selections, clear_selections,
-// list_annotations. Cheap state-introspection tools so the LLM can see
-// what's been accumulated in the SelectionRegistry / AnnotationsStore
-// without re-running select_topology / re-reading the sidecar by hand.
+// list_annotations, list_zones, clear_zones. Cheap state-introspection tools
+// so the LLM can see what's been accumulated in the SelectionRegistry /
+// AnnotationsStore / ZoneRegistry without re-running select_topology /
+// segment_mesh_zones or re-reading a sidecar by hand.
 
 import Foundation
 
@@ -54,5 +55,62 @@ public enum RegistryIntrospectionTools {
             dimensions: sidecar.dimensions,
             primitives: sidecar.primitives
         ))
+    }
+
+    // MARK: - list_zones
+
+    public struct ListZonesResult: Encodable {
+        public let count: Int
+        public let zones: [ZoneSummary]
+
+        public struct ZoneSummary: Encodable {
+            public let zoneId: String
+            public let bodyId: String
+            public let index: Int
+            public let triangleCount: Int
+            public let areaMm2: Double
+            public let fitKind: String
+        }
+    }
+
+    public static func listZones(
+        bodyId: String? = nil,
+        registry: ZoneRegistry = .shared,
+        store: ManifestStore = ManifestStore()
+    ) async -> ToolText {
+        let outputDir = (store.path as NSString).deletingLastPathComponent
+        let zonesStore = ZonesStore(outputDir: outputDir)
+        await registry.loadSidecarIfNeeded(store: zonesStore)
+        let zones: [ZoneRecord]
+        if let id = bodyId {
+            zones = await registry.zones(forBody: id)
+        } else {
+            zones = await registry.all()
+        }
+        let summaries = zones.map {
+            ListZonesResult.ZoneSummary(
+                zoneId: $0.zoneId, bodyId: $0.bodyId, index: $0.index,
+                triangleCount: $0.triangleIndices.count, areaMm2: $0.areaMm2, fitKind: $0.fit.kind
+            )
+        }
+        return IntrospectionTools.encode(ListZonesResult(count: summaries.count, zones: summaries))
+    }
+
+    // MARK: - clear_zones
+
+    public struct ClearZonesResult: Encodable {
+        public let cleared: Int
+    }
+
+    public static func clearZones(
+        bodyId: String? = nil,
+        registry: ZoneRegistry = .shared,
+        store: ManifestStore = ManifestStore()
+    ) async -> ToolText {
+        let outputDir = (store.path as NSString).deletingLastPathComponent
+        let zonesStore = ZonesStore(outputDir: outputDir)
+        await registry.loadSidecarIfNeeded(store: zonesStore)
+        let cleared = await registry.clear(bodyId: bodyId, store: zonesStore)
+        return IntrospectionTools.encode(ClearZonesResult(cleared: cleared))
     }
 }
