@@ -88,6 +88,7 @@ struct IntegrationTests {
             "signed_deviation_heatmap", "overlay_render",
             "segment_mesh_zones", "zone_continuity_sweep", "list_zones", "clear_zones",
             "mesh_diagnose", "mesh_thickness", "detect_symmetry",
+            "align_bodies",
         ] {
             #expect(names.contains(expected), "missing tool: \(expected)")
         }
