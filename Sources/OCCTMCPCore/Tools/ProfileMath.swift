@@ -311,6 +311,25 @@ enum ProfileMath {
     /// an open `candidate`, both the as-resampled and reversed point orders
     /// are compared and the lower-RMS orientation wins; `lateralOffsetMm`
     /// (centroid-based) is unaffected by this either way.
+    ///
+    /// KNOWN LIMITATION: this reversal-invariance only covers OPEN profiles.
+    /// A CLOSED ring is resampled starting from `loop[0]` (`resampleClosed`),
+    /// and that start point is exactly as non-canonical for a closed loop as
+    /// direction was for an open one: `Mesh.crossSection`'s loop traversal
+    /// doesn't guarantee the same physical point comes out first at every
+    /// station. Two stations of the same tube-like body can therefore come
+    /// back rotated relative to each other, pairing arc-length fractions
+    /// that are out of phase and reading as phantom shape deviation
+    /// (`rmsMm`/`maxMm` inflated even though the true cross-section didn't
+    /// change). Unlike the open-profile case, there is no cheap
+    /// forward/backward check that fixes this — a rotation can land at any
+    /// offset, not just reversed. The eventual fix is a best CIRCULAR SHIFT
+    /// of the resampled candidate points against the resampled reference
+    /// (try every rotation, or a coarse-to-fine search, keep the lowest
+    /// RMS), mirroring what `forward`/`backward` already do for reversal.
+    /// Not implemented yet: whole-body `zone_continuity_sweep` runs over a
+    /// closed-ring profile are exposed to this; zone-scoped sweeps of a
+    /// single (non-closed-ring) zone are not.
     static func profileDelta(reference: Profile, candidate: Profile, samples: Int = 32)
         -> (lateralOffsetMm: Double, rmsMm: Double, maxMm: Double, arcLengthDeltaMm: Double)?
     {
