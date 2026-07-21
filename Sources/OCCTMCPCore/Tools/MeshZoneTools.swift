@@ -116,6 +116,14 @@ public enum MeshZoneTools {
 
         let segmented = mesh.segmented(segOptions)
         var warnings: [String] = []
+        if segmented.fitMergeSkipped {
+            warnings.append(
+                "fit-gated merge pass skipped: raw region count exceeded the merge cap even after " +
+                "the coplanar pre-merge; zones are unmerged seed regions (coarse-tessellation " +
+                "confetti was not collapsed). Consider pre-decimating with simplify_mesh or raising " +
+                "minRegionTriangles."
+            )
+        }
         if segmented.truncatedTriangleCount > 0 {
             warnings.append(
                 "\(segmented.truncatedTriangleCount) triangles were excluded from every zone " +
