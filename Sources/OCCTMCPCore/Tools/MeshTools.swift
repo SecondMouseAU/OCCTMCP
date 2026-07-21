@@ -175,11 +175,16 @@ public enum MeshTools {
             if r < minR { minR = r }
         }
         let counted = max(triCount - degenerates, 1)
+        // Non-manifold edge count (Phase 2, #mesh-diagnose): reuses
+        // OCCTSwiftMesh's `integrityReport(weldTolerance:)` (weld + an
+        // O(n) edge-valence map, same primitive `mesh_diagnose` calls
+        // directly) rather than duplicating that edge map here.
+        let nonManifoldEdges = mesh.integrityReport().nonManifoldEdgeCount
         return .init(
             minAspectRatio: minR.isFinite ? minR : 1,
             meanAspectRatio: sum / Double(counted),
             degenerateTriangles: degenerates,
-            nonManifoldEdges: 0   // not computed in v1; needs an edge map
+            nonManifoldEdges: nonManifoldEdges
         )
     }
 

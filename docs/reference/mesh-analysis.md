@@ -6,11 +6,11 @@ nav_order: 12
 
 # Mesh analysis (zones)
 
-The mesh-inspection surface for raw scans / STL skins (#101, #102): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of and how consistent each one is along its length, before committing to a reconstruction. Swift-only.
+The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, and reflective-symmetry detection. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, or how symmetric it is, before committing to a reconstruction. Swift-only.
 
 ## Tools
 
-[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones)
+[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones) · [`mesh_diagnose`](#mesh_diagnose) · [`mesh_thickness`](#mesh_thickness) · [`detect_symmetry`](#detect_symmetry)
 
 ---
 
@@ -179,3 +179,168 @@ Drop zones from the zone registry and its `<output_dir>/zones.json` sidecar, opt
 // example result
 { "cleared": 14 }
 ```
+
+---
+
+## `mesh_diagnose`
+
+A printability-check-list integrity report over a body's mesh: watertight, edge/vertex-manifold, orientable, connected components, boundary loops, Euler characteristic / genus, duplicate/degenerate triangle counts, and sliver signals (`minAngleDegrees`, `aspectRatio`). `checks[]` derives pass/warn/fail verdicts from the raw counts so a caller doesn't have to re-encode the thresholds itself.
+
+**IMPORTANT — self-intersection is NOT checked.** This is an upstream `OCCTSwiftMesh.Mesh.integrityReport(weldTolerance:)` limitation, not an oversight here: a self-intersecting closed manifold still reports `isWatertight: true`.
+
+**Server:** Swift only
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `bodyId` | string | yes | Body to diagnose. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the body's bbox diagonal. |
+| `weldToleranceMm` | number (≥ 0) | no | Absolute mm weld tolerance used internally before computing manifoldness. Default 0 (auto: 1e-6 x the mesh's bbox diagonal). |
+
+**Returns** — `{ bodyId, triangleCount, isWatertight, isOrientable, nonManifoldEdgeCount, nonManifoldVertexCount, boundaryLoopCount, duplicateTriangleCount, degenerateTriangleCount, eulerCharacteristic, genus, componentCount, components: [{ triangleCount, areaMm2 }] (largest-first, capped 16 with a warning past that), minAngleDegrees: { min, p05 }, aspectRatio: { max, p95 }, checks: [{ check, status ("pass"|"warn"|"fail"), detail }], warnings[] }`.
+
+`checks[]` covers: `watertight` (fail if not), `orientable` (fail if not, or `warn`/"not evaluated" when non-manifold edges are present, since orientability isn't meaningful there), `single_component` (warn if > 1), `non_manifold_edges` / `non_manifold_vertices` (fail if > 0), `degenerate_triangles` / `duplicate_triangles` (warn if > 0), `slivers` (warn if `minAngleDegrees.p05` < 5° or `aspectRatio.p95` > 20).
+
+**Example**
+
+```json
+// tool call arguments
+{ "bodyId": "carbody_scan" }
+```
+```json
+// example result
+{
+  "bodyId": "carbody_scan",
+  "triangleCount": 48210,
+  "isWatertight": false,
+  "isOrientable": true,
+  "nonManifoldEdgeCount": 0,
+  "nonManifoldVertexCount": 0,
+  "boundaryLoopCount": 3,
+  "duplicateTriangleCount": 0,
+  "degenerateTriangleCount": 2,
+  "eulerCharacteristic": 1,
+  "genus": null,
+  "componentCount": 1,
+  "components": [{ "triangleCount": 48210, "areaMm2": 2140500.0 }],
+  "minAngleDegrees": { "min": 0.8, "p05": 6.2 },
+  "aspectRatio": { "max": 210.0, "p95": 9.1 },
+  "checks": [
+    { "check": "watertight", "status": "fail", "detail": "Not watertight: 3 boundary loop(s), 0 non-manifold edge(s), 0 non-manifold vertex/vertices." },
+    { "check": "orientable", "status": "pass", "detail": "Consistent winding across every 2-triangle edge." },
+    { "check": "single_component", "status": "pass", "detail": "A single connected piece." },
+    { "check": "non_manifold_edges", "status": "pass", "detail": "No non-manifold edges." },
+    { "check": "non_manifold_vertices", "status": "pass", "detail": "No non-manifold vertices." },
+    { "check": "degenerate_triangles", "status": "warn", "detail": "2 triangle(s) collapsed to an edge or point after welding." },
+    { "check": "duplicate_triangles", "status": "pass", "detail": "No duplicate triangles." },
+    { "check": "slivers", "status": "pass", "detail": "minAngleDegrees.p05=6.20°, aspectRatio.p95=9.10." }
+  ],
+  "warnings": []
+}
+```
+
+**Notes** — `genus` is `null` unless `isWatertight && isOrientable` (and the Euler characteristic is consistent with a valid closed 2-manifold) — a raw scan with open boundaries (the common case) has no genus. `components` is capped at 16 entries (largest-first); `componentCount` is always the true total, and a truncation is reported in `warnings`.
+
+**Drives** — `OCCTSwiftMesh` `Mesh.integrityReport(weldTolerance:)`. Also un-stubs `generate_mesh`'s `quality.nonManifoldEdges` (previously hardcoded `0`), which now delegates to the same call.
+
+---
+
+## `mesh_thickness`
+
+Mesh-domain wall thickness via the ray method (normal-opposite, first-hit): the complement to [`check_thickness`](engineering.md#check_thickness), which works on BREP topology and degrades on facet shells (a raw STL import is one BREP face per facet). This tool never touches BREP topology at all — it samples the tessellated surface directly.
+
+Samples up to `maxSamples` surface points (stride-subsampled mesh vertices) and, for each, casts a ray from just inside the surface along its inward normal against an internal triangle BVH; the first hit distance is the local thickness. Rays that exit without hitting anything (open shells) are excluded from the stats and counted in `noHitSamples`.
+
+**Server:** Swift only
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `bodyId` | string | yes | Body to measure. |
+| `maxSamples` | integer (≥ 1) | no | Cap on surface sample points (stride-subsampled). Default 2000. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the body's bbox diagonal. |
+| `thresholdMm` | number (≥ 0) | no | If set, adds a `belowThreshold` section reporting samples thinner than this. |
+| `coneAngleDegrees` | number (0–89) | no | Half-angle of a 5-ray averaging cone (center + 4 boundary rays, median taken — the SDF convention). 0 (default) casts a single ray. |
+| `chart` | boolean | no | Render a `thicknessMm` histogram PNG. Default `false`. |
+| `chartPath` | string | no | Override the default chart path (`<output_dir>/<bodyId>_thickness.png`). |
+
+**Returns** — `{ bodyId, samples, noHitSamples, thicknessMm: { min, p05, median, mean, p95, max }, belowThreshold?: { thresholdMm, count, fraction, worst: [{ point, thicknessMm }] (capped 8) }, chartPath?, warnings[] }`. `belowThreshold.fraction` is of MEASURED samples (`samples - noHitSamples`), not of `samples`.
+
+**Example**
+
+```json
+// tool call arguments
+{ "bodyId": "carbody_scan", "thresholdMm": 1.5, "coneAngleDegrees": 5 }
+```
+```json
+// example result
+{
+  "bodyId": "carbody_scan",
+  "samples": 2000,
+  "noHitSamples": 12,
+  "thicknessMm": { "min": 0.8, "p05": 1.1, "median": 2.0, "mean": 2.05, "p95": 3.2, "max": 4.9 },
+  "belowThreshold": {
+    "thresholdMm": 1.5,
+    "count": 34,
+    "fraction": 0.017,
+    "worst": [{ "point": [1200.0, -30.0, 15.0], "thicknessMm": 0.8 }]
+  },
+  "chartPath": null,
+  "warnings": []
+}
+```
+
+**Notes** — A sample near a face's own outer edge can legitimately overshoot a thinner opposing wall's smaller footprint and read through to a FAR wall instead — a real characteristic of single-ray thickness sampling near an edge, not a bug. `coneAngleDegrees` averaging (median of 5 rays) reduces but doesn't eliminate this. A large `noHitSamples` fraction (warned when > 20%) usually means an open shell along the sampled normals.
+
+**Drives** — `TriBVH` (a small AABB BVH over triangles, Möller–Trumbore ray-triangle intersection) + `DeviationTools.TriMesh`. Pure MCP-side composition — no new OCCTSwiftMesh surface needed.
+
+---
+
+## `detect_symmetry`
+
+Detect reflective (mirror-plane) symmetry: 3 candidate planes through the area-weighted centroid, each normal to one of the mesh's 3 principal axes (PCA), verified by reflecting sampled surface points across the plane and measuring their unsigned nearest distance back to the mesh's own surface. A candidate is `symmetric` when its p95 residual is within `toleranceMm`.
+
+Rotational/axis symmetry detection is deferred to a later phase — this tool covers mirror-plane symmetry only.
+
+**Known limitation — near-equal principal axes.** When two (or three) PCA eigenvalues are within ~5% of each other, the eigenvector pair in that subspace is ill-defined: any rotation of the two axes is an equally valid PCA result, so the candidate planes can come out rotated off the body's true mirror planes and a genuinely symmetric body (a square-section prism is the canonical case) can read asymmetric. The tool detects this and appends an explicit warning; treat non-symmetric verdicts for the affected candidates with suspicion. Continuous-symmetry bodies (cylinders) are unaffected — any plane through the axis mirrors. The reliable fallback for a specific suspected plane: mirror a copy of the body and `measure_deviation` against the original.
+
+**Server:** Swift only
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `bodyId` | string | yes | Body to analyse. |
+| `maxSamples` | integer (≥ 1) | no | Cap on surface sample points (stride-subsampled). Default 2000. |
+| `toleranceMm` | number (≥ 0) | no | A candidate plane is symmetric when its p95 residual is within this. Default 0.5. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the body's bbox diagonal. |
+
+**Returns** — `{ bodyId, toleranceMm, samples, candidates: [{ point, normal, rmsMm, p95Mm, maxMm, symmetric }] (sorted best-first by p95Mm), bestPlane?, warnings[] }`. `bestPlane` is the best-scoring symmetric candidate, omitted if none passes.
+
+**Example**
+
+```json
+// tool call arguments
+{ "bodyId": "carbody_scan", "toleranceMm": 1.0 }
+```
+```json
+// example result
+{
+  "bodyId": "carbody_scan",
+  "toleranceMm": 1.0,
+  "samples": 2000,
+  "candidates": [
+    { "point": [4000.0, 0.0, 900.0], "normal": [0.0, 1.0, 0.0], "rmsMm": 0.31, "p95Mm": 0.62, "maxMm": 1.4, "symmetric": true },
+    { "point": [4000.0, 0.0, 900.0], "normal": [1.0, 0.0, 0.0], "rmsMm": 8.2, "p95Mm": 22.5, "maxMm": 41.0, "symmetric": false },
+    { "point": [4000.0, 0.0, 900.0], "normal": [0.0, 0.0, 1.0], "rmsMm": 19.4, "p95Mm": 55.0, "maxMm": 90.0, "symmetric": false }
+  ],
+  "bestPlane": { "point": [4000.0, 0.0, 900.0], "normal": [0.0, 1.0, 0.0], "rmsMm": 0.31, "p95Mm": 0.62, "maxMm": 1.4, "symmetric": true },
+  "warnings": []
+}
+```
+
+**Notes** — The covariance behind the PCA axes uses the exact per-triangle second-moment formula (not a coarse "triangle centroid as point mass" approximation), which matters on coarsely-tessellated meshes: a box face split into just 2 large triangles is enough for the point-mass shortcut to introduce spurious cross-covariance terms and rotate the "principal axes" off the body's real symmetry planes.
+
+**Drives** — `DeviationTools.signedQuery(..., signMode: .nearest)` for the unsigned residual measurement; a small internal symmetric-3x3 Jacobi eigensolver for the principal axes. Pure MCP-side composition.

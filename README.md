@@ -8,7 +8,7 @@ MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD
 
 Part of the [OCCTSwift ecosystem](https://github.com/SecondMouseAU/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
 
-The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 67 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, and dimension overlays.
+The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 70 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, and dimension overlays.
 
 ## How It Works
 
@@ -23,7 +23,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 ## Tools
 
-67 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
+70 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
 
 ### Authoring
 
@@ -112,6 +112,16 @@ The mesh-inspection surface for raw scans / STL skins: split a body's mesh into 
 | `list_zones` | Inspect the zone registry (`<output_dir>/zones.json`) |
 | `clear_zones` | Wipe the zone registry, optionally for one body |
 
+### Mesh inspection
+
+The mesh-domain check-list / measurement surface (Phase 2 of the mesh-analysis expansion): integrity diagnosis, wall thickness, and reflective-symmetry detection, all working directly on a body's tessellated surface rather than BREP topology, so they don't degrade on facet shells (a raw STL import) the way `check_thickness` does.
+
+| Tool | Purpose |
+|------|---------|
+| `mesh_diagnose` | Printability-check-list integrity report: watertight, edge/vertex-manifold, orientable, connected components, boundary loops, Euler characteristic / genus, duplicate/degenerate triangle counts, sliver signals, plus derived pass/warn/fail `checks[]`. Self-intersection is NOT checked (an upstream OCCTSwiftMesh limitation) |
+| `mesh_thickness` | Mesh-domain wall thickness via the ray method (normal-opposite, first-hit, optional cone-averaged median): the complement to `check_thickness` for raw meshes. Reports the thickness distribution, an optional below-threshold section, and an optional histogram PNG |
+| `detect_symmetry` | Detect reflective (mirror-plane) symmetry: 3 PCA candidate planes through the area-weighted centroid, each verified by reflecting sampled points and measuring their residual distance back to the surface. Rotational/axis symmetry detection is deferred to a later phase |
+
 ### Selection & remap
 
 | Tool | Purpose |
@@ -182,7 +192,7 @@ LLM read/write over an attributed reconstruction graph — annotate per-node dec
 
 This repo ships two implementations side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 67 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
+- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 70 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
 
 Both speak stdio MCP and read/write the same manifest format.
