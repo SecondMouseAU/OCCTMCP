@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag: clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.20.0"
+    public static let serverVersion = "1.21.0"
 }
 
 /// Shared by the three tools that share DeviationTools' signed-distance engine
@@ -1298,6 +1298,54 @@ func catalogTools() -> [Tool] {
                 "additionalProperties": .bool(false),
             ])
         ),
+        // ── mesh inspection (Phase 2 of the mesh-analysis expansion) ────
+        Tool(
+            name: "mesh_diagnose",
+            description: "Printability-check-list integrity report over a body's mesh: watertight, edge/vertex-manifold, orientable, connected components, boundary loops, Euler characteristic / genus, duplicate/degenerate triangle counts, and sliver signals (minAngleDegrees, aspectRatio). `checks[]` derives pass/warn/fail verdicts from the raw counts. IMPORTANT: self-intersection is NOT checked (an OCCTSwiftMesh limitation) — a self-intersecting closed manifold still reports isWatertight: true.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
+                    "weldToleranceMm": .object(["type": .string("number"), "minimum": .double(0), "description": .string("Absolute mm weld tolerance used internally before computing manifoldness. Default 0 (auto: 1e-6 x the mesh's bbox diagonal).")]),
+                ]),
+                "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "mesh_thickness",
+            description: "Mesh-domain wall thickness via the ray method (normal-opposite, first-hit): the complement to the BREP-only check_thickness, which degrades on facet shells (a raw STL import is one BREP face per facet). Samples up to maxSamples surface points and casts a ray from each along its inward normal against an internal triangle BVH; the first hit distance is the local thickness. Rays that exit without hitting anything (open shells) are excluded from the stats and counted in noHitSamples. Optional coneAngleDegrees averages 5 rays per sample (the SDF convention: takes the median) for a more robust estimate near edges/features.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "maxSamples": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on surface sample points (stride-subsampled). Default 2000.")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
+                    "thresholdMm": .object(["type": .string("number"), "minimum": .double(0), "description": .string("If set, adds a belowThreshold section reporting samples thinner than this.")]),
+                    "coneAngleDegrees": .object(["type": .string("number"), "minimum": .double(0), "maximum": .double(89), "description": .string("Half-angle of a 5-ray averaging cone (center + 4 boundary rays), median taken. 0 (default) casts a single ray.")]),
+                    "chart": .object(["type": .string("boolean"), "description": .string("Render a thicknessMm histogram PNG. Default false.")]),
+                    "chartPath": .object(["type": .string("string"), "description": .string("Override the default chart path (<output_dir>/<bodyId>_thickness.png).")]),
+                ]),
+                "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "detect_symmetry",
+            description: "Detect reflective (mirror-plane) symmetry: 3 candidate planes through the area-weighted centroid, normal to each PCA principal axis, verified by reflecting sampled surface points across the plane and measuring their unsigned nearest distance back to the mesh's own surface. A candidate is `symmetric` when its p95 residual is within toleranceMm. Reports all 3 candidates sorted best-first, plus bestPlane when any passes. Rotational/axis symmetry detection is deferred to a later phase — this covers mirror-plane symmetry only.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "maxSamples": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on surface sample points (stride-subsampled). Default 2000.")]),
+                    "toleranceMm": .object(["type": .string("number"), "minimum": .double(0), "description": .string("A candidate plane is symmetric when its p95 residual is within this. Default 0.5.")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
+                ]),
+                "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
     ]
 }
 
@@ -2123,6 +2171,41 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "clear_zones":
         return await RegistryIntrospectionTools.clearZones(bodyId: arguments["bodyId"]?.stringValue).asCallToolResult()
+
+    case "mesh_diagnose":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("mesh_diagnose requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        return await MeshDiagnoseTools.meshDiagnose(
+            bodyId: bodyId,
+            deflection: arguments["deflection"]?.numberValue,
+            weldToleranceMm: arguments["weldToleranceMm"]?.numberValue ?? 0
+        ).asCallToolResult()
+
+    case "mesh_thickness":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("mesh_thickness requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        return await MeshThicknessTools.meshThickness(
+            bodyId: bodyId,
+            maxSamples: arguments["maxSamples"]?.intValue ?? 2000,
+            deflection: arguments["deflection"]?.numberValue,
+            thresholdMm: arguments["thresholdMm"]?.numberValue,
+            coneAngleDegrees: arguments["coneAngleDegrees"]?.numberValue ?? 0,
+            chart: arguments["chart"]?.boolValue ?? false,
+            chartPath: arguments["chartPath"]?.stringValue
+        ).asCallToolResult()
+
+    case "detect_symmetry":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("detect_symmetry requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        return await SymmetryTools.detectSymmetry(
+            bodyId: bodyId,
+            maxSamples: arguments["maxSamples"]?.intValue ?? 2000,
+            toleranceMm: arguments["toleranceMm"]?.numberValue ?? 0.5,
+            deflection: arguments["deflection"]?.numberValue
+        ).asCallToolResult()
 
     default:
         return ToolText("Unknown tool: \(callName)", isError: true).asCallToolResult()
