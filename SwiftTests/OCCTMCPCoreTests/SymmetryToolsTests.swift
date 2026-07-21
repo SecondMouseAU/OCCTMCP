@@ -61,6 +61,31 @@ struct SymmetryToolsTests {
         // candidates sorted best-first (ascending p95).
         let p95s = r.candidates.map(\.p95Mm)
         #expect(p95s == p95s.sorted())
+        // Distinct extents (10/20/30) => distinct eigenvalues => the
+        // degenerate-axes ambiguity warning must NOT fire here.
+        #expect(!r.warnings.contains { $0.contains("ill-defined") })
+    }
+
+    @MainActor
+    @Test("a square-section prism fires the degenerate-eigenvalue ambiguity warning")
+    func squarePrismWarnsOnDegenerateAxes() async throws {
+        // Two equal cross-section extents => the two matching eigenvalues
+        // are equal, so the eigenvector pair in that subspace is arbitrary.
+        // On this axis-aligned, symmetrically-tessellated fixture the
+        // returned axes still happen to land on the true mirror planes (the
+        // covariance is already near-diagonal), so candidates still verify —
+        // the point of the warning is that this is LUCK, not a guarantee,
+        // and the caller must be told the orientations were ill-defined.
+        let prism = try #require(Shape.box(width: 10, height: 10, depth: 30))
+        let store = try scene([(id: "prism", shape: prism)])
+
+        let result = await SymmetryTools.detectSymmetry(bodyId: "prism", store: store)
+        #expect(!result.isError, "unexpected error: \(result.text)")
+        let r = try JSONDecoder().decode(SymmetryReport.self, from: Data(result.text.utf8))
+
+        #expect(r.candidates.count == 3)
+        #expect(r.warnings.contains { $0.contains("ill-defined") },
+                "equal cross-section eigenvalues must surface the ambiguity warning; warnings: \(r.warnings)")
     }
 
     @MainActor

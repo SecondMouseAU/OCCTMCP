@@ -124,7 +124,7 @@ public enum SymmetryTools {
             accumulate(pb, weight: w)
             accumulate(pc, weight: w)
         }
-        let (_, axes) = symmetricEigen3x3(xx: cxx, xy: cxy, xz: cxz, yy: cyy, yz: cyz, zz: czz)
+        let (eigenvalues, axes) = symmetricEigen3x3(xx: cxx, xy: cxy, xz: cxz, yy: cyy, yz: cyz, zz: czz)
 
         // Stride-subsample vertices for verification (mirrors
         // DeviationTools.directedStats' maxSamples convention).
@@ -136,6 +136,26 @@ public enum SymmetryTools {
         while vi < n { sampleIndices.append(vi); vi += stride }
 
         var warnings: [String] = []
+        // Near-equal eigenvalues make the eigenvector PAIR in that subspace
+        // ill-defined: any rotation of the two axes within the plane they
+        // span is an equally valid PCA result, so the candidate planes can
+        // come out rotated off a body's TRUE mirror planes and a genuinely
+        // symmetric body (a square-section prism is the canonical case) can
+        // read asymmetric. Continuous-symmetry bodies (cylinders: any plane
+        // through the axis mirrors) are unaffected. Surface the ambiguity
+        // rather than guessing — the same explicit-ambiguity-channel
+        // convention as signMode's `ambiguousFraction` (#72).
+        let degenerateGapFraction = 0.05
+        let eigenScale = max(abs(eigenvalues[0]), 1e-30)
+        for (hi, lo) in [(0, 1), (1, 2)] where abs(eigenvalues[hi] - eigenvalues[lo]) / eigenScale < degenerateGapFraction {
+            warnings.append(
+                "Principal-axis eigenvalues #\(hi) and #\(lo) are within \(Int(degenerateGapFraction * 100))% of each other: " +
+                "candidate plane orientations in that subspace are ill-defined (any rotation of the axis pair is an " +
+                "equally valid PCA result), so a symmetric body whose true mirror planes sit between the returned axes " +
+                "can read asymmetric. Treat non-symmetric verdicts for those candidates with suspicion; an explicit " +
+                "known-good plane check via measure_deviation against a mirrored copy is the reliable fallback."
+            )
+        }
         var candidateEntries: [SymmetryReport.CandidateEntry] = []
         for axis in axes {
             guard simd_length(axis) > 1e-9 else {

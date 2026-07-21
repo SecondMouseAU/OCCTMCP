@@ -304,6 +304,8 @@ Detect reflective (mirror-plane) symmetry: 3 candidate planes through the area-w
 
 Rotational/axis symmetry detection is deferred to a later phase — this tool covers mirror-plane symmetry only.
 
+**Known limitation — near-equal principal axes.** When two (or three) PCA eigenvalues are within ~5% of each other, the eigenvector pair in that subspace is ill-defined: any rotation of the two axes is an equally valid PCA result, so the candidate planes can come out rotated off the body's true mirror planes and a genuinely symmetric body (a square-section prism is the canonical case) can read asymmetric. The tool detects this and appends an explicit warning; treat non-symmetric verdicts for the affected candidates with suspicion. Continuous-symmetry bodies (cylinders) are unaffected — any plane through the axis mirrors. The reliable fallback for a specific suspected plane: mirror a copy of the body and `measure_deviation` against the original.
+
 **Server:** Swift only
 
 **Parameters**
