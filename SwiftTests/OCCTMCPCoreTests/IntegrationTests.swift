@@ -89,6 +89,7 @@ struct IntegrationTests {
             "segment_mesh_zones", "zone_continuity_sweep", "list_zones", "clear_zones",
             "mesh_diagnose", "mesh_thickness", "detect_symmetry",
             "align_bodies",
+            "mesh_curvature",
         ] {
             #expect(names.contains(expected), "missing tool: \(expected)")
         }
