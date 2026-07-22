@@ -70,6 +70,10 @@ public enum RegistryIntrospectionTools {
             public let triangleCount: Int
             public let areaMm2: Double
             public let fitKind: String
+            /// `ZoneRecord.slippage?.kind` (#109) — `nil` for a zone minted
+            /// before slippage classification landed, or one whose weld
+            /// guard failed at segmentation time (see `MeshZoneTools`).
+            public let slippageKind: String?
         }
     }
 
@@ -90,7 +94,8 @@ public enum RegistryIntrospectionTools {
         let summaries = zones.map {
             ListZonesResult.ZoneSummary(
                 zoneId: $0.zoneId, bodyId: $0.bodyId, index: $0.index,
-                triangleCount: $0.triangleIndices.count, areaMm2: $0.areaMm2, fitKind: $0.fit.kind
+                triangleCount: $0.triangleIndices.count, areaMm2: $0.areaMm2, fitKind: $0.fit.kind,
+                slippageKind: $0.slippage?.kind
             )
         }
         return IntrospectionTools.encode(ListZonesResult(count: summaries.count, zones: summaries))

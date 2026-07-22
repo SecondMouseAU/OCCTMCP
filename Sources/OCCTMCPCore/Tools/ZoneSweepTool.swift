@@ -125,6 +125,66 @@ public enum ZoneSweepTool {
         return (verdicts, runs)
     }
 
+    /// Slippage kinds (#109, OCCTSwiftMesh#26/#31) whose `axisDirection` is a
+    /// valid SWEEP direction. Plane's axis is the surface NORMAL — sweeping
+    /// along it is exactly wrong, not merely unhelpful. Sphere has no
+    /// preferred axis at all, and freeform has neither; both are excluded by
+    /// construction (their `ZoneSlippage.axisDirection` is `nil`), but kept
+    /// out of this set explicitly too, defense in depth against a future
+    /// upstream change populating it.
+    static let axisEligibleSlippageKinds: Set<String> = ["cylinder", "extrusion", "revolution", "helix"]
+
+    /// Confidence floor below which a slippage classification is too
+    /// uncertain to default the sweep axis to. Mirrors the upstream
+    /// semantics of `SlippageResult.confidence` (a spectral-gap diagnostic,
+    /// not a probability — docs/algorithms/slippage.md, OCCTSwiftMesh#26/
+    /// #31): a gap barely past the detection floor means the classification
+    /// itself is close to arbitrary, which is exactly the case a near-
+    /// symmetric body (no clean eigenvalue separation to begin with)
+    /// produces.
+    static let slippageAxisConfidenceFloor = 0.25
+
+    /// The resolved sweep axis plus which rung resolved it, so the caller
+    /// can report `axisSource` faithfully.
+    public struct AxisSelection: Sendable {
+        public let axis: SIMD3<Double>?
+        public let source: String   // "explicit" | "slippage" | "pca"
+        public let warning: String?
+    }
+
+    /// Picks the sweep axis in priority order — pure and geometry-free (the
+    /// actual PCA computation, when this returns `axis: nil`, is the
+    /// caller's job; this only decides WHETHER to use it):
+    ///
+    /// 1. An explicit caller-supplied axis always wins outright.
+    /// 2. Otherwise, a zoneId-scoped sweep (`record` non-nil) whose stored
+    ///    `ZoneRecord.slippage` has a kind in `axisEligibleSlippageKinds`, a
+    ///    non-nil `axisDirection`, AND `confidence >= slippageAxisConfidenceFloor`
+    ///    defaults to that axis.
+    /// 3. Anything else (no record, no slippage, an ineligible kind, or a
+    ///    low-confidence eligible kind) falls back to PCA — the low-
+    ///    confidence case additionally returns a warning naming the kind and
+    ///    confidence that was rejected.
+    static func selectSweepAxis(record: ZoneRecord?, explicit: SIMD3<Double>?) -> AxisSelection {
+        if let explicit {
+            return AxisSelection(axis: explicit, source: "explicit", warning: nil)
+        }
+        guard let slip = record?.slippage else {
+            return AxisSelection(axis: nil, source: "pca", warning: nil)
+        }
+        guard axisEligibleSlippageKinds.contains(slip.kind),
+              let dir = slip.axisDirection, dir.count == 3 else {
+            return AxisSelection(axis: nil, source: "pca", warning: nil)
+        }
+        guard slip.confidence >= slippageAxisConfidenceFloor else {
+            return AxisSelection(
+                axis: nil, source: "pca",
+                warning: "zone has a low-confidence slippage classification (\(slip.kind), confidence \(slip.confidence)); sweep axis fell back to PCA"
+            )
+        }
+        return AxisSelection(axis: SIMD3(dir[0], dir[1], dir[2]), source: "slippage", warning: nil)
+    }
+
     /// Dominant eigenvector of a point cloud's covariance (power iteration,
     /// ~50 steps: cheap and sufficient for a station axis, no Accelerate
     /// dependency needed). Sign is arbitrary (a flipped axis just reverses
@@ -279,12 +339,20 @@ public enum ZoneSweepTool {
         let sliceVerts = sliceMesh.vertices
         guard !sliceVerts.isEmpty else { return .init("Zone/body has no triangles to sweep.", isError: true) }
 
+        // Axis resolution: explicit > zone's own slippage axis (cylinder/
+        // extrusion/revolution/helix only, confidence-gated) > PCA. See
+        // `selectSweepAxis`'s doc comment for the full rule; a whole-body
+        // sweep (zoneRecord == nil) can never see rung 2 since there is no
+        // zone-scoped slippage classification to consult.
+        let selection = selectSweepAxis(record: zoneRecord, explicit: axis)
+        if let w = selection.warning { warnings.append(w) }
+
         let axisSource: String
         let axisUnit: SIMD3<Double>
-        if let a = axis {
+        if let a = selection.axis {
             guard simd_length(a) > 1e-12 else { return .init("axis must be non-zero.", isError: true) }
             axisUnit = simd_normalize(a)
-            axisSource = "explicit"
+            axisSource = selection.source
         } else {
             let pts = sliceVerts.map { SIMD3<Double>(Double($0.x), Double($0.y), Double($0.z)) }
             axisUnit = principalAxis(of: pts)
