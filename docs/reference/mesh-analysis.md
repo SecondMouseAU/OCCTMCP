@@ -6,11 +6,11 @@ nav_order: 12
 
 # Mesh analysis (zones)
 
-The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, reflective-symmetry detection, and GOM-style two-body alignment. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, how symmetric it is, or whether it's actually registered to a reference body yet, before committing to a reconstruction or measuring deviation against that reference. Swift-only.
+The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, reflective-symmetry detection, and GOM-style two-body alignment. Phase 3 adds per-vertex discrete curvature. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, how symmetric it is, how curved it is at each point, or whether it's actually registered to a reference body yet, before committing to a reconstruction or measuring deviation against that reference. Swift-only.
 
 ## Tools
 
-[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones) · [`mesh_diagnose`](#mesh_diagnose) · [`mesh_thickness`](#mesh_thickness) · [`detect_symmetry`](#detect_symmetry) · [`align_bodies`](#align_bodies)
+[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones) · [`mesh_diagnose`](#mesh_diagnose) · [`mesh_thickness`](#mesh_thickness) · [`detect_symmetry`](#detect_symmetry) · [`align_bodies`](#align_bodies) · [`mesh_curvature`](#mesh_curvature)
 
 ---
 
@@ -415,3 +415,79 @@ GOM-style alignment: register a SOURCE body onto a REFERENCE body via point-to-p
 **Notes** — Both bodies are meshed at the SAME deflection (source-derived unless overridden), the same recipe `measure_deviation`/`mesh_diagnose`/`mesh_thickness` use. `bodyId == referenceBodyId` is a request error. `aligned()` returning `nil` (fewer than 3 points after welding on either side) is an `isError` result, not a silently-empty success.
 
 **Drives** — `OCCTSwiftMesh` `Mesh.aligned(to:options:)` (point-to-plane ICP: Chen & Medioni's objective, Rusinkiewicz & Levoy's normal-space sampling, Low's linearized point-to-plane solve — OCCTSwiftMesh#22/#25); `Shape.transformed(matrix:)` for the `apply` path; `HistoryRegistry`/`SceneHistory` for the same generation-reset semantics `transform_body` uses.
+
+---
+
+## `mesh_curvature`
+
+Per-vertex discrete curvature over a body's own mesh (Rusinkiewicz per-face tensor, `OCCTSwiftMesh.Mesh.vertexCurvatures()`, OCCTSwiftMesh#23/#24): principal curvatures `k1` (larger magnitude, convex-positive) / `k2`, `mean = (k1+k2)/2`, `gaussian = k1*k2`, plus a colored render and bounded stats. No reference body needed — this is a property of one mesh. Phase 3 of the mesh-analysis expansion, the single-body curvature render mode deferred from #101.
+
+**UNITS** — `k1`/`k2`/`mean` are in **1/mm** (curvature = 1 / radius of curvature). `gaussian` is in **1/mm²** — a genuinely different unit (the product of two curvatures), not a typo. This matters for `highCurvatureFraction` below: its clamp is always computed from the SAME channel `colorBy` selects, never cross-compared against a different channel, so the unit difference never creates a silent mismatch.
+
+**Welding is internal and mandatory.** `vertexCurvatures()`'s own precondition is a WELDED mesh — on unwelded input every vertex touches exactly one triangle, so curvature degrades to that triangle's own unaveraged value. This tool welds the tessellated mesh before computing anything; `triangleCount`/`vertexCount` in the response are the WELDED counts, and the render is built entirely from the welded mesh too, so there's no triangle-index correspondence problem between the stats and the render.
+
+**Server:** Swift only
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `bodyId` | string | yes | Body to analyse. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the body's bbox diagonal. |
+| `colorBy` | string | no | `"mean"` (default) \| `"gaussian"` \| `"k1"` \| `"maxAbs"` (= `max(\|k1\|, \|k2\|)`). Which channel drives the render and `highCurvatureFraction`. |
+| `clampPercentile` | number (0, 1] | no | The colormap is clamped symmetrically at the p-th percentile of `\|colorBy value\|` over all welded vertices. `1.0` = no clamp. Default 0.95. |
+| `render` | boolean | no | Render a per-triangle colored PNG with a colorbar legend. Default `true`. |
+| `renderPath` | string | no | Override the default render path (`<output_dir>/<bodyId>_curvature.png`). |
+| `chart` | boolean | no | Render a histogram PNG of the `colorBy` channel. Default `false`. |
+| `chartPath` | string | no | Override the default chart path (`<output_dir>/<bodyId>_curvature_hist.png`). |
+| `options` | object | no | Render options — same shape as [`render_preview`](mesh-visualization.md#render_preview)'s `options`. |
+
+**Returns** — `{ bodyId, triangleCount, vertexCount, colorBy, clampPercentile, k1: { min, p05, median, p95, max }, k2: {...}, mean: {...}, gaussian: {...}, flatFraction, highCurvatureFraction, renderPath?, chartPath?, warnings[] }`. `triangleCount`/`vertexCount` are the WELDED mesh's counts (see above).
+
+**Example**
+
+```json
+// tool call arguments
+{ "bodyId": "carbody_panel", "colorBy": "mean", "clampPercentile": 0.95 }
+```
+```json
+// example result
+{
+  "bodyId": "carbody_panel",
+  "triangleCount": 48120,
+  "vertexCount": 24380,
+  "colorBy": "mean",
+  "clampPercentile": 0.95,
+  "k1": { "min": -0.42, "p05": -0.01, "median": 0.0, "p95": 0.08, "max": 0.55 },
+  "k2": { "min": -0.30, "p05": -0.02, "median": 0.0, "p95": 0.02, "max": 0.20 },
+  "mean": { "min": -0.20, "p05": -0.01, "median": 0.0, "p95": 0.04, "max": 0.30 },
+  "gaussian": { "min": -0.05, "p05": -0.0004, "median": 0.0, "p95": 0.001, "max": 0.08 },
+  "flatFraction": 0.81,
+  "highCurvatureFraction": 0.048,
+  "renderPath": "/tmp/carbody_panel_curvature.png",
+  "chartPath": null,
+  "warnings": ["values beyond ±0.04 1/mm clamped for color (clampPercentile=0.95)."]
+}
+```
+
+**`flatFraction`** — colorBy-INDEPENDENT: the fraction of vertices with `max(\|k1\|, \|k2\|)` below `0.1 / bboxDiag` (1/mm), an absolute model-scale flatness threshold (a curvature radius past ~10x the body's own bounding-box diagonal reads as flat regardless of how curved the rest of the body is).
+
+**`highCurvatureFraction`** — the fraction of vertices whose `\|colorBy value\|` exceeds the SAME clamp value used for the render. By construction this is close to `1 - clampPercentile` (that's exactly what "clamped for color" means) — `clampPercentile: 1.0` drives it to 0 (nothing can read strictly above the true max), and lowering `clampPercentile` reveals a growing tail. The underlying `k1`/`k2`/`mean`/`gaussian` stat blocks themselves do NOT change with `clampPercentile` — only the color scaling and this fraction do.
+
+**Unweldable-soup warning** — fires only when the internal weld pass demonstrably failed to merge ANY vertex (`vertexCount == triangleCount * 3` after welding) — a mesh-TOPOLOGY fact, never a curvature-VALUE heuristic. This matters because a genuinely flat body (a box, away from its edges) also reads near-zero curvature almost everywhere, so "curvature reads near-zero" can't itself be the trigger without false-positiving on ordinary flat parts.
+
+**Notes** — Zero-normal/degenerate vertices (excluded from the upstream fit entirely, per `vertexCurvatures()`'s own docs) participate in every stat and in `flatFraction` as flat (`k1 == k2 == 0`) — no special-casing beyond `flatFraction` itself. `gaussian`'s sign is diagnostic: positive at a dome/bowl (both principal curvatures the same sign), negative at a saddle.
+
+**Drives** — `OCCTSwiftMesh` `Mesh.vertexCurvatures()` (Rusinkiewicz per-face curvature tensor averaged onto welded vertices, OCCTSwiftMesh#23/#24) + `Mesh.welded()`. Render reuses the band-group trick (`ChartRenderer.divergingColor` + `overlayColorbar`) `HeatmapTools`/`MeshZoneTools` established.
+
+---
+
+## Phase 3 backlog (filed, not yet implemented)
+
+`mesh_curvature` is the one Phase 3 tool unblocked by an already-released OCCTSwiftMesh primitive. The rest of Phase 3's design-intent surface (slippage-based zone classification, RANSAC segmentation, crease-edge feature outlines, curvature-ordered segmentation seeding, generalized winding number orientation) needs new upstream primitives; those are filed as issues rather than implemented ad hoc, per the ecosystem's factoring rule (OCCTMCP wraps, never implements mesh algorithms):
+
+- [SecondMouseAU/OCCTSwiftMesh#26](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/26) — slippage analysis (Gelfand-Guibas) per region → [OCCTMCP#109](https://github.com/SecondMouseAU/OCCTMCP/issues/109) (zone kind/axis in `segment_mesh_zones` + sweep axis defaults)
+- [SecondMouseAU/OCCTSwiftMesh#27](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/27) — RANSAC segmentation strategy + auto-selection bake-off → [OCCTMCP#107](https://github.com/SecondMouseAU/OCCTMCP/issues/107) (`fit_primitives`)
+- [SecondMouseAU/OCCTSwiftMesh#28](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/28) — crease-edge detection (dihedral-fold rings) → [OCCTMCP#108](https://github.com/SecondMouseAU/OCCTMCP/issues/108) (`detect_mesh_features`)
+- [SecondMouseAU/OCCTSwiftMesh#29](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/29) — curvature-ordered seeding for `segmented(_:)` (now that `vertexCurvatures()` exists)
+- [SecondMouseAU/OCCTSwiftMesh#30](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/30) — generalized winding number orientation / inside-out check (upgrades the deviation suite's `ambiguousFraction ~ 1.0` inverted-winding heuristic)

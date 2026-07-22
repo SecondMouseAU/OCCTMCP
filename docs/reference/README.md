@@ -12,7 +12,7 @@ with an example response, the underlying OCCTSwift / occtkit it drives, and gotc
 
 OCCTMCP is an **MCP server**, not a library: clients call these tools over stdio MCP, each with a
 single JSON-object argument, and get JSON text back. The **Swift** server (`occtmcp-server`) is the
-canonical 71-tool surface documented here; the **Node** server exposes a 37-tool subset — each tool
+canonical 72-tool surface documented here; the **Node** server exposes a 37-tool subset — each tool
 notes its Node availability.
 
 This complements the other docs:
