@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag: clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.22.0"
+    public static let serverVersion = "1.23.0"
 }
 
 /// Shared by the three tools that share DeviationTools' signed-distance engine
@@ -1366,6 +1366,26 @@ func catalogTools() -> [Tool] {
                 "additionalProperties": .bool(false),
             ])
         ),
+        Tool(
+            name: "mesh_curvature",
+            description: "Per-vertex discrete curvature over a body's own mesh (Rusinkiewicz per-face tensor, OCCTSwiftMesh.Mesh.vertexCurvatures, #23/#24): principal curvatures k1 (larger magnitude, convex-positive) / k2, mean = (k1+k2)/2, gaussian = k1*k2, plus a colored render and stats. No reference body needed — Phase 3 of the mesh-analysis expansion, the single-body curvature render mode deferred from #101. UNITS: k1/k2/mean are 1/mm; gaussian is 1/mm^2 (a different unit — k1*k2). Internally welds the mesh before computing curvature (vertexCurvatures' own precondition: unwelded input degrades to zero curvature everywhere) — triangleCount/vertexCount in the response are the WELDED counts. `colorBy` picks which channel drives both the render and highCurvatureFraction; `clampPercentile` (default 0.95) clamps the diverging colormap symmetrically at that percentile of |colorBy value| (1.0 = no clamp) so a few extreme vertices (mesh edges, sharp fillets) don't wash out the map. `flatFraction` is colorBy-independent: fraction of vertices with max(|k1|,|k2|) below 0.1/bboxDiag (1/mm), an absolute model-scale flatness threshold. Warns if the internal weld demonstrably failed to merge any vertices (mesh appears unweldable), a real precondition failure distinct from a genuinely flat body reading near-zero curvature. Related upstream primitives not yet available (tracked, not implemented here): curvature-ordered segmentation seeding (OCCTSwiftMesh#29, no MCP-side tracking issue), crease-edge detection (OCCTSwiftMesh#28 / OCCTMCP#108), RANSAC primitive fitting (OCCTSwiftMesh#27 / OCCTMCP#107), slippage-based zone classification (OCCTSwiftMesh#26 / OCCTMCP#109), generalized winding number orientation (OCCTSwiftMesh#30, no MCP-side tracking issue).",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
+                    "colorBy": .object(["type": .string("string"), "enum": .array([.string("mean"), .string("gaussian"), .string("k1"), .string("maxAbs")]), "description": .string("Which channel drives the render and highCurvatureFraction. \"maxAbs\" = max(|k1|,|k2|). Default \"mean\".")]),
+                    "clampPercentile": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "maximum": .double(1), "description": .string("Colormap clamp: the p-th percentile of |colorBy value|. 1.0 = no clamp. Default 0.95.")]),
+                    "render": .object(["type": .string("boolean"), "description": .string("Render a per-triangle colored PNG with a colorbar legend. Default true.")]),
+                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_curvature.png).")]),
+                    "chart": .object(["type": .string("boolean"), "description": .string("Render a histogram PNG of the colorBy channel. Default false.")]),
+                    "chartPath": .object(["type": .string("string"), "description": .string("Override the default chart path (<output_dir>/<bodyId>_curvature_hist.png).")]),
+                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                ]),
+                "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
     ]
 }
 
@@ -2260,6 +2280,37 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             maxIterations: arguments["maxIterations"]?.intValue ?? 50,
             deflection: arguments["deflection"]?.numberValue,
             apply: arguments["apply"]?.boolValue ?? false
+        ).asCallToolResult()
+
+    case "mesh_curvature":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("mesh_curvature requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        // Same #106 convention as align_bodies' `mode`: an unrecognized colorBy must error,
+        // naming the valid values, not silently fall back to the default.
+        let colorBy: MeshCurvatureTools.ColorBy
+        if let colorByString = arguments["colorBy"]?.stringValue {
+            guard let parsed = MeshCurvatureTools.ColorBy(rawValue: colorByString) else {
+                let valid = MeshCurvatureTools.ColorBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                return ToolText(
+                    "mesh_curvature: unknown colorBy \"\(colorByString)\". Valid values: \(valid).",
+                    isError: true
+                ).asCallToolResult()
+            }
+            colorBy = parsed
+        } else {
+            colorBy = .mean
+        }
+        return await MeshCurvatureTools.meshCurvature(
+            bodyId: bodyId,
+            deflection: arguments["deflection"]?.numberValue,
+            colorBy: colorBy,
+            clampPercentile: arguments["clampPercentile"]?.numberValue ?? 0.95,
+            render: arguments["render"]?.boolValue ?? true,
+            renderPath: arguments["renderPath"]?.stringValue,
+            chart: arguments["chart"]?.boolValue ?? false,
+            chartPath: arguments["chartPath"]?.stringValue,
+            options: parseRenderOptions(arguments["options"])
         ).asCallToolResult()
 
     default:
