@@ -2234,7 +2234,22 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         guard let referenceBodyId = arguments["referenceBodyId"]?.stringValue else {
             return ToolText("align_bodies requires `referenceBodyId`.", isError: true).asCallToolResult()
         }
-        let mode = arguments["mode"]?.stringValue.flatMap(AlignTools.Mode.init(rawValue:)) ?? .bestFit
+        // An unrecognized mode must error, not silently fall back to bestFit: MCP clients don't
+        // reliably validate the schema's enum, and the description itself names deferred modes
+        // (localBestFit / 3-2-1 / RPS) a caller could plausibly try.
+        let mode: AlignTools.Mode
+        if let modeString = arguments["mode"]?.stringValue {
+            guard let parsed = AlignTools.Mode(rawValue: modeString) else {
+                return ToolText(
+                    "align_bodies: unknown mode \"\(modeString)\". Valid modes: \"bestFit\" (default), \"preAlign\". " +
+                    "localBestFit / 3-2-1 / RPS-datum alignment are not implemented yet.",
+                    isError: true
+                ).asCallToolResult()
+            }
+            mode = parsed
+        } else {
+            mode = .bestFit
+        }
         return await AlignTools.alignBodies(
             bodyId: bodyId,
             referenceBodyId: referenceBodyId,

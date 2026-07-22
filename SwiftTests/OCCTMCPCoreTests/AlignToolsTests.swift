@@ -233,4 +233,23 @@ struct AlignToolsTests {
         #expect(abs(r.transform[3][2]) < 1e-9)
         #expect(abs(r.transform[3][3] - 1) < 1e-9)
     }
+
+    // ── 6. Dispatch: an unrecognized mode errors, never silently bestFit ──
+
+    @MainActor
+    @Test("dispatch rejects an unknown mode string instead of silently running bestFit")
+    func unknownModeIsDispatchError() async throws {
+        // Straight through the server dispatch (the layer where the schema's enum can be
+        // bypassed by a non-validating MCP client); no scene needed — the mode guard fires
+        // before any body is loaded.
+        let result = await dispatch(callName: "align_bodies", arguments: [
+            "bodyId": .string("a"),
+            "referenceBodyId": .string("b"),
+            "mode": .string("localBestFit"),
+        ])
+        #expect(result.isError == true)
+        let text = result.content.compactMap { if case let .text(t, _, _) = $0 { t } else { nil } }.joined()
+        #expect(text.contains("unknown mode \"localBestFit\""))
+        #expect(text.contains("bestFit") && text.contains("preAlign"))
+    }
 }
