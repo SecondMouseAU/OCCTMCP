@@ -1,5 +1,5 @@
 {
-  "originHash" : "84987a072b55e1798aecdb5feaa2c32580a94c9dd954c9870ec1bc82558a0531",
+  "originHash" : "78ad7ccaa91df67e82f5bc8af2f4fc6a534f8a72886f030fd0c4e2e98e6296e9",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftMesh.git",
       "state" : {
-        "revision" : "f71db70082743285259fa520eed5f87cc0b1984a",
-        "version" : "1.3.0"
+        "revision" : "4802aa67d99dbcb0656c9681170934561504ee7d",
+        "version" : "1.5.0"
       }
     },
     {

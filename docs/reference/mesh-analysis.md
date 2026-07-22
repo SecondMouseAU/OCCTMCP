@@ -6,11 +6,11 @@ nav_order: 12
 
 # Mesh analysis (zones)
 
-The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, and reflective-symmetry detection. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, or how symmetric it is, before committing to a reconstruction. Swift-only.
+The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, reflective-symmetry detection, and GOM-style two-body alignment. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, how symmetric it is, or whether it's actually registered to a reference body yet, before committing to a reconstruction or measuring deviation against that reference. Swift-only.
 
 ## Tools
 
-[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones) · [`mesh_diagnose`](#mesh_diagnose) · [`mesh_thickness`](#mesh_thickness) · [`detect_symmetry`](#detect_symmetry)
+[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones) · [`mesh_diagnose`](#mesh_diagnose) · [`mesh_thickness`](#mesh_thickness) · [`detect_symmetry`](#detect_symmetry) · [`align_bodies`](#align_bodies)
 
 ---
 
@@ -344,3 +344,74 @@ Rotational/axis symmetry detection is deferred to a later phase — this tool co
 **Notes** — The covariance behind the PCA axes uses the exact per-triangle second-moment formula (not a coarse "triangle centroid as point mass" approximation), which matters on coarsely-tessellated meshes: a box face split into just 2 large triangles is enough for the point-mass shortcut to introduce spurious cross-covariance terms and rotate the "principal axes" off the body's real symmetry planes.
 
 **Drives** — `DeviationTools.signedQuery(..., signMode: .nearest)` for the unsigned residual measurement; a small internal symmetric-3x3 Jacobi eigensolver for the principal axes. Pure MCP-side composition.
+
+---
+
+## `align_bodies`
+
+GOM-style alignment: register a SOURCE body onto a REFERENCE body via point-to-plane ICP (OCCTSwiftMesh#22/#25, closing #104). Scan-vs-CAD deviation measurement ([`measure_deviation`](introspection.md#measure_deviation), [`cross_section_compare`](introspection.md#cross_section_compare), the heatmap) is meaningless before the two bodies are actually in a shared frame — none of those tools do any registration step of their own. `align_bodies` is that step.
+
+`mode` is the GOM-style alignment-mode enum, layered on the upstream primitive:
+- `"bestFit"` (default) — the full pipeline: PCA/bbox pre-align (trying all 4 orientation-preserving sign combinations of the two dominant principal axes, keeping whichever gives the lowest quick correspondence residual), then point-to-plane ICP refinement with normal-space sampling and trimmed correspondence.
+- `"preAlign"` — stops after the coarse PCA/bbox stage only (`maxIterations` forced to 0, and ignored if supplied) — GOM's "pre-align" tier, useful as a fast coarse pose or a starting point for a caller-driven refinement.
+
+`localBestFit` / `3-2-1` / RPS-datum alignment (GOM's remaining tiers) are deferred — not required for this first version.
+
+**Server:** Swift only
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `bodyId` | string | yes | The SOURCE (moving) body — the one registered onto `referenceBodyId`. |
+| `referenceBodyId` | string | yes | The REFERENCE (fixed) body `bodyId` is aligned onto. Must differ from `bodyId`. |
+| `mode` | string | no | `"bestFit"` (default) or `"preAlign"`. |
+| `maxSamples` | integer (≥ 1) | no | Cap on source correspondence-search sample points (normal-space sampled — proportional to normal-direction diversity, so a small feature on an otherwise-flat surface isn't outvoted by the flat majority). Default 2000. |
+| `trimFraction` | number (≥ 0) | no | Drop the worst fraction of surviving correspondences by point-to-plane residual each ICP iteration (trimmed ICP — robust to partial overlap between the two bodies). Default 0.1. |
+| `correspondenceDistanceCapMm` | number (> 0) | no | Absolute mm cap rejecting correspondences farther apart than this. Default: auto, 0.15× the reference body's bounding-box diagonal. |
+| `maxIterations` | integer (≥ 0) | no | Max ICP refinement iterations after pre-align. Default 50. Ignored (forced to 0) when `mode` is `"preAlign"`. |
+| `deflection` | number | no | Mesh linear deflection for BOTH bodies (the same recipe as `measure_deviation`'s `TriMesh`). Default 0.5% of the SOURCE body's bbox diagonal. |
+| `apply` | boolean | no | If `true`, write the recovered transform onto the source body **in place**. Default `false` (measure only). |
+
+**Returns** — `{ bodyId, referenceBodyId, mode, transform, translationMm, rotationAxis, rotationAngleDegrees, residualRmsMm, iterations, converged, applied, warnings[] }`.
+
+**Transform convention** — `transform` is a **4×4, ROW-MAJOR** array: `transform[i]` is row `i`, and `transform[i][j] * point[j]` summed over `j` (with `point = [x, y, z, 1]`) gives the transformed coordinate — the standard row-dot-column convention. It maps a point in the SOURCE body's frame into the REFERENCE body's frame. The trivial 4th row is always `[0, 0, 0, 1]`. `translationMm` is `[transform[0][3], transform[1][3], transform[2][3]]`. `rotationAxis`/`rotationAngleDegrees` is an axis-angle decomposition of the 3×3 rotation block (upper-left). This is the OPPOSITE convention from the underlying OCCTSwiftMesh primitive's `simd_double4x4`, which is column-major — converted carefully in `AlignTools.rowMajor(_:)`; do not assume the raw upstream layout when consuming this field.
+
+**Known limitations** (from the upstream ICP primitive, see OCCTSwiftMesh's `docs/algorithms/alignment.md`):
+- **Near-degenerate principal axes.** When the PCA pre-align's covariance eigenvalues are (near-)equal in a subspace, the eigenvector pair there is arbitrary, so all 4 sign-combination candidates can start from a bad pose and the subsequent ICP refinement — a local optimizer — may converge to a wrong pose or not at all. `converged == false` (bestFit mode only) or a large `residualRmsMm` is the signal; there is no automatic recovery — pre-transforming the source with a caller-side initial guess, or aligning a less symmetric sub-region, is the workaround.
+- **Continuous / discrete symmetry.** A body with continuous symmetry about an axis (a cylinder) has an inherently unobservable rotation about that axis — any such rotation is an equally valid alignment, and which one comes back is a sampling artifact, not an error. A body with a discrete symmetry group (e.g. a plain rectangular box's 180°-rotation symmetries about its own principal axes) has multiple ICP-indistinguishable correct poses for the same reason.
+
+**apply semantics** — `apply: true` mirrors [`transform_body`](construction.md#transform_body)'s in-place path exactly: a `SceneHistory` snapshot before the write, the recovered transform applied via `Shape.transformed(matrix:)` (OCCTSwift's one general-affine rotation+translation primitive — a single rigid-transform apply, not a decomposed rotate-then-translate pair), the BREP rewritten to the SAME file, and the same `HistoryRegistry` generation reset (`commit(ref: nil)`) `transform_body` uses today (no `*WithFullHistory` variant exists for an arbitrary caller-supplied matrix). `applied` in the response reflects whether the write actually happened; a failure to apply is an `isError` result, never silent. Omit `apply` (or leave it `false`) to only measure — the common case when composing with `measure_deviation` afterwards to check whether alignment actually helped.
+
+**Example**
+
+```json
+// tool call arguments
+{ "bodyId": "scan_body", "referenceBodyId": "cad_body", "mode": "bestFit", "apply": true }
+```
+```json
+// example result
+{
+  "bodyId": "scan_body",
+  "referenceBodyId": "cad_body",
+  "mode": "bestFit",
+  "transform": [
+    [0.998, -0.052, 0.019, 12.4],
+    [0.053, 0.997, -0.041, -3.1],
+    [-0.016, 0.042, 0.999, 0.8],
+    [0.0, 0.0, 0.0, 1.0]
+  ],
+  "translationMm": [12.4, -3.1, 0.8],
+  "rotationAxis": [0.34, 0.61, 0.72],
+  "rotationAngleDegrees": 3.4,
+  "residualRmsMm": 0.21,
+  "iterations": 14,
+  "converged": true,
+  "applied": true,
+  "warnings": []
+}
+```
+
+**Notes** — Both bodies are meshed at the SAME deflection (source-derived unless overridden), the same recipe `measure_deviation`/`mesh_diagnose`/`mesh_thickness` use. `bodyId == referenceBodyId` is a request error. `aligned()` returning `nil` (fewer than 3 points after welding on either side) is an `isError` result, not a silently-empty success.
+
+**Drives** — `OCCTSwiftMesh` `Mesh.aligned(to:options:)` (point-to-plane ICP: Chen & Medioni's objective, Rusinkiewicz & Levoy's normal-space sampling, Low's linearized point-to-plane solve — OCCTSwiftMesh#22/#25); `Shape.transformed(matrix:)` for the `apply` path; `HistoryRegistry`/`SceneHistory` for the same generation-reset semantics `transform_body` uses.

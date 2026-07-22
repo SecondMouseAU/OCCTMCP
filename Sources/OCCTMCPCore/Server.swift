@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag: clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.21.0"
+    public static let serverVersion = "1.22.0"
 }
 
 /// Shared by the three tools that share DeviationTools' signed-distance engine
@@ -1346,6 +1346,26 @@ func catalogTools() -> [Tool] {
                 "additionalProperties": .bool(false),
             ])
         ),
+        Tool(
+            name: "align_bodies",
+            description: "GOM-style alignment: register a SOURCE body onto a REFERENCE body via point-to-plane ICP (PCA pre-align + normal-space sampling + trimmed correspondence, OCCTSwiftMesh#22/#25). `mode: \"bestFit\"` (default) runs the full pre-align + ICP pipeline; `mode: \"preAlign\"` stops after the coarse PCA/bbox stage (maxIterations forced to 0, ignored if supplied) — GOM's \"pre-align\" tier. localBestFit / 3-2-1 / RPS-datum alignment are deferred. Returns the recovered rigid transform (translation + axis-angle rotation) and residual stats; scan-vs-CAD deviation tools (measure_deviation, cross_section_compare, etc.) are meaningless before the two bodies are in a shared frame, which is what this tool establishes. KNOWN LIMITATIONS (see docs/reference/mesh-analysis.md#align_bodies): near-degenerate principal axes make the PCA pre-align orientation ambiguous (near-symmetric bodies may converge to a plausible wrong pose — watch `converged` and `residualRmsMm`); bodies with continuous symmetry about an axis (cylinders) have an unobservable rotation about that axis. `apply: true` writes the recovered transform onto the SOURCE body in place (same generation-reset history semantics as transform_body); omit or leave false to only measure.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string"), "description": .string("The SOURCE (moving) body — the one that gets registered onto referenceBodyId.")]),
+                    "referenceBodyId": .object(["type": .string("string"), "description": .string("The REFERENCE (fixed) body bodyId is aligned onto.")]),
+                    "mode": .object(["type": .string("string"), "enum": .array([.string("bestFit"), .string("preAlign")]), "description": .string("\"bestFit\" (default): full PCA pre-align + ICP refinement. \"preAlign\": PCA/bbox coarse pose only (maxIterations forced to 0).")]),
+                    "maxSamples": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on source correspondence-search sample points (normal-space sampled). Default 2000.")]),
+                    "trimFraction": .object(["type": .string("number"), "minimum": .double(0), "description": .string("Drop the worst trimFraction of surviving correspondences by residual each iteration (trimmed ICP; robust to partial overlap). Default 0.1.")]),
+                    "correspondenceDistanceCapMm": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "description": .string("Absolute mm cap rejecting correspondences farther apart than this. Default: auto, 0.15x the reference body's bbox diagonal.")]),
+                    "maxIterations": .object(["type": .string("integer"), "minimum": .int(0), "description": .string("Max ICP refinement iterations after pre-align. Default 50. Ignored (forced to 0) when mode is \"preAlign\".")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection for BOTH bodies. Default 0.5% of the source body's bbox diagonal.")]),
+                    "apply": .object(["type": .string("boolean"), "description": .string("If true, write the recovered transform onto the source body in place (generation-reset history, same as transform_body). Default false (measure only).")]),
+                ]),
+                "required": .array([.string("bodyId"), .string("referenceBodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
     ]
 }
 
@@ -2205,6 +2225,41 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             maxSamples: arguments["maxSamples"]?.intValue ?? 2000,
             toleranceMm: arguments["toleranceMm"]?.numberValue ?? 0.5,
             deflection: arguments["deflection"]?.numberValue
+        ).asCallToolResult()
+
+    case "align_bodies":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("align_bodies requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        guard let referenceBodyId = arguments["referenceBodyId"]?.stringValue else {
+            return ToolText("align_bodies requires `referenceBodyId`.", isError: true).asCallToolResult()
+        }
+        // An unrecognized mode must error, not silently fall back to bestFit: MCP clients don't
+        // reliably validate the schema's enum, and the description itself names deferred modes
+        // (localBestFit / 3-2-1 / RPS) a caller could plausibly try.
+        let mode: AlignTools.Mode
+        if let modeString = arguments["mode"]?.stringValue {
+            guard let parsed = AlignTools.Mode(rawValue: modeString) else {
+                return ToolText(
+                    "align_bodies: unknown mode \"\(modeString)\". Valid modes: \"bestFit\" (default), \"preAlign\". " +
+                    "localBestFit / 3-2-1 / RPS-datum alignment are not implemented yet.",
+                    isError: true
+                ).asCallToolResult()
+            }
+            mode = parsed
+        } else {
+            mode = .bestFit
+        }
+        return await AlignTools.alignBodies(
+            bodyId: bodyId,
+            referenceBodyId: referenceBodyId,
+            mode: mode,
+            maxSamples: arguments["maxSamples"]?.intValue ?? 2000,
+            trimFraction: arguments["trimFraction"]?.numberValue ?? 0.1,
+            correspondenceDistanceCapMm: arguments["correspondenceDistanceCapMm"]?.numberValue,
+            maxIterations: arguments["maxIterations"]?.intValue ?? 50,
+            deflection: arguments["deflection"]?.numberValue,
+            apply: arguments["apply"]?.boolValue ?? false
         ).asCallToolResult()
 
     default:
