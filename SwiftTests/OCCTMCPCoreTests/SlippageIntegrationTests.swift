@@ -517,3 +517,113 @@ struct SelectSweepAxisTests {
         #expect(sel.source == "slippage")
     }
 }
+
+/// The erosion half of #109's review: on a CONNECTED mesh, zone-boundary
+/// vertices' `vertexNormals()` blend neighbouring zones' surfaces in, so
+/// `segment_mesh_zones` erodes boundary triangles before calling slippage
+/// (see MeshZoneTools' comment) — unless the zone is too small to erode, in
+/// which case the classification is kept but the zone is named in an honest
+/// warning. The L-panel fixture is the smallest connected case with a real
+/// fold: two square grid panels meeting at 90 degrees along one shared edge,
+/// written as raw soup so the import path welds them into ONE connected mesh
+/// (unlike the disjoint panel cube above, which sidesteps contamination
+/// entirely and so cannot test the erosion).
+@Suite("segment_mesh_zones: slippage boundary erosion (#109 review)")
+struct SlippageErosionTests {
+
+    func freshScene(_ label: String) throws -> (store: ManifestStore, dir: String) {
+        let dir = NSTemporaryDirectory() + "occtmcp-slip-erosion-\(label)-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let store = ManifestStore(path: "\(dir)/manifest.json")
+        try store.write(ScriptManifest(description: "erosion", bodies: []))
+        return (store, dir)
+    }
+
+    /// Two square `size` x `size` grid panels joined at a 90-degree fold
+    /// along the X axis: panel A in the z=0 plane (normal +Z), panel B in
+    /// the y=0 plane (normal -Y), sharing the fold edge y=0,z=0. Raw
+    /// unshared-vertex soup; welding merges the fold row so the mesh is one
+    /// connected component with exactly one cross-zone vertex row.
+    static func writeFoldedLPanelSTL(to path: String, size: Double = 30, gridN: Int = 10) throws {
+        var tris: [(SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)] = []
+        let step = size / Double(gridN)
+        func emitQuad(_ a: SIMD3<Double>, _ b: SIMD3<Double>, _ c: SIMD3<Double>, _ d: SIMD3<Double>) {
+            tris.append((a, b, c)); tris.append((a, c, d))
+        }
+        for i in 0..<gridN {
+            for j in 0..<gridN {
+                let x0 = Double(i) * step, x1 = x0 + step
+                let u0 = Double(j) * step, u1 = u0 + step
+                // Panel A: z = 0, y in [0, size], normal +Z.
+                emitQuad(SIMD3(x0, u0, 0), SIMD3(x1, u0, 0), SIMD3(x1, u1, 0), SIMD3(x0, u1, 0))
+                // Panel B: y = 0, z in [0, size], normal -Y.
+                emitQuad(SIMD3(x0, 0, u0), SIMD3(x1, 0, u0), SIMD3(x1, 0, u1), SIMD3(x0, 0, u1))
+            }
+        }
+        var out = "solid lpanel\n"
+        for (a, b, c) in tris {
+            let n = simd_normalize(simd_cross(b - a, c - a))
+            out += "  facet normal \(n.x) \(n.y) \(n.z)\n    outer loop\n"
+            out += "      vertex \(a.x) \(a.y) \(a.z)\n"
+            out += "      vertex \(b.x) \(b.y) \(b.z)\n"
+            out += "      vertex \(c.x) \(c.y) \(c.z)\n"
+            out += "    endloop\n  endfacet\n"
+        }
+        out += "endsolid lpanel\n"
+        try out.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    struct SlippageEntry: Decodable { let kind: String; let axisDirection: [Double]?; let confidence: Double }
+    struct ZoneEntry: Decodable { let id: String; let triangleCount: Int; let meanNormal: [Double]; let slippage: SlippageEntry? }
+    struct ZoneReport: Decodable { let zoneCount: Int; let zones: [ZoneEntry]; let warnings: [String] }
+    struct ImportReport: Decodable { let addedBodyIds: [String]; let warnings: [String] }
+
+    @MainActor
+    func segmentLPanel(gridN: Int, label: String) async throws -> ZoneReport {
+        let (store, dir) = try freshScene(label)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let stlPath = "\(dir)/lpanel.stl"
+        try Self.writeFoldedLPanelSTL(to: stlPath, gridN: gridN)
+        let importResult = await IOTools.importFile(
+            inputPath: stlPath, format: .stl, idPrefix: "lpanel", store: store, history: SceneHistory()
+        )
+        #expect(!importResult.isError, "import failed: \(importResult.text)")
+        let imported = try JSONDecoder().decode(ImportReport.self, from: Data(importResult.text.utf8))
+        let bodyId = try #require(imported.addedBodyIds.first)
+        let result = await MeshZoneTools.segmentMeshZones(
+            bodyId: bodyId, minRegionTriangles: 1, render: false, registry: ZoneRegistry(), store: store
+        )
+        #expect(!result.isError, "unexpected error: \(result.text)")
+        return try JSONDecoder().decode(ZoneReport.self, from: Data(result.text.utf8))
+    }
+
+    @MainActor
+    @Test("fine connected L-panel: both zones classify plane with correct normals, no contamination warning")
+    func fineLPanelClassifiesCleanly() async throws {
+        let r = try await segmentLPanel(gridN: 10, label: "fine")
+        #expect(r.zoneCount == 2)
+        #expect(!r.warnings.contains { $0.contains("boundary erosion skipped") },
+                "a 200-triangle panel must erode, not warn: \(r.warnings)")
+        for zone in r.zones {
+            let slip = try #require(zone.slippage, "zone \(zone.id) missing slippage")
+            #expect(slip.kind == "plane", "zone \(zone.id): expected plane, got \(slip.kind)")
+            let dir = try #require(slip.axisDirection)
+            let a = simd_normalize(SIMD3(dir[0], dir[1], dir[2]))
+            let n = simd_normalize(SIMD3(zone.meanNormal[0], zone.meanNormal[1], zone.meanNormal[2]))
+            #expect(abs(simd_dot(a, n)) > 0.99,
+                    "zone \(zone.id): slippage axis not parallel to the panel normal")
+        }
+    }
+
+    @MainActor
+    @Test("coarse connected L-panel: zones too small to erode keep their classification but are named in a warning")
+    func coarseLPanelWarnsInsteadOfSilentContamination() async throws {
+        let r = try await segmentLPanel(gridN: 2, label: "coarse")
+        #expect(r.zoneCount == 2)
+        #expect(r.warnings.contains { $0.contains("boundary erosion skipped") },
+                "an 8-triangle panel cannot erode below the floor and must be named honestly: \(r.warnings)")
+        for zone in r.zones {
+            #expect(zone.slippage != nil, "zone \(zone.id): classification must still be reported alongside the warning")
+        }
+    }
+}

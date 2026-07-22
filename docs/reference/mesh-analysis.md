@@ -48,6 +48,8 @@ Split a body's mesh into surface zones. Each zone gets a stable `zone:<bodyId>#<
 
 `slippage` is omitted (the whole field, per zone) in the same case `adjacentZones` is: when the tool's internal weld pass drops a degenerate triangle, breaking the triangle-index correspondence both need (see **Notes** below) — the tool reports the honest omission plus a warning rather than risking a misattributed classification.
 
+**Boundary erosion.** On a connected mesh, a zone-boundary vertex's normal blends the neighbouring zone's surface in (a fold-edge vertex averages both panels), which contaminates the classification — a small extrusion panel can read as `helix` when its boundary ring dominates the samples. The tool therefore erodes each zone to its interior triangles (all three vertices untouched by any other zone or unassigned triangle) before classifying. Zones too small to erode (fewer than 24 interior triangles, or under 25% of the zone) keep their full-region classification and are **named in a warning** instead of being reported clean — expect this on small zones (a door recess) and treat their `slippage` accordingly.
+
 **Example**
 
 ```json

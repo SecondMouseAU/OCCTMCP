@@ -20,7 +20,7 @@ The Swift port reached **v1.0.0** on 2026-05-09 and is published on the [Swift P
 ```bash
 swift build -c release         # debug build is `swift build`
 swift run occtmcp-server       # stdio transport
-swift test                     # 126 swift-testing cases under SwiftTests/OCCTMCPCoreTests
+swift test                     # 128 swift-testing cases under SwiftTests/OCCTMCPCoreTests
 ```
 
 `swift test` runs unit + integration tests against a tempdir. Integration tests spawn the built `occtmcp-server` binary and drive it over stdio (so a `swift build` must precede them; the harness itself does this).
