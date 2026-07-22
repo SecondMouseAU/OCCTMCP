@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag: clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.23.0"
+    public static let serverVersion = "1.24.0"
 }
 
 /// Shared by the three tools that share DeviationTools' signed-distance engine
@@ -1233,7 +1233,7 @@ func catalogTools() -> [Tool] {
         // ── mesh zone tools (#101/#102) ─────────────────────────────────
         Tool(
             name: "segment_mesh_zones",
-            description: "Split a body's mesh into surface zones (plane / cylinder / sphere / cone) via OCCTSwiftMesh's dihedral region-growing + primitive-fit merge. Each zone gets a stable `zone:<bodyId>#<n>` id (largest-first) plus a fitted primitive (kind, params, residual, inlier ratio) and is minted into the zone registry (<output_dir>/zones.json) so a later zone_continuity_sweep can resolve it without re-segmenting. Optionally renders a categorical per-zone PNG and/or registers each zone as its own scene body (facet-shell BREP) for downstream measurement tools.",
+            description: "Split a body's mesh into surface zones (plane / cylinder / sphere / cone) via OCCTSwiftMesh's dihedral region-growing + primitive-fit merge. Each zone gets a stable `zone:<bodyId>#<n>` id (largest-first) plus a fitted primitive (kind, params, residual, inlier ratio), a slippage classification (kind: plane/sphere/cylinder/extrusion/revolution/helix/freeform, plus its characteristic axisPoint/axisDirection/pitch and a confidence in [0,1] — Gelfand-Guibas local slippage analysis, OCCTSwiftMesh#26/#31), and is minted into the zone registry (<output_dir>/zones.json) so a later zone_continuity_sweep can resolve it without re-segmenting. axisDirection's SIGN is arbitrary and its MEANING is kind-dependent: the surface NORMAL for plane (never a sweep direction), the rotation/screw axis for cylinder/revolution/helix, the extrude direction for extrusion, nil for sphere (no preferred axis) and freeform. confidence is a spectral-gap diagnostic, not a probability — a near-symmetric body's true eigen-spectrum has no clean separation to begin with, so it reads as low-confidence rather than confidently wrong. Optionally renders a categorical per-zone PNG and/or registers each zone as its own scene body (facet-shell BREP) for downstream measurement tools.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1255,13 +1255,13 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "zone_continuity_sweep",
-            description: "Per-zone (or whole-body) loftable-extent map: slices along an axis at N stations, compares each station's 2D profile against a running reference, and reports maximal within-tolerance runs (the completable/loftable extents) plus deviation intervals between them, each with world axisCoord spans and magnitudes. Pass zoneId (from segment_mesh_zones) to sweep only that zone's own triangles — slicing just the zone keeps a neighbouring feature from polluting its verdict; omit it to sweep the whole body. Axis defaults to the zone/body's principal axis via PCA; pass an explicit axis to override. Optional render (zone/body colored by nearest-station verdict: constant=blue, deviating=red, missed=grey) and per-station strip chart.",
+            description: "Per-zone (or whole-body) loftable-extent map: slices along an axis at N stations, compares each station's 2D profile against a running reference, and reports maximal within-tolerance runs (the completable/loftable extents) plus deviation intervals between them, each with world axisCoord spans and magnitudes. Pass zoneId (from segment_mesh_zones) to sweep only that zone's own triangles — slicing just the zone keeps a neighbouring feature from polluting its verdict; omit it to sweep the whole body. Axis resolution (see axisSource in the response): an explicit axis argument always wins; otherwise a zoneId-scoped sweep whose zone has a slippage classification of cylinder/extrusion/revolution/helix (never plane — its slippage axis is the surface NORMAL — and never sphere/freeform) with confidence >= 0.25 defaults to that axis (axisSource \"slippage\"); anything else, including every whole-body sweep, falls back to the zone/body's principal axis via PCA (axisSource \"pca\"), with a warning naming the rejected kind/confidence when a low-confidence slippage classification was the reason. Revolve-aware angular stationing for revolution zones is not yet implemented (#109 follow-up). Optional render (zone/body colored by nearest-station verdict: constant=blue, deviating=red, missed=grey) and per-station strip chart.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
                     "zoneId": .object(["type": .string("string"), "description": .string("A zone:<bodyId>#<n> id from segment_mesh_zones. Omit to sweep the whole body.")]),
-                    "axis": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("[x,y,z] sweep axis. Default: the zone/body's principal axis via PCA over its triangle vertices.")]),
+                    "axis": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("[x,y,z] sweep axis. Default: the zone's own slippage axis when eligible (cylinder/extrusion/revolution/helix, confidence >= 0.25) and zoneId is given; otherwise the zone/body's principal axis via PCA over its triangle vertices. See axisSource in the response.")]),
                     "stations": .object(["type": .string("integer"), "minimum": .int(2), "description": .string("Number of evenly-spaced cut planes across the zone/body's axis extent (2% end margin). Default 32.")]),
                     "toleranceMm": .object(["type": .string("number"), "description": .string("Within-tolerance verdict threshold on profile RMS (mm). Default 0.5.")]),
                     "lateralToleranceMm": .object(["type": .string("number"), "description": .string("Within-tolerance verdict threshold on profile centroid offset (mm). Default: same as toleranceMm.")]),

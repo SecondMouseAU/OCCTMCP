@@ -6,7 +6,7 @@ nav_order: 12
 
 # Mesh analysis (zones)
 
-The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, reflective-symmetry detection, and GOM-style two-body alignment. Phase 3 adds per-vertex discrete curvature. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, how symmetric it is, how curved it is at each point, or whether it's actually registered to a reference body yet, before committing to a reconstruction or measuring deviation against that reference. Swift-only.
+The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, reflective-symmetry detection, and GOM-style two-body alignment. Phase 3 adds per-vertex discrete curvature, and #109 integrates per-zone slippage classification (Gelfand-Guibas local slippage analysis, OCCTSwiftMesh#26/#31) into the zone table, defaulting `zone_continuity_sweep`'s axis to it where eligible — answering the zone model's "loftable along WHICH axis" question. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, how symmetric it is, how curved it is at each point, or whether it's actually registered to a reference body yet, before committing to a reconstruction or measuring deviation against that reference. Swift-only.
 
 ## Tools
 
@@ -36,7 +36,19 @@ Split a body's mesh into surface zones. Each zone gets a stable `zone:<bodyId>#<
 | `renderPath` | string | no | Override the default render path (`<output_dir>/<bodyId>_zones.png`). |
 | `options` | object | no | Render options — same shape as [`render_preview`](mesh-visualization.md#render_preview)'s `options` (camera, width, height, background). |
 
-**Returns** — `{ bodyId, zoneCount, truncatedTriangleCount, zones: [{ id, triangleCount, areaMm2, areaFraction, bbox, meanNormal, boundaryLoops, adjacentZones, fit: { kind, params, residualRmsMm, residualMaxMm, inlierRatio } }], renderPath?, registeredBodyIds?, warnings[] }`. Bounded output: no raw per-triangle arrays. Every truncation (a region dropped under `minRegionTriangles`, the largest-`maxZones` cap, a `registerCap` cutoff) is reported in `warnings`, never silent.
+**Returns** — `{ bodyId, zoneCount, truncatedTriangleCount, zones: [{ id, triangleCount, areaMm2, areaFraction, bbox, meanNormal, boundaryLoops, adjacentZones, fit: { kind, params, residualRmsMm, residualMaxMm, inlierRatio }, slippage?: { kind, axisPoint?, axisDirection?, pitchPerRadianMm?, confidence } }], renderPath?, registeredBodyIds?, warnings[] }`. Bounded output: no raw per-triangle arrays. Every truncation (a region dropped under `minRegionTriangles`, the largest-`maxZones` cap, a `registerCap` cutoff) is reported in `warnings`, never silent.
+
+| field | meaning |
+|-------|---------|
+| `slippage.kind` | `"plane" \| "sphere" \| "cylinder" \| "extrusion" \| "revolution" \| "helix" \| "freeform"` — the zone's surface kind by local slippage analysis (Gelfand & Guibas, SGP 2004; OCCTSwiftMesh#26/#31), independent of (and a cross-check on) the region-fit `fit.kind` above. |
+| `slippage.axisPoint` | A point on the characteristic axis: the rotation/screw axis for cylinder/revolution/helix, the sphere's center, a representative point for plane/extrusion. `null` for freeform. |
+| `slippage.axisDirection` | Unit direction of the characteristic axis: rotation/screw axis for cylinder/revolution/helix, extrude direction for extrusion, the surface **NORMAL** for plane. `null` for sphere (no preferred axis) and freeform. **Sign is arbitrary** — inherent to the underlying eigenvector recovery, not a bug; a flipped sign is still the same axis. |
+| `slippage.pitchPerRadianMm` | Translation per radian of rotation about `axisDirection`. Non-null only for `helix`. |
+| `slippage.confidence` | `[0, 1]`, a spectral-gap diagnostic, **not a probability**: a wide gap between the slippable and non-slippable eigenvalues means a confident classification; a gap barely past the detection floor means the kind boundary itself is close to arbitrary. A near-symmetric body (whose true eigen-spectrum has no clean separation to begin with) reads as low-confidence rather than confidently wrong — treat a low `confidence` as "don't trust this classification," including for `zone_continuity_sweep`'s axis default below. |
+
+`slippage` is omitted (the whole field, per zone) in the same case `adjacentZones` is: when the tool's internal weld pass drops a degenerate triangle, breaking the triangle-index correspondence both need (see **Notes** below) — the tool reports the honest omission plus a warning rather than risking a misattributed classification.
+
+**Boundary erosion.** On a connected mesh, a zone-boundary vertex's normal blends the neighbouring zone's surface in (a fold-edge vertex averages both panels), which contaminates the classification — a small extrusion panel can read as `helix` when its boundary ring dominates the samples. The tool therefore erodes each zone to its interior triangles (all three vertices untouched by any other zone or unassigned triangle) before classifying. Zones too small to erode (fewer than 24 interior triangles, or under 25% of the zone) keep their full-region classification and are **named in a warning** instead of being reported clean — expect this on small zones (a door recess) and treat their `slippage` accordingly.
 
 **Example**
 
@@ -55,7 +67,8 @@ Split a body's mesh into surface zones. Each zone gets a stable `zone:<bodyId>#<
       "bbox": { "min": [0, -1500, 200], "max": [8000, -1480, 2600] },
       "meanNormal": [0.02, -0.999, 0.01], "boundaryLoops": 1,
       "adjacentZones": ["zone:carbody_scan#1", "zone:carbody_scan#3"],
-      "fit": { "kind": "plane", "params": [0.02, -0.999, 0.01, 1499.4], "residualRmsMm": 3.2, "residualMaxMm": 11.5, "inlierRatio": 0.94 } }
+      "fit": { "kind": "plane", "params": [0.02, -0.999, 0.01, 1499.4], "residualRmsMm": 3.2, "residualMaxMm": 11.5, "inlierRatio": 0.94 },
+      "slippage": { "kind": "plane", "axisPoint": [4000.0, -1490.0, 1400.0], "axisDirection": [0.02, -0.999, 0.01], "pitchPerRadianMm": null, "confidence": 0.91 } }
   ],
   "renderPath": "/tmp/carbody_scan_zones.png",
   "registeredBodyIds": ["carbody_scan_zone0", "carbody_scan_zone1"],
@@ -63,9 +76,9 @@ Split a body's mesh into surface zones. Each zone gets a stable `zone:<bodyId>#<
 }
 ```
 
-**Notes** — `adjacentZones` (which zones share a welded mesh edge) requires an internal weld pass to compute; if that weld drops a degenerate triangle (breaking the index correspondence `triangleIndices` relies on) the tool reports an honest empty `adjacentZones` plus a warning rather than risking a wrong attribution. Zone ids are stable within a session (backed by `zones.json`) and re-resolvable across calls, including after a server restart — a zone minted before a restart is still resolvable, but `zone_continuity_sweep` validates the body's mesh signature (triangle count + bbox) before trusting a resolved zone's `triangleIndices` and errors, asking you to re-run this tool, if the body changed.
+**Notes** — `adjacentZones` (which zones share a welded mesh edge) and `slippage` both require the SAME internal weld pass to compute; if that weld drops a degenerate triangle (breaking the index correspondence `triangleIndices` relies on) the tool reports an honest empty `adjacentZones`, an omitted `slippage`, and a warning for each rather than risking a wrong attribution. Zone ids are stable within a session (backed by `zones.json`) and re-resolvable across calls, including after a server restart — a zone minted before a restart is still resolvable, but `zone_continuity_sweep` validates the body's mesh signature (triangle count + bbox) before trusting a resolved zone's `triangleIndices` and errors, asking you to re-run this tool, if the body changed. A `zones.json` sidecar written before #109 has no `slippage` key at all; it still loads (the field decodes as absent, not an error), and `list_zones`/`zone_continuity_sweep` treat that the same as a weld-guard omission.
 
-**Drives** — `OCCTSwiftMesh` `Mesh.segmented(_:)` (dihedral region-growing + primitive-fit merge, OCCTSwiftMesh#16/#17); `ZoneRegistry`; `ChartRenderer`'s categorical palette + zone legend.
+**Drives** — `OCCTSwiftMesh` `Mesh.segmented(_:)` (dihedral region-growing + primitive-fit merge, OCCTSwiftMesh#16/#17) and `Mesh.slippage(forTriangles:maxSamples:)` (local slippage analysis, OCCTSwiftMesh#26/#31, >=1.6.0); `ZoneRegistry`; `ChartRenderer`'s categorical palette + zone legend.
 
 ---
 
@@ -81,7 +94,7 @@ Per-zone (or whole-body) loftable-extent map: slices along an axis at N stations
 |------|------|:--------:|-------------|
 | `bodyId` | string | yes | Body to sweep. |
 | `zoneId` | string | no | A `zone:<bodyId>#<n>` id from `segment_mesh_zones`. Slicing only the zone's own triangles keeps a neighbouring feature from polluting its verdict. Omit to sweep the whole body. |
-| `axis` | number[3] | no | `[x, y, z]` sweep axis. Default: the zone/body's principal axis via PCA over its triangle vertices. |
+| `axis` | number[3] | no | `[x, y, z]` sweep axis. Default: see `axisSource` selection rules below. |
 | `stations` | integer (≥ 2) | no | Number of evenly-spaced cut planes across the zone/body's axis extent (2% end margin). Default 32. |
 | `toleranceMm` | number | no | Within-tolerance verdict threshold on profile RMS (mm). Default 0.5. |
 | `lateralToleranceMm` | number | no | Within-tolerance verdict threshold on profile centroid offset (mm). Default: same as `toleranceMm`. |
@@ -92,7 +105,15 @@ Per-zone (or whole-body) loftable-extent map: slices along an axis at N stations
 | `chartPath` | string | no | Override the default chart path. |
 | `options` | object | no | Render options — same shape as [`render_preview`](mesh-visualization.md#render_preview)'s `options`. |
 
-**Returns** — `{ bodyId, zoneId?, axis, axisSource ("explicit"|"pca"), overlap: [min, max], stations: [{ index, axisCoord, offset, lateralOffsetMm, profileRmsMm, profileMaxMm, arcLengthDeltaMm, openProfile, verdict }], runs: [{ startAxisCoord, endAxisCoord, stationCount, kind ("constant"|"deviation"), maxProfileRmsMm, maxLateralOffsetMm }], warnings[], renderPath?, chartPath? }`.
+**Returns** — `{ bodyId, zoneId?, axis, axisSource ("explicit"|"slippage"|"pca"), overlap: [min, max], stations: [{ index, axisCoord, offset, lateralOffsetMm, profileRmsMm, profileMaxMm, arcLengthDeltaMm, openProfile, verdict }], runs: [{ startAxisCoord, endAxisCoord, stationCount, kind ("constant"|"deviation"), maxProfileRmsMm, maxLateralOffsetMm }], warnings[], renderPath?, chartPath? }`.
+
+**`axisSource` selection rules** (#109), most-preferred first:
+
+1. **`"explicit"`** — the `axis` argument, when given, always wins outright, whole-body or zone-scoped.
+2. **`"slippage"`** — a `zoneId`-scoped sweep whose stored zone (from `segment_mesh_zones`) has a `slippage.kind` in `{cylinder, extrusion, revolution, helix}`, a non-null `slippage.axisDirection`, AND `slippage.confidence >= 0.25` defaults the sweep axis to that `axisDirection`. **Plane is never eligible** — its slippage axis is the surface NORMAL, and sweeping a panel along its own normal is exactly wrong, not merely unhelpful — and neither is sphere/freeform (no preferred axis to begin with). When the zone's kind qualifies but `confidence < 0.25`, the tool falls back to PCA and adds a warning: `"zone has a low-confidence slippage classification (<kind>, confidence <value>); sweep axis fell back to PCA"`.
+3. **`"pca"`** — every whole-body sweep (no zone-scoped slippage to consult at all), plus any zone-scoped sweep that didn't qualify for rung 2 (ineligible kind, missing slippage — e.g. an old-format `zones.json` record, or the zone's own weld guard failed at segmentation time — or low confidence). Principal axis via PCA over the zone/body's own triangle vertices, unchanged from pre-#109 behaviour.
+
+**Not yet implemented (#109 follow-up):** revolve-aware stationing — angular stations about the axis instead of linear stations along it — for `revolution`-classified zones. A revolution zone today still gets linear stations along its rotation axis like every other kind; this is the remaining piece of the original `segment_mesh_zones`/`zone_continuity_sweep` zone-model design (#101/#102) still open.
 
 **Example**
 
@@ -140,7 +161,7 @@ Return every zone in the zone registry (`<output_dir>/zones.json`), optionally f
 |------|------|:--------:|-------------|
 | `bodyId` | string | no | Restrict to this body's zones. Omit to list every zone across all bodies. |
 
-**Returns** — `{ count, zones: [{ zoneId, bodyId, index, triangleCount, areaMm2, fitKind }] }`.
+**Returns** — `{ count, zones: [{ zoneId, bodyId, index, triangleCount, areaMm2, fitKind, slippageKind? }] }`. `slippageKind` (#109) mirrors the zone's own `slippage.kind` (see [`segment_mesh_zones`](#segment_mesh_zones)); `null`/absent for a zone with no slippage classification (a weld-guard omission at segmentation time, or a pre-#109 sidecar record).
 
 **Example**
 
@@ -150,7 +171,7 @@ Return every zone in the zone registry (`<output_dir>/zones.json`), optionally f
 ```
 ```json
 // example result
-{ "count": 14, "zones": [{ "zoneId": "zone:carbody_scan#0", "bodyId": "carbody_scan", "index": 0, "triangleCount": 4820, "areaMm2": 812000.0, "fitKind": "plane" }] }
+{ "count": 14, "zones": [{ "zoneId": "zone:carbody_scan#0", "bodyId": "carbody_scan", "index": 0, "triangleCount": 4820, "areaMm2": 812000.0, "fitKind": "plane", "slippageKind": "plane" }] }
 ```
 
 ---

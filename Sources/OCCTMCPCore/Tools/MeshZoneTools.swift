@@ -24,6 +24,17 @@
 // unchanged (proof no triangle was dropped, so index correspondence holds
 // exactly), and reports an honest empty adjacency + warning instead of
 // guessing when it didn't.
+//
+// slippage (#109, OCCTSwiftMesh#26/#31 `Mesh.slippage(forTriangles:
+// maxSamples:)`): the SAME correspondence problem applies, since the
+// classifier also needs `vertexNormals()` off a genuinely welded mesh, and
+// gets the exact same fix — reuse the one `welded` mesh + triangle-count
+// guard above rather than welding a second time or risking a second silent
+// index shift. When the guard fails, slippage is omitted (nil) per zone
+// alongside `adjacentZones`, with its own warning in the same wording
+// family. `axisDirection`'s sign is arbitrary and its meaning is
+// kind-dependent (surface NORMAL for plane, no axis at all for sphere) —
+// see `ZoneSlippage`'s doc comment in ZoneRegistry.swift.
 
 import Foundation
 import simd
@@ -33,6 +44,12 @@ import OCCTSwiftViewport
 import ScriptHarness
 
 public enum MeshZoneTools {
+
+    /// Minimum interior-triangle count for the slippage boundary erosion to
+    /// engage (alongside a 25%-of-the-zone relative floor at the call site):
+    /// eroding a tiny zone can leave too few samples for the 6-unknown
+    /// constraint system, which would trade contamination for starvation.
+    static let slippageErosionFloorTriangles = 24
 
     public struct ZoneReport: Encodable {
         public let bodyId: String
@@ -53,6 +70,7 @@ public enum MeshZoneTools {
             public let boundaryLoops: Int
             public let adjacentZones: [String]
             public let fit: FitEntry
+            public let slippage: ZoneSlippage?
         }
         public struct BBox: Encodable {
             public let min: [Double]
@@ -151,6 +169,7 @@ public enum MeshZoneTools {
         // index correspondence blindly.
         let welded = mesh.welded()
         var adjacentZones = [[String]](repeating: [], count: segmented.regions.count)
+        var zoneSlippage = [ZoneSlippage?](repeating: nil, count: segmented.regions.count)
         if welded.triangleCount == mesh.triangleCount {
             let adjacency = welded.triangleAdjacency()
             var triToZone = [Int: Int](minimumCapacity: mesh.triangleCount)
@@ -166,8 +185,68 @@ public enum MeshZoneTools {
                 }
             }
             for zi in adjSets.indices { adjacentZones[zi] = adjSets[zi].sorted().map { zoneIds[$0] } }
+
+            // Boundary-vertex erosion before slippage: on a CONNECTED mesh,
+            // `vertexNormals()` at a zone-boundary vertex blends the
+            // neighbouring zone's surface in (a box-edge vertex's normal
+            // averages both faces), and those contaminated constraint rows
+            // corrupt the classification — a genuine extrusion panel can
+            // read as helix when its boundary ring dominates the samples.
+            // A vertex is "boundary" when its incident welded triangles
+            // don't all belong to this same zone (a different zone OR an
+            // unassigned/dropped triangle both count: either way the normal
+            // blends surface that isn't this zone's). Slippage is fed only
+            // triangles whose 3 vertices are interior — unless that leaves
+            // too few (`slippageErosionFloor`), in which case the FULL
+            // region is used and the zone is named in a warning instead of
+            // reporting a possibly-contaminated classification as clean.
+            let wIdx = welded.indices
+            var vertexOwner = [Int: Int]()   // welded vertex -> zone, -1 = unassigned
+            var boundaryVerts = Set<UInt32>()
+            for t in 0..<welded.triangleCount {
+                let owner = triToZone[t] ?? -1
+                for k in 0..<3 {
+                    let v = wIdx[t * 3 + k]
+                    if let prev = vertexOwner[Int(v)] {
+                        if prev != owner { boundaryVerts.insert(v) }
+                    } else {
+                        vertexOwner[Int(v)] = owner
+                    }
+                }
+            }
+            var contaminatedZones: [String] = []
+            for (zi, region) in segmented.regions.enumerated() {
+                let interior = region.triangleIndices.filter { t in
+                    let base = t * 3
+                    return !boundaryVerts.contains(wIdx[base])
+                        && !boundaryVerts.contains(wIdx[base + 1])
+                        && !boundaryVerts.contains(wIdx[base + 2])
+                }
+                let floor = max(slippageErosionFloorTriangles, region.triangleIndices.count / 4)
+                let eroded = interior.count >= floor
+                let slipTris = eroded ? interior : region.triangleIndices
+                if !eroded, interior.count < region.triangleIndices.count {
+                    contaminatedZones.append("\(zoneIds[zi]) (\(interior.count)/\(region.triangleIndices.count) interior)")
+                }
+                let slip = welded.slippage(forTriangles: slipTris, maxSamples: 2000)
+                zoneSlippage[zi] = ZoneSlippage(
+                    kind: slip.kind.rawValue,
+                    axisPoint: slip.axisPoint.map { [$0.x, $0.y, $0.z] },
+                    axisDirection: slip.axisDirection.map { [$0.x, $0.y, $0.z] },
+                    pitchPerRadianMm: slip.pitch,
+                    confidence: slip.confidence
+                )
+            }
+            if !contaminatedZones.isEmpty {
+                warnings.append(
+                    "slippage boundary erosion skipped for \(contaminatedZones.count) zone(s) too small to erode " +
+                    "(\(contaminatedZones.joined(separator: ", "))): their classifications include boundary vertices " +
+                    "whose normals blend neighbouring zones' surfaces in, and may be affected."
+                )
+            }
         } else {
             warnings.append("adjacentZones omitted: welding the mesh to compute adjacency dropped degenerate triangles, breaking triangle-index correspondence.")
+            warnings.append("slippage omitted: welding the mesh to compute it dropped degenerate triangles, breaking triangle-index correspondence.")
         }
 
         var entries: [ZoneReport.ZoneEntry] = []
@@ -225,14 +304,15 @@ public enum MeshZoneTools {
                 meanNormal: [meanNormal.x, meanNormal.y, meanNormal.z],
                 boundaryLoops: boundaryCount,
                 adjacentZones: adjacentZones[zi],
-                fit: fitEntry
+                fit: fitEntry,
+                slippage: zoneSlippage[zi]
             ))
             zoneRecords.append(ZoneRecord(
                 zoneId: zoneIds[zi], bodyId: bodyId, index: zi,
                 triangleIndices: region.triangleIndices, areaMm2: region.area,
                 fit: ZoneFit(kind: fit.kind.rawValue, params: fit.params, residualRmsMm: fit.residualRMS,
                              residualMaxMm: fit.residualMax, inlierRatio: fit.inlierRatio),
-                params: paramsUsed, meshSignature: signature
+                params: paramsUsed, meshSignature: signature, slippage: zoneSlippage[zi]
             ))
         }
 

@@ -16,9 +16,18 @@
 //       "params": { "maxDihedralDegrees": 20, "mergeRelativeTolerance": 0.004,
 //                   "maxMergeAngleDegrees": 50, "minRegionTriangles": 8,
 //                   "maxZones": 64, "deflection": 0.5 },
-//       "meshSignature": { "triangleCount": 1234, "bboxMin": [...], "bboxMax": [...] } }
+//       "meshSignature": { "triangleCount": 1234, "bboxMin": [...], "bboxMax": [...] },
+//       "slippage": { "kind": "plane", "axisPoint": [...], "axisDirection": [...],
+//                     "pitchPerRadianMm": null, "confidence": 0.92 } }
 //   ]
 // }
+//
+// `slippage` (#109, OCCTSwiftMesh#26/#31) is OPTIONAL: a sidecar written
+// before this landed has no such key at all, and Swift's synthesized
+// `Decodable` treats a missing key on an `Optional` property as `nil`, not a
+// decode error — no version bump needed. See `ZoneSlippage`'s doc comment
+// for the field semantics (axis sign arbitrariness, confidence-as-gap, the
+// per-kind axis meaning).
 
 import Foundation
 
@@ -34,6 +43,42 @@ public struct ZoneFit: Sendable, Codable {
         self.residualRmsMm = residualRmsMm
         self.residualMaxMm = residualMaxMm
         self.inlierRatio = inlierRatio
+    }
+}
+
+/// A zone's surface-kind classification + characteristic axis, by local
+/// slippage analysis (Gelfand & Guibas, SGP 2004 — OCCTSwiftMesh#26/#31,
+/// `Mesh.slippage(forTriangles:maxSamples:)`, >=1.6.0). Mirrors
+/// `SlippageResult` field-for-field, minus `eigenRatios` (an internal
+/// diagnostic array, not bounded LLM-facing output — `confidence` is the
+/// summary that matters).
+///
+/// `axisDirection`'s SIGN is arbitrary (inherent to the underlying
+/// eigenvector recovery — a flipped axis is still the same axis). Its
+/// MEANING depends on `kind`: rotation/screw axis for cylinder/revolution/
+/// helix; the extrude direction for extrusion; the surface NORMAL for
+/// plane (never a sweep direction); `nil` for sphere (no preferred axis)
+/// and freeform.
+///
+/// `confidence` is a spectral-gap diagnostic in `[0, 1]`, not a
+/// probability: a wide gap between the slippable and non-slippable
+/// eigenvalues means a confident classification, while a gap barely past
+/// the detection floor means the kind boundary itself is close to
+/// arbitrary — this is what makes a near-symmetric body (whose true
+/// eigen-spectrum has no clean separation to begin with) read as
+/// low-confidence rather than confidently wrong.
+public struct ZoneSlippage: Sendable, Codable {
+    public let kind: String
+    public let axisPoint: [Double]?
+    public let axisDirection: [Double]?
+    public let pitchPerRadianMm: Double?
+    public let confidence: Double
+    public init(kind: String, axisPoint: [Double]?, axisDirection: [Double]?, pitchPerRadianMm: Double?, confidence: Double) {
+        self.kind = kind
+        self.axisPoint = axisPoint
+        self.axisDirection = axisDirection
+        self.pitchPerRadianMm = pitchPerRadianMm
+        self.confidence = confidence
     }
 }
 
@@ -103,10 +148,17 @@ public struct ZoneRecord: Sendable, Codable {
     public let fit: ZoneFit
     public let params: SegmentParamsUsed
     public let meshSignature: MeshSignature
+    /// Optional so a `zones.json` sidecar written before #109 (no `slippage`
+    /// key at all) still decodes: Swift's synthesized `Decodable` treats a
+    /// missing key on an `Optional` stored property as `nil` rather than an
+    /// error. `nil` also covers the same-session case where the mesh's own
+    /// weld guard failed (see `MeshZoneTools`'s `adjacentZones` comment —
+    /// slippage needs the identical welded-mesh correspondence).
+    public let slippage: ZoneSlippage?
 
     public init(
         zoneId: String, bodyId: String, index: Int, triangleIndices: [Int], areaMm2: Double,
-        fit: ZoneFit, params: SegmentParamsUsed, meshSignature: MeshSignature
+        fit: ZoneFit, params: SegmentParamsUsed, meshSignature: MeshSignature, slippage: ZoneSlippage? = nil
     ) {
         self.zoneId = zoneId
         self.bodyId = bodyId
@@ -116,6 +168,7 @@ public struct ZoneRecord: Sendable, Codable {
         self.fit = fit
         self.params = params
         self.meshSignature = meshSignature
+        self.slippage = slippage
     }
 }
 
