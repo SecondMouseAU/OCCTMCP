@@ -8,7 +8,7 @@ MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD
 
 Part of the [OCCTSwift ecosystem](https://github.com/SecondMouseAU/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
 
-The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 73 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, alignment, and dimension overlays.
+The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 74 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, alignment, and dimension overlays.
 
 ## How It Works
 
@@ -23,7 +23,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 ## Tools
 
-73 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
+74 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
 
 ### Authoring
 
@@ -111,6 +111,7 @@ The mesh-inspection surface for raw scans / STL skins: split a body's mesh into 
 | `zone_continuity_sweep` | Sweep a zone (or whole body) along an axis; report maximal within-tolerance runs (loftable extents) and deviation intervals between them, each with world `axisCoord` spans and magnitudes |
 | `list_zones` | Inspect the zone registry (`<output_dir>/zones.json`) |
 | `clear_zones` | Wipe the zone registry, optionally for one body |
+| `fit_primitives` (#107) | Schnabel-style RANSAC primitive report (plane/cylinder/sphere/cone), claiming GLOBAL inliers rather than `segment_mesh_zones`' edge-adjacent-only region growing — so it can unify a primitive (e.g. a cylinder interrupted by a boss) the zone table keeps split across regions. Optional `zoneId` scopes the fit to one zone; `strategy: "auto"` runs a dihedral-vs-RANSAC bake-off and reports which won. `uncoveredFraction` (triangles no primitive claimed) and a `maxPrimitives` cap are reported as strictly separate warnings |
 
 ### Mesh inspection
 
@@ -195,7 +196,7 @@ LLM read/write over an attributed reconstruction graph — annotate per-node dec
 
 This repo ships two implementations side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 73 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
+- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 74 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
 
 Both speak stdio MCP and read/write the same manifest format.

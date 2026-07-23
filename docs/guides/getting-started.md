@@ -21,7 +21,7 @@ This page covers installing OCCTMCP, wiring it into an MCP client, and making yo
   [OCCTSwiftScripts](https://github.com/SecondMouseAU/OCCTSwiftScripts), or keep a sibling clone at
   `~/Projects/OCCTSwiftScripts` so OCCTMCP can fall back to `swift run -c release occtkit` automatically
 
-The Node server exposes a 37-tool subset; the Swift server exposes all 73 tools (selection, remap,
+The Node server exposes a 37-tool subset; the Swift server exposes all 74 tools (selection, remap,
 annotations, reconstruction, mesh-zone analysis, mesh inspection, alignment, and more are
 Swift-only). See the [Tool Reference](../reference/) for per-tool server availability.
 

@@ -260,7 +260,11 @@ public enum MeshFeatureTools {
         welded: Mesh, rings: [CreaseRing], bodyId: String, outputPath: String, options: RenderPreviewTool.Options
     ) -> String? {
         let verts = welded.vertices
-        let normals = welded.normals
+        // welded() rebuilds the Mesh without normals, so welded.normals is
+        // empty; compute real area-weighted vertex normals for the backdrop's
+        // shading instead of falling back to a constant direction (review nit
+        // on #113 — flat lighting made the translucent surface read unlit).
+        let normals = welded.normals.count == welded.vertices.count ? welded.normals : welded.vertexNormals()
         let idx = welded.indices
         let hasNormals = normals.count == verts.count
         guard welded.triangleCount > 0 else { return "no triangles to render" }
