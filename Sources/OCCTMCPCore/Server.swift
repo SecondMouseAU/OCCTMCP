@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag: clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.24.0"
+    public static let serverVersion = "1.25.0"
 }
 
 /// Shared by the three tools that share DeviationTools' signed-distance engine
@@ -1386,6 +1386,27 @@ func catalogTools() -> [Tool] {
                 "additionalProperties": .bool(false),
             ])
         ),
+        Tool(
+            name: "fit_primitives",
+            description: "RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style global-inlier extraction (OCCTSwiftMesh.Mesh.segmentedRANSAC/segmentedAutoSelect, OCCTSwiftMesh#27/#32). Distinct from segment_mesh_zones' per-region fits: RANSAC claims GLOBAL inliers, so ONE primitive can span regions the dihedral grower keeps separate (e.g. a cylinder interrupted by a boss) — the reverse-engineering question zone fits can't answer. Pass zoneId (from segment_mesh_zones) to fit only that zone's own triangles (re-meshed at the zone's own stored deflection); omit it to fit the whole body. `strategy: \"ransac\"` (default) always uses RANSAC; `strategy: \"auto\"` runs segmentedAutoSelect's dihedral-vs-RANSAC bake-off and reports which won plus both scores (strategyScores). Deterministic: repeat calls with identical arguments against an unchanged mesh/zone return byte-identical primitive tables. `uncoveredFraction` is the fraction of triangles NO primitive ever claimed, computed BEFORE any maxPrimitives cap; a maxPrimitives cap is applied afterward and reported as a SEPARATE warning naming its own triangle count, never folded into uncoveredFraction. Optional categorical per-primitive PNG render (largest-support-first coloring, same band-group + legend machinery as segment_mesh_zones).",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "zoneId": .object(["type": .string("string"), "description": .string("A zone:<bodyId>#<n> id from segment_mesh_zones, scoping the fit to just that zone's own triangles (re-meshed at the zone's own stored deflection so triangleIndices stay valid). Omit to fit the whole body.")]),
+                    "strategy": .object(["type": .string("string"), "enum": .array([.string("ransac"), .string("auto")]), "description": .string("\"ransac\" (default): Schnabel-style global-inlier RANSAC extraction only. \"auto\": runs segmentedAutoSelect's dihedral-vs-RANSAC substantial-clean-coverage bake-off and reports which strategy won (strategyScores).")]),
+                    "inlierEpsilonMm": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "description": .string("Absolute mm point-to-primitive distance for a triangle to count as an inlier of a candidate. Default: library auto (0.5% of the fitted mesh's bbox diagonal).")]),
+                    "minSupportTriangles": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Minimum inlier-cluster triangle count for a candidate primitive to be accepted; smaller clusters are left unclaimed. Default: library default (30). For strategy \"auto\", also sets the dihedral bake-off candidate's minRegionTriangles, so both strategies are compared on a consistent floor.")]),
+                    "maxPrimitives": .object(["type": .string("integer"), "minimum": .int(0), "description": .string("Cap on returned primitives (largest-support-first kept). Triangles in the dropped primitives are named in a warning with their own count, kept separate from uncoveredFraction (which reflects only triangles no primitive ever claimed, at any cap).")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection for a whole-body fit. Default 0.5% of the body's bbox diagonal. Ignored (and warned) for a zoneId-scoped fit, which always re-meshes at the zone's own segmentation deflection.")]),
+                    "render": .object(["type": .string("boolean"), "description": .string("Render a categorical per-primitive PNG with a legend. Default true.")]),
+                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_primitives.png).")]),
+                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                ]),
+                "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
     ]
 }
 
@@ -2310,6 +2331,38 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             renderPath: arguments["renderPath"]?.stringValue,
             chart: arguments["chart"]?.boolValue ?? false,
             chartPath: arguments["chartPath"]?.stringValue,
+            options: parseRenderOptions(arguments["options"])
+        ).asCallToolResult()
+
+    case "fit_primitives":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("fit_primitives requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        // Same #106 convention as align_bodies' `mode` / mesh_curvature's `colorBy`: an
+        // unrecognized strategy must error, naming the valid values, not silently fall back.
+        let strategy: FitPrimitivesTools.Strategy
+        if let strategyString = arguments["strategy"]?.stringValue {
+            guard let parsed = FitPrimitivesTools.Strategy(rawValue: strategyString) else {
+                let valid = FitPrimitivesTools.Strategy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                return ToolText(
+                    "fit_primitives: unknown strategy \"\(strategyString)\". Valid values: \(valid).",
+                    isError: true
+                ).asCallToolResult()
+            }
+            strategy = parsed
+        } else {
+            strategy = .ransac
+        }
+        return await FitPrimitivesTools.fitPrimitives(
+            bodyId: bodyId,
+            zoneId: arguments["zoneId"]?.stringValue,
+            strategy: strategy,
+            inlierEpsilonMm: arguments["inlierEpsilonMm"]?.numberValue,
+            minSupportTriangles: arguments["minSupportTriangles"]?.intValue,
+            maxPrimitives: arguments["maxPrimitives"]?.intValue,
+            deflection: arguments["deflection"]?.numberValue,
+            render: arguments["render"]?.boolValue ?? true,
+            renderPath: arguments["renderPath"]?.stringValue,
             options: parseRenderOptions(arguments["options"])
         ).asCallToolResult()
 
