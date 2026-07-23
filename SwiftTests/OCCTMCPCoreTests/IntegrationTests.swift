@@ -90,6 +90,7 @@ struct IntegrationTests {
             "mesh_diagnose", "mesh_thickness", "detect_symmetry",
             "align_bodies",
             "mesh_curvature",
+            "detect_mesh_features",
             "fit_primitives",
         ] {
             #expect(names.contains(expected), "missing tool: \(expected)")

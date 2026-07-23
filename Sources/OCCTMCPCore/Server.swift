@@ -14,7 +14,7 @@ public enum OCCTMCPVersion {
     public static let serverName = "occtmcp"
     /// Keep in step with the release tag: clients report this string, and a
     /// stale value makes version triage ambiguous (noted in #75).
-    public static let serverVersion = "1.25.0"
+    public static let serverVersion = "1.26.0"
 }
 
 /// Shared by the three tools that share DeviationTools' signed-distance engine
@@ -1407,6 +1407,24 @@ func catalogTools() -> [Tool] {
                 "additionalProperties": .bool(false),
             ])
         ),
+        Tool(
+            name: "detect_mesh_features",
+            description: "Crease-ring feature outlines (doors, panels, window returns, recesses) on a raw scan mesh via dihedral-fold-edge detection (OCCTSwiftMesh.Mesh.creaseEdges, OCCTSwiftMesh#28), for meshes where recognize_features (BREP/AAG) cannot operate at all — a scanned/STL body has no B-rep face/edge structure to recognize features against. Meshes the body, welds it (MANDATORY precondition: on unwelded input every edge is a boundary edge and the dihedral angle is undefined, so zero creases are ever found regardless of the body's actual geometry), then chains dihedral-fold edges exceeding minAngleDegrees into closed rings (e.g. a door outline) and open paths (a crease running off an open mesh boundary), largest-first. Y/T junctions where 3+ creases meet split cleanly into separate rings/paths rather than being wandered through arbitrarily; leftover edges that couldn't be chained are counted in unchainedCreaseEdgeCount, never dropped. When segment_mesh_zones has already been run for this body (same mesh state, verified by signature), each ring reports containingZones: the zone id(s) whose triangles are incident to the ring's own vertices, majority first — omitted with a warning if the zone table is stale or the internal weld guard failed, omitted silently (no warning) if no zones are registered for this body at all. Optional render: the body surface as a neutral translucent grey mesh, plus each ring as its own categorically-colored wireframe overlay with a legend.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "minAngleDegrees": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "maximum": .double(180), "description": .string("Dihedral fold-angle threshold in degrees; an edge whose two triangles' normals differ by at least this much is a crease. Default 30.")]),
+                    "maxRings": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on returned rings/paths; the largest (by length) are kept, the rest counted in a warning. Default 64.")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
+                    "render": .object(["type": .string("boolean"), "description": .string("Render the body with each ring overlaid as a categorically-colored wireframe, with a legend. Default true.")]),
+                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_features.png).")]),
+                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                ]),
+                "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
     ]
 }
 
@@ -2331,6 +2349,27 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             renderPath: arguments["renderPath"]?.stringValue,
             chart: arguments["chart"]?.boolValue ?? false,
             chartPath: arguments["chartPath"]?.stringValue,
+            options: parseRenderOptions(arguments["options"])
+        ).asCallToolResult()
+
+    case "detect_mesh_features":
+        guard let bodyId = arguments["bodyId"]?.stringValue else {
+            return ToolText("detect_mesh_features requires `bodyId`.", isError: true).asCallToolResult()
+        }
+        // Dispatch-level guard (the #106 convention): an invalid minAngleDegrees must error here
+        // too, not just inside the tool function — this is the layer an MCP client's own schema
+        // validation can be bypassed at.
+        let minAngle = arguments["minAngleDegrees"]?.numberValue ?? 30
+        guard minAngle > 0, minAngle <= 180 else {
+            return ToolText("detect_mesh_features: minAngleDegrees must be in (0, 180].", isError: true).asCallToolResult()
+        }
+        return await MeshFeatureTools.detectMeshFeatures(
+            bodyId: bodyId,
+            minAngleDegrees: minAngle,
+            maxRings: arguments["maxRings"]?.intValue ?? 64,
+            deflection: arguments["deflection"]?.numberValue,
+            render: arguments["render"]?.boolValue ?? true,
+            renderPath: arguments["renderPath"]?.stringValue,
             options: parseRenderOptions(arguments["options"])
         ).asCallToolResult()
 

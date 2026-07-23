@@ -6,6 +6,11 @@ nav_order: 12
 
 # Mesh analysis (zones)
 
+The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, reflective-symmetry detection, and GOM-style two-body alignment. Phase 3 adds per-vertex discrete curvature, #109 integrates per-zone slippage classification (Gelfand-Guibas local slippage analysis, OCCTSwiftMesh#26/#31) into the zone table, defaulting `zone_continuity_sweep`'s axis to it where eligible — answering the zone model's "loftable along WHICH axis" question — and #108 adds crease-ring feature outlines (dihedral-fold-edge detection, OCCTSwiftMesh#28), the mesh-domain complement to `recognize_features`. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, how symmetric it is, how curved it is at each point, whether it's actually registered to a reference body yet, or where its feature outlines (doors, panels, recesses) sit, before committing to a reconstruction or measuring deviation against that reference. Swift-only.
+
+## Tools
+
+[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones) · [`mesh_diagnose`](#mesh_diagnose) · [`mesh_thickness`](#mesh_thickness) · [`detect_symmetry`](#detect_symmetry) · [`align_bodies`](#align_bodies) · [`mesh_curvature`](#mesh_curvature) · [`detect_mesh_features`](#detect_mesh_features)
 The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of the mesh-analysis expansion): split a body's mesh into surface zones (plane / cylinder / sphere / cone, via OCCTSwiftMesh's dihedral region-growing with primitive-fit merge), then measure how far each zone's own cross-section stays constant along an axis (a loftable-extent map). Phase 2 adds a general mesh-inspection base that doesn't need zones at all: an integrity check-list, a mesh-domain wall-thickness measurement, reflective-symmetry detection, and GOM-style two-body alignment. Phase 3 adds per-vertex discrete curvature, per-zone slippage classification (Gelfand-Guibas local slippage analysis, OCCTSwiftMesh#26/#31, integrated into `segment_mesh_zones`'s zone table and defaulting `zone_continuity_sweep`'s axis where eligible — answering the zone model's "loftable along WHICH axis" question), and `fit_primitives` (#107): a Schnabel-style RANSAC primitive report (OCCTSwiftMesh#27/#32) that claims GLOBAL inliers rather than `segment_mesh_zones`' edge-adjacent-only region growing, so it can unify a primitive (e.g. a cylinder interrupted by a boss) the zone table keeps split across regions. Reach for this family when you have a scanned or imported mesh body and need to know what surfaces it's made of, whether it's structurally sound, how thick its walls are, how symmetric it is, how curved it is at each point, whether the same primitive recurs elsewhere in the part, or whether it's actually registered to a reference body yet, before committing to a reconstruction or measuring deviation against that reference. Swift-only.
 
 ## Tools
@@ -503,6 +508,15 @@ Per-vertex discrete curvature over a body's own mesh (Rusinkiewicz per-face tens
 
 ---
 
+## `detect_mesh_features`
+
+Crease-ring feature outlines (doors, panels, window returns, recesses) on a raw scan mesh via dihedral-fold-edge detection (`OCCTSwiftMesh.Mesh.creaseEdges(minAngleDegrees:)`, OCCTSwiftMesh#28, closing #108) — the mesh-domain complement to [`recognize_features`](introspection.md#recognize_features), which needs BREP/AAG topology and has nothing to operate on for a scanned/STL body (one B-rep face per facet, no design-intent face/edge structure at all).
+
+**Welding is internal and mandatory.** Like `mesh_curvature`'s `vertexCurvatures()`, `creaseEdges()`'s own precondition is a WELDED mesh: on unwelded input every edge is used by exactly one triangle, so the dihedral fold angle is undefined and every edge reads "boundary," never "crease," regardless of the body's actual geometry. This tool welds the tessellated mesh before detecting anything; detection, the reported stats, AND the render are all built entirely from the SAME welded mesh (`CreaseRing.vertexIndices` indexes it directly), so there's no triangle/vertex-index correspondence problem between them to guard against.
+
+**Rings vs. paths.** Fold edges (dihedral angle ≥ `minAngleDegrees`) are chained into CLOSED rings (e.g. a door outline) and OPEN paths (a crease that runs off an open mesh boundary, or terminates at a junction from just one side) — both land in the same `rings` array (`closed` distinguishes them), largest-first by length. **Junction-aware:** a Y/T intersection where 3+ creases meet a single vertex is never wandered through arbitrarily — the chaining always stops there, splitting cleanly into separate rings/paths instead of picking one arbitrary continuation. Leftover edges that couldn't be chained (a defensive walk-length-cap backstop, not expected to fire on well-formed input) are counted in `unchainedCreaseEdgeCount`, never dropped.
+
+**Zone interplay.** When [`segment_mesh_zones`](#segment_mesh_zones) has already been run for this body, each ring reports `containingZones`: the zone id(s) whose triangles are incident to the ring's own vertices, majority first. This needs the SAME welded-mesh + triangle-COUNT-survival guard `segment_mesh_zones`' own `adjacentZones` established (proof the weld here didn't drop a degenerate triangle, so a triangle index means the same triangle in both the welded mesh and the zones' UNWELDED `triangleIndices`), plus a `MeshSignature` staleness check (the zone table might have been minted from a different mesh state, e.g. a different deflection). Any stale zone or a failed guard omits `containingZones` (`null` on every ring) with an honest warning; no zones registered for this body at all is not a warning — zones are optional context, not a prerequisite.
 ## `fit_primitives`
 
 RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBAL-inlier primitive extraction (`OCCTSwiftMesh.Mesh.segmentedRANSAC(_:)` / `segmentedAutoSelect(dihedral:ransac:)`, OCCTSwiftMesh#27/#32, closing #107).
@@ -521,6 +535,17 @@ RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBA
 
 | name | type | required | description |
 |------|------|:--------:|-------------|
+| `bodyId` | string | yes | Body to analyse. |
+| `minAngleDegrees` | number (0, 180] | no | Dihedral fold-angle threshold in degrees; an edge whose two triangles' normals differ by at least this much is a crease. Default 30. |
+| `maxRings` | integer (≥ 1) | no | Cap on returned rings/paths; the largest (by length) are kept, the rest counted in a warning. Default 64. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the body's bbox diagonal. |
+| `render` | boolean | no | Render the body with each ring overlaid as a categorically-colored wireframe, with a legend. Default `true`. |
+| `renderPath` | string | no | Override the default render path (`<output_dir>/<bodyId>_features.png`). |
+| `options` | object | no | Render options — same shape as [`render_preview`](mesh-visualization.md#render_preview)'s `options` (camera, width, height, background). |
+
+**Returns** — `{ bodyId, ringCount, unchainedCreaseEdgeCount, rings: [{ id ("ring:<bodyId>#<n>", largest-first), closed, lengthMm, bbox: { min, max }, meanFoldAngleDegrees, maxFoldAngleDegrees, edgeCount, containingZones? }], renderPath?, warnings[] }`. Bounded: no raw per-triangle or per-vertex arrays. `lengthMm`/`bbox` are in the mesh's own coordinate units (matching every other length-valued field in this codebase — `areaMm2`, `thicknessMm`, etc. — none of which carry a unit suffix that implies unit conversion happened).
+
+**Render** — the body surface as a neutral translucent grey mesh (`ViewportBody.directMesh`, built off the same welded mesh), plus one edges-only `ViewportBody` per ring (`edges: [[ring vertex positions, wrapped if closed]]`, no mesh triangles at all) in a categorical color. `OffscreenRenderer` draws a body's wireframe unconditionally whenever it has no mesh triangles of its own, so an edges-only ring body renders regardless of `displayMode` — no tube-strip-quad fallback needed. Composited with `ChartRenderer.overlayZoneLegend`.
 | `bodyId` | string | yes | Body to fit. |
 | `zoneId` | string | no | A `zone:<bodyId>#<n>` id from `segment_mesh_zones`, scoping the fit to just that zone's own triangles. Omit to fit the whole body. |
 | `strategy` | string | no | `"ransac"` (default) or `"auto"`. |
@@ -542,11 +567,26 @@ RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBA
 
 ```json
 // tool call arguments
+{ "bodyId": "door_scan", "minAngleDegrees": 25, "maxRings": 16 }
 { "bodyId": "carbody_scan", "strategy": "auto", "minSupportTriangles": 50 }
 ```
 ```json
 // example result
 {
+  "bodyId": "door_scan",
+  "ringCount": 2,
+  "unchainedCreaseEdgeCount": 0,
+  "rings": [
+    { "id": "ring:door_scan#0", "closed": true, "lengthMm": 3120.0,
+      "bbox": { "min": [0, -900, 0], "max": [0, 900, 2100] },
+      "meanFoldAngleDegrees": 88.4, "maxFoldAngleDegrees": 91.2, "edgeCount": 84,
+      "containingZones": ["zone:door_scan#1", "zone:door_scan#3"] },
+    { "id": "ring:door_scan#1", "closed": true, "lengthMm": 640.0,
+      "bbox": { "min": [15, -300, 1500], "max": [15, 300, 1900] },
+      "meanFoldAngleDegrees": 89.9, "maxFoldAngleDegrees": 90.5, "edgeCount": 24,
+      "containingZones": null }
+  ],
+  "renderPath": "/tmp/door_scan_features.png",
   "bodyId": "carbody_scan",
   "zoneId": null,
   "strategy": "auto",
@@ -561,6 +601,9 @@ RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBA
 }
 ```
 
+**Notes** — A SQUARE/rectangular raised or recessed feature's own vertical corners are themselves additional 90-degree creases (where two adjacent walls meet), turning every corner into a degree-3 junction that can fragment what would otherwise read as one clean ring into several short open paths; a ROUND feature (no corners) doesn't have this failure mode. `minAngleDegrees` too low picks up ordinary tessellation noise as spurious creases (particularly on a coarsely-triangulated curved surface); too high misses genuine shallow-fillet transitions. This tool is detection + reporting only — it does not fit a primitive, measure the feature's depth, or attempt to reconstruct a B-rep face from the enclosed region; pair with [`cross_section_compare`](introspection.md#cross_section_compare) or [`mesh_thickness`](#mesh_thickness) to characterize a ring's enclosed feature further.
+
+**Drives** — `OCCTSwiftMesh` `Mesh.creaseEdges(minAngleDegrees:)` (dihedral-fold-edge detection + junction-aware ring/path chaining, OCCTSwiftMesh#28, ≥1.7.0) + `Mesh.welded()`; `ZoneRegistry` for the optional zone interplay; render reuses the edges-only-`ViewportBody` + `ChartRenderer.overlayZoneLegend` trick.
 **Notes** — Both bodies/zones mesh at the standard `MeshParameters` recipe shared with `DeviationTools`/`MeshZoneTools`. A zoneId-scoped fit re-meshes at the zone's own stored deflection unconditionally (a `deflection` argument is ignored, with a warning, since `triangleIndices` would otherwise no longer line up with a freshly built mesh). Render reuses the band-group trick (`ChartRenderer.categoricalColor` + `overlayZoneLegend`) `segment_mesh_zones`/`zone_continuity_sweep` established, coloring each returned primitive's triangles as one flat-colored group.
 
 **Drives** — `OCCTSwiftMesh` `Mesh.segmentedRANSAC(_:)` / `Mesh.segmentedAutoSelect(dihedral:ransac:)` (Schnabel-style global-inlier RANSAC extraction, OCCTSwiftMesh#27/#32); `ZoneRegistry` for `zoneId` resolution (the same rungs `zone_continuity_sweep` uses).
@@ -569,6 +612,11 @@ RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBA
 
 ## Phase 3 backlog (filed, not yet implemented)
 
+`mesh_curvature`, the #109 slippage integration, and `detect_mesh_features` are the Phase 3 tools shipped so far. The rest of Phase 3's design-intent surface (RANSAC segmentation, curvature-ordered segmentation seeding, generalized winding number orientation) needs new upstream primitives; those are filed as issues rather than implemented ad hoc, per the ecosystem's factoring rule (OCCTMCP wraps, never implements mesh algorithms):
+
+- [SecondMouseAU/OCCTSwiftMesh#26](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/26) — slippage analysis (Gelfand-Guibas) per region → [OCCTMCP#109](https://github.com/SecondMouseAU/OCCTMCP/issues/109) (zone kind/axis in `segment_mesh_zones` + sweep axis defaults) — **shipped**
+- [SecondMouseAU/OCCTSwiftMesh#27](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/27) — RANSAC segmentation strategy + auto-selection bake-off → [OCCTMCP#107](https://github.com/SecondMouseAU/OCCTMCP/issues/107) (`fit_primitives`)
+- [SecondMouseAU/OCCTSwiftMesh#28](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/28) — crease-edge detection (dihedral-fold rings) → [OCCTMCP#108](https://github.com/SecondMouseAU/OCCTMCP/issues/108) (`detect_mesh_features`) — **shipped**
 `mesh_curvature` and `fit_primitives` are the Phase 3 tools unblocked by already-released OCCTSwiftMesh primitives (per-zone slippage classification is likewise already integrated into `segment_mesh_zones`/`zone_continuity_sweep` — see above). The rest of Phase 3's design-intent surface (crease-edge feature outlines, curvature-ordered segmentation seeding, generalized winding number orientation) needs new upstream primitives; those are filed as issues rather than implemented ad hoc, per the ecosystem's factoring rule (OCCTMCP wraps, never implements mesh algorithms):
 
 - [SecondMouseAU/OCCTSwiftMesh#28](https://github.com/SecondMouseAU/OCCTSwiftMesh/issues/28) — crease-edge detection (dihedral-fold rings) → [OCCTMCP#108](https://github.com/SecondMouseAU/OCCTMCP/issues/108) (`detect_mesh_features`)

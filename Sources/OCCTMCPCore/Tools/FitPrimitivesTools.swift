@@ -251,7 +251,7 @@ public enum FitPrimitivesTools {
             return IntrospectionTools.encode(FitReport(
                 bodyId: bodyId, zoneId: zoneId, strategy: strategyLabel, strategyScores: strategyScores,
                 primitives: [], uncoveredFraction: uncoveredFraction, renderPath: nil,
-                warnings: warnings + ["No primitive met minSupportTriangles; nothing to report."]
+                warnings: warnings + ["No primitives to report: none met minSupportTriangles, or maxPrimitives removed them all (see any cap warning above)."]
             ))
         }
 
