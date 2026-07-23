@@ -8,7 +8,7 @@ MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD
 
 Part of the [OCCTSwift ecosystem](https://github.com/SecondMouseAU/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
 
-The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 72 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, alignment, and dimension overlays.
+The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 73 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, alignment, and dimension overlays.
 
 ## How It Works
 
@@ -23,7 +23,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 ## Tools
 
-72 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
+73 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
 
 ### Authoring
 
@@ -123,6 +123,7 @@ The mesh-domain check-list / measurement surface (Phase 2 of the mesh-analysis e
 | `detect_symmetry` | Detect reflective (mirror-plane) symmetry: 3 PCA candidate planes through the area-weighted centroid, each verified by reflecting sampled points and measuring their residual distance back to the surface. Rotational/axis symmetry detection is deferred to a later phase |
 | `align_bodies` (#104) | GOM-style alignment: register a source body onto a reference body via point-to-plane ICP (PCA pre-align + normal-space sampling + trimmed correspondence). `mode: "bestFit"` (default, full pipeline) or `"preAlign"` (coarse PCA/bbox pose only). Returns the recovered transform (row-major, translation + axis-angle rotation) and residual stats; `apply: true` writes it onto the source body in place with the same history semantics as `transform_body`. The step scan-vs-CAD deviation tools need before their numbers mean anything |
 | `mesh_curvature` | Per-vertex discrete curvature (Rusinkiewicz per-face tensor) over a body's own welded mesh: principal curvatures k1/k2, mean, gaussian, plus a colored render (`colorBy`) and bounded stats (medians, flatFraction, highCurvatureFraction). No reference body needed |
+| `detect_mesh_features` (#108) | Crease-ring feature outlines (doors, panels, window returns, recesses) on a raw scan mesh via dihedral-fold-edge detection: welds the mesh, chains fold edges exceeding `minAngleDegrees` into closed rings and open paths (largest-first), for meshes where `recognize_features` (BREP/AAG) has no B-rep structure to work against. Junction-aware (Y/T intersections split cleanly). Reports each ring's `containingZones` when `segment_mesh_zones` has already run for the body. Optional render: the surface plus each ring as its own categorically-colored wireframe overlay |
 
 ### Selection & remap
 
@@ -194,7 +195,7 @@ LLM read/write over an attributed reconstruction graph — annotate per-node dec
 
 This repo ships two implementations side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 72 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
+- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 73 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
 
 Both speak stdio MCP and read/write the same manifest format.
