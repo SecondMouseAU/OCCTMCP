@@ -56,3 +56,4 @@ OpenCASCADE upstream, and the ecosystem map.
 
 - [Query `context` first for OCCT / OCCTSwift docs](policies/context-first.md)
 - [Documentation updates are mandatory](policies/docs-current.md)
+- [No em-dashes, banned words in prose](policies/writing-style.md)
