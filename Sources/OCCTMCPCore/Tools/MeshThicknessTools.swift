@@ -6,7 +6,8 @@
 // tessellated surface via the ray (normal-opposite, first-hit) method.
 //
 // Pipeline: mesh (same MeshParameters recipe as DeviationTools.TriMesh /
-// MeshZoneTools) -> TriBVH over its triangles -> stride-subsample vertices
+// MeshZoneTools) -> TriBVH over its triangles (reused from TriMesh.bvh,
+// #116, rather than building a second identical index) -> stride-subsample vertices
 // (mirrors DeviationTools.directedStats' maxSamples convention) -> for each
 // sample, cast from `p - 1e-4*n` along `-n` (the tiny epsilon nudge is so
 // the ray's own origin triangle isn't itself the first hit) -> first hit
@@ -99,9 +100,9 @@ public enum MeshThicknessTools {
         guard let tri = DeviationTools.TriMesh(shape: shape, deflection: defl) else {
             return .init("Failed to tessellate '\(bodyId)' for thickness.", isError: true)
         }
-        guard let bvh = TriBVH(vertices: tri.vertices, triangles: tri.triangles) else {
-            return .init("Failed to build a spatial index for '\(bodyId)' (empty tessellation).", isError: true)
-        }
+        // TriMesh already builds a TriBVH internally (#116); reuse it rather
+        // than building a second, identical index over the same triangles.
+        let bvh = tri.bvh
 
         var warnings: [String] = []
         let n = tri.vertices.count

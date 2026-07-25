@@ -159,12 +159,20 @@ public enum ZoneSweepTool {
     /// 1. An explicit caller-supplied axis always wins outright.
     /// 2. Otherwise, a zoneId-scoped sweep (`record` non-nil) whose stored
     ///    `ZoneRecord.slippage` has a kind in `axisEligibleSlippageKinds`, a
-    ///    non-nil `axisDirection`, AND `confidence >= slippageAxisConfidenceFloor`
-    ///    defaults to that axis.
-    /// 3. Anything else (no record, no slippage, an ineligible kind, or a
-    ///    low-confidence eligible kind) falls back to PCA — the low-
-    ///    confidence case additionally returns a warning naming the kind and
-    ///    confidence that was rejected.
+    ///    non-nil `axisDirection`, `confidence >= slippageAxisConfidenceFloor`,
+    ///    AND `erosionSkipped == false` defaults to that axis.
+    /// 3. Anything else (no record, no slippage, an ineligible kind, a
+    ///    low-confidence eligible kind, or an erosion-skipped classification)
+    ///    falls back to PCA: the low-confidence and erosion-skipped cases
+    ///    additionally return a warning naming the kind/confidence that was
+    ///    rejected.
+    ///
+    /// The `erosionSkipped` gate exists because confidence alone doesn't
+    /// protect against it (#114): a zone too small/thin for `MeshZoneTools`'
+    /// boundary erosion to engage can classify at a confidence well past
+    /// `slippageAxisConfidenceFloor` while still being a boundary-contaminated,
+    /// plausible, WRONG kind, exactly the case that would otherwise sweep
+    /// along a confidently bogus axis without ever surfacing a warning.
     static func selectSweepAxis(record: ZoneRecord?, explicit: SIMD3<Double>?) -> AxisSelection {
         if let explicit {
             return AxisSelection(axis: explicit, source: "explicit", warning: nil)
@@ -180,6 +188,12 @@ public enum ZoneSweepTool {
             return AxisSelection(
                 axis: nil, source: "pca",
                 warning: "zone has a low-confidence slippage classification (\(slip.kind), confidence \(slip.confidence)); sweep axis fell back to PCA"
+            )
+        }
+        guard !slip.erosionSkipped else {
+            return AxisSelection(
+                axis: nil, source: "pca",
+                warning: "zone's slippage classification skipped boundary erosion (too small/thin to erode) and may be confidently wrong (\(slip.kind), confidence \(slip.confidence)); sweep axis fell back to PCA"
             )
         }
         return AxisSelection(axis: SIMD3(dir[0], dir[1], dir[2]), source: "slippage", warning: nil)

@@ -124,4 +124,116 @@ struct TriBVHTests {
         let miss = bvh.firstHit(origin: SIMD3(100, 100, 9), direction: SIMD3(0, 0, -1))
         #expect(miss == nil)
     }
+
+    // ── nearestTriangle / kNearestTriangles (#116) ─────────────────────────
+
+    @Test("nearestTriangle on a unit square finds the exact closest point")
+    func nearestTriangleOnUnitSquare() throws {
+        let (v, t) = Self.unitSquare()
+        let bvh = try #require(TriBVH(vertices: v, triangles: t))
+        let hit = try #require(bvh.nearestTriangle(to: SIMD3(0.5, 0.5, 2)))
+        #expect(abs(hit.distance - 2) < 1e-9)
+        #expect(abs(hit.point.x - 0.5) < 1e-9)
+        #expect(abs(hit.point.y - 0.5) < 1e-9)
+        #expect(abs(hit.point.z) < 1e-9)
+    }
+
+    @Test("kNearestTriangles rank-1 always matches nearestTriangle, regardless of k")
+    func kNearestRank1MatchesNearest() throws {
+        let (v, t) = Self.unitSquare()
+        let bvh = try #require(TriBVH(vertices: v, triangles: t))
+        let nearest = try #require(bvh.nearestTriangle(to: SIMD3(0.5, 0.5, 2)))
+        let k1 = try #require(bvh.kNearestTriangles(to: SIMD3(0.5, 0.5, 2), k: 1).first)
+        let k2 = try #require(bvh.kNearestTriangles(to: SIMD3(0.5, 0.5, 2), k: 2).first)
+        #expect(abs(k1.distance - nearest.distance) < 1e-9)
+        #expect(abs(k2.distance - nearest.distance) < 1e-9)
+        #expect(k1.triangleIndex == nearest.triangleIndex)
+    }
+
+    @Test("kNearestTriangles returns results sorted nearest-first, capped at k")
+    func kNearestSortedAndCapped() throws {
+        // 5x5 grid (50 triangles): ask for k=5 nearest to a point above the
+        // center and confirm strictly non-decreasing distances, count == k.
+        var verts: [SIMD3<Double>] = []
+        var tris: [(UInt32, UInt32, UInt32)] = []
+        for gx in 0..<5 {
+            for gy in 0..<5 {
+                let x0 = Double(gx), y0 = Double(gy)
+                let base = UInt32(verts.count)
+                verts.append(SIMD3(x0, y0, 0))
+                verts.append(SIMD3(x0 + 1, y0, 0))
+                verts.append(SIMD3(x0 + 1, y0 + 1, 0))
+                verts.append(SIMD3(x0, y0 + 1, 0))
+                tris.append((base, base + 1, base + 2))
+                tris.append((base, base + 2, base + 3))
+            }
+        }
+        let bvh = try #require(TriBVH(vertices: verts, triangles: tris))
+        let hits = bvh.kNearestTriangles(to: SIMD3(2.5, 2.5, 3), k: 5)
+        #expect(hits.count == 5)
+        #expect(zip(hits, hits.dropFirst()).allSatisfy { $0.distance <= $1.distance })
+    }
+
+    @Test("nearestTriangle finds a large sparse triangle a k-nearest-VERTEX search would miss (#116)")
+    func nearestTriangleFindsLargeSparseTriangle() throws {
+        // The exact failure mode reported in #116: ONE huge triangle (a
+        // coarsely tessellated planar face) whose three vertices sit far
+        // from a query point directly above its CENTER, plus a cluster of
+        // small, DENSE triangles nearby whose vertices dominate any
+        // k-nearest-vertex neighbourhood. A vertex-based search never even
+        // considers the big triangle as a candidate; a triangle-BVH search
+        // must still find it as the true global nearest.
+        let bigA = SIMD3<Double>(-1000, -1000, 0)
+        let bigB = SIMD3<Double>(1000, -1000, 0)
+        let bigC = SIMD3<Double>(0, 1000, 0)
+        var verts: [SIMD3<Double>] = [bigA, bigB, bigC]
+        var tris: [(UInt32, UInt32, UInt32)] = [(0, 1, 2)]
+
+        // A dense cluster of tiny triangles far off to the side (near
+        // (500, -900, 0), well away from the query below) so their vertices
+        // saturate a small k-nearest-vertex neighbourhood without being
+        // anywhere near the actual closest point.
+        for i in 0..<200 {
+            let cx = 500.0 + Double(i) * 0.01
+            let cy = -900.0
+            let base = UInt32(verts.count)
+            verts.append(SIMD3(cx, cy, 0))
+            verts.append(SIMD3(cx + 0.005, cy, 0))
+            verts.append(SIMD3(cx, cy + 0.005, 0))
+            tris.append((base, base + 1, base + 2))
+        }
+
+        let bvh = try #require(TriBVH(vertices: verts, triangles: tris))
+        // Directly above the big triangle's centroid-ish interior, far from
+        // its own 3 vertices (each ~1000+ units away) and far from the tiny
+        // cluster (~1000+ units away too); the true nearest surface is the
+        // big triangle's interior, distance == the query height.
+        let query = SIMD3<Double>(0, -300, 50)
+        let hit = try #require(bvh.nearestTriangle(to: query))
+        #expect(hit.triangleIndex == 0, "expected the big sparse triangle to win, got triangle \(hit.triangleIndex)")
+        #expect(abs(hit.distance - 50) < 1e-6, "expected the exact perpendicular distance, got \(hit.distance)")
+    }
+
+    @Test("nearestTriangle on a many-leaf tree still finds the true nearest across split boundaries")
+    func nearestTriangleAcrossSplits() throws {
+        var verts: [SIMD3<Double>] = []
+        var tris: [(UInt32, UInt32, UInt32)] = []
+        for gx in 0..<5 {
+            for gy in 0..<5 {
+                let x0 = Double(gx), y0 = Double(gy)
+                let base = UInt32(verts.count)
+                verts.append(SIMD3(x0, y0, 0))
+                verts.append(SIMD3(x0 + 1, y0, 0))
+                verts.append(SIMD3(x0 + 1, y0 + 1, 0))
+                verts.append(SIMD3(x0, y0 + 1, 0))
+                tris.append((base, base + 1, base + 2))
+                tris.append((base, base + 2, base + 3))
+            }
+        }
+        let bvh = try #require(TriBVH(vertices: verts, triangles: tris))
+        // Directly above the corner square (0,0)-(1,1): nearest point must be
+        // exactly the vertical projection, distance 4.
+        let hit = try #require(bvh.nearestTriangle(to: SIMD3(0.5, 0.5, 4)))
+        #expect(abs(hit.distance - 4) < 1e-9)
+    }
 }

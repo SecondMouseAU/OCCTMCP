@@ -31,6 +31,15 @@
 // gates the correspondence on normal agreement: a reference triangle whose
 // outward normal opposes the sample's own is the far side of a wall, never the
 // surface the sample corresponds to, so it can neither win nor set the sign.
+//
+// FINDING that triangle also has to be exhaustive, which a k-nearest-VERTEX
+// search is not (#116): a large, low-curvature triangle's closest point to a
+// query can sit far from all three of its own vertices, so a coarsely
+// tessellated planar/cylindrical solid face can go entirely missing from even
+// a generous vertex neighbourhood, overstating `max`/`p95`/`symmetricHausdorff`
+// by 15x-317x on real fixtures. `TriMesh.bvh` (`TriBVH.kNearestTriangles`)
+// searches TRIANGLES directly via branch-and-bound over each triangle's own
+// bounding box, which is exhaustive regardless of triangle size.
 
 import Foundation
 import OCCTSwift
@@ -196,11 +205,17 @@ public enum DeviationTools {
     }
 
     /// Double-precision triangle soup + a KD-tree over vertices, with a
-    /// vertex→incident-triangle adjacency for exact point-to-triangle queries.
+    /// vertex→incident-triangle adjacency for exact point-to-triangle queries,
+    /// plus a triangle-level `TriBVH` (#116) for the EXACT nearest-triangle
+    /// search `signedQuery` needs: the KD-tree alone can only propose
+    /// candidates via nearby VERTICES, which misses a large/sparse triangle
+    /// whose closest point to a query lies far from all three of its own
+    /// vertices.
     struct TriMesh {
         let vertices: [SIMD3<Double>]
         let triangles: [(UInt32, UInt32, UInt32)]
         let kd: KDTree
+        let bvh: TriBVH
         let incident: [[Int]]   // vertexIndex → triangle indices
 
         init?(shape: Shape, deflection: Double) {
@@ -231,9 +246,11 @@ public enum DeviationTools {
                 adj[Int(c)].append(ti)
                 t += 3
             }
+            guard let bvh = TriBVH(vertices: verts, triangles: tris) else { return nil }
             self.vertices = verts
             self.triangles = tris
             self.kd = kd
+            self.bvh = bvh
             self.incident = adj
         }
 
@@ -271,9 +288,7 @@ public enum DeviationTools {
         guard n > 0 else { return nil }
         // Stride-subsample the source vertices to honour the sample cap.
         let stride = maxSamples > 0 ? Swift.max(1, (n + maxSamples - 1) / maxSamples) : 1
-        let k = 6                      // candidate target vertices per query
-        // Reused stamp array dedups incident triangles across the k candidates.
-        var stamp = [Int](repeating: -1, count: target.triangles.count)
+        let k = 6                      // candidate target triangles per query
 
         var samples: [SignedSample] = []
         samples.reserveCapacity((n + stride - 1) / stride)
@@ -291,8 +306,7 @@ public enum DeviationTools {
             // The sample's own outward normal is what lets `.robust` reject the
             // far side of a thin wall as its counterpart (#72).
             let sn = signMode == .robust ? source.vertexNormal(i) : nil
-            if let hit = signedQuery(p, normal: sn, target: target, k: k,
-                                     stamp: &stamp, stampToken: i, signMode: signMode) {
+            if let hit = signedQuery(p, normal: sn, target: target, k: k, signMode: signMode) {
                 // Unsigned figures track the NEAREST surface, which is what they
                 // have always meant — the gate only steers the sign channel, so
                 // these read the same in 1.17 as before it.
@@ -341,8 +355,10 @@ public enum DeviationTools {
     /// questions have different answers against an open thin-walled reference:
     ///
     ///  • `nearest` — unsigned distance to the closest reference surface, full
-    ///    stop. The Hausdorff-style magnitude. Independent of `SignMode`, so the
-    ///    figures built on it mean in 1.17 exactly what they meant before it.
+    ///    stop, exact regardless of `k` (`TriBVH.kNearestTriangles`' branch-and-
+    ///    bound over triangle bounding boxes, #116). The Hausdorff-style
+    ///    magnitude. Independent of `SignMode`, so the figures built on it mean
+    ///    in 1.17 exactly what they meant before it.
     ///  • `signed` — signed distance to the surface this sample CORRESPONDS to,
     ///    which is the fidelity question ("how far from where it should be, and
     ///    which side"). Under `.nearest` the correspondence IS the closest
@@ -364,18 +380,18 @@ public enum DeviationTools {
         let ambiguous: Bool
     }
 
-    /// Neighbourhood the `.robust` gate widens to when a sample's whole k-nearest
-    /// set turns out to be the far wall (#72) — it has to reach past every one of
-    /// the near wall's vertices to see the far one.
+    /// Candidate-pool size the `.robust` gate widens to when a sample's whole
+    /// k-nearest set turns out to be the far wall (#72): it has to reach past
+    /// every one of the near wall's triangles to see the far one.
     ///
-    /// Sizing this is not intuitive, because these meshes are unshared triangle
-    /// soups: OCCT hands back three vertices PER TRIANGLE with no sharing (a
-    /// 576-triangle test wall carries 1728 vertices), so the vertex count is ~6×
-    /// what a shared-index mesh would give and the neighbourhood must be ~6×
-    /// wider to span the same surface. The near wall's vertices within reach of a
-    /// sample go as ~3·π·d²/spacing², which at a 2mm wall and sub-mm spacing runs
-    /// to several hundred — 256 was silently too small and greyed out the very
-    /// case this exists to fix.
+    /// Since #116 this counts TRIANGLES directly (`TriBVH.kNearestTriangles`),
+    /// not vertices via a shared unshared-soup mesh, so it needs a smaller
+    /// multiplier than the vertex-based version this replaced (which had to
+    /// inflate for OCCT's ~3 vertices-per-triangle unshared tessellation on
+    /// top of the true target). The near wall's triangles within reach of a
+    /// sample still go as ~3·π·d²/spacing², which at a 2mm wall and sub-mm
+    /// spacing can run into the low hundreds; 1024 stays comfortably above
+    /// that with room to spare.
     ///
     /// Bounded rather than unbounded because a scan-scale heatmap samples every
     /// triangle: past this, the sample reports `ambiguous`, which is the honest
@@ -384,8 +400,10 @@ public enum DeviationTools {
     /// Only samples that fail the gate outright pay for the widen, so a
     /// well-registered pair costs nothing. The pathological end — a candidate
     /// entirely behind the wrong wall, so EVERY sample widens — measured 13s vs
-    /// 0.3s for 20k samples against a 400k-triangle reference. That's the price
-    /// of the right answer where the cheap one is confidently inverted.
+    /// 0.3s for 20k samples against a 400k-triangle reference (pre-#116, vertex-
+    /// based; the BVH-based widen is the same order of cost for the same reason:
+    /// a bounded k-nearest search over a bounded candidate pool). That's the
+    /// price of the right answer where the cheap one is confidently inverted.
     static let widenedK = 1024
 
     /// One reference triangle in the running for a sample's correspondence.
@@ -398,9 +416,18 @@ public enum DeviationTools {
         let compatible: Bool
     }
 
-    /// Signed distance from `p` to the target surface, using a shared `stamp`
-    /// array for incident-triangle dedup across the k nearest candidates.
-    /// `stampToken` must be unique per query (the source sample index works).
+    private static func candidate(_ hit: TriBVH.NearestHit, target: TriMesh, p: SIMD3<Double>, srcN: SIMD3<Double>?) -> Candidate {
+        let nrm = target.faceNormal(hit.triangleIndex)
+        return Candidate(
+            distance: hit.distance,
+            positive: simd_dot(p - hit.point, nrm) >= 0,
+            compatible: srcN.map { simd_dot(nrm, $0) > 0 } ?? true)
+    }
+
+    /// Signed distance from `p` to the target surface, via `target.bvh`'s
+    /// EXACT k-nearest-TRIANGLE search (#116), not an approximation through
+    /// nearby vertices, which can miss a large/sparse triangle whose closest
+    /// point sits far from all three of its own vertices.
     ///
     /// `normal` is the sample's OWN outward surface normal. Supplied in `.robust`
     /// mode it gates which reference triangles may claim the correspondence, so
@@ -411,8 +438,6 @@ public enum DeviationTools {
         normal: SIMD3<Double>? = nil,
         target: TriMesh,
         k: Int,
-        stamp: inout [Int],
-        stampToken: Int,
         signMode: SignMode = .robust
     ) -> SignedHit? {
         // The sample's own orientation is what makes the gate possible. No normal
@@ -427,54 +452,33 @@ public enum DeviationTools {
             if simd_length(n) > 1e-12 { srcN = simd_normalize(n) } else { unorientedSample = true }
         }
 
-        var candidates: [Candidate] = []
-        func gather(_ vertexIndices: [Int]) {
-            for vi in vertexIndices {
-                for ti in target.incident[vi] where stamp[ti] != stampToken {
-                    stamp[ti] = stampToken
-                    let (a, b, c) = target.triangles[ti]
-                    let cp = closestPointOnTriangle(p, target.vertices[Int(a)],
-                                                    target.vertices[Int(b)],
-                                                    target.vertices[Int(c)])
-                    let d = simd_length(p - cp)
-                    // A degenerate triangle can drive closestPointOnTriangle to a
-                    // non-finite point. `min(by:)` has no NaN-rejecting behaviour
-                    // to lean on the way the old `if d < best` scan did, so drop
-                    // those here rather than let one poison the winner.
-                    guard d.isFinite else { continue }
-                    let nrm = target.faceNormal(ti)
-                    candidates.append(Candidate(
-                        distance: d,
-                        positive: simd_dot(p - cp, nrm) >= 0,
-                        compatible: srcN.map { simd_dot(nrm, $0) > 0 } ?? true))
-                }
-            }
-        }
+        let hits = target.bvh.kNearestTriangles(to: p, k: k)
+        guard !hits.isEmpty else { return nil }
 
-        // No triangle context anywhere — report the bare vertex distance, sign 0.
-        func vertexFallback() -> SignedHit? {
-            guard let nv = target.kd.nearest(to: p) else { return nil }
-            return SignedHit(nearest: nv.distance, signed: nv.distance, ambiguous: false)
-        }
+        // `closest` is EXACT regardless of `k` (#116): the BVH's branch-and-bound
+        // prunes a subtree only when its bounding box is PROVABLY farther than the
+        // current best, so rank-1 of ANY k-nearest-triangle query is the true
+        // global nearest triangle, unlike the k-nearest-VERTEX gather this
+        // replaced, which could miss a large/sparse triangle entirely regardless
+        // of k. It's what max / rms / p95 / symmetricHausdorff are defined as, so
+        // it must never move with `signMode`; only the sign channel below is
+        // allowed to prefer the corresponding surface over the closest one.
+        let closest = hits[0]
 
-        let neighbours = target.kd.kNearest(to: p, k: k)
-        if neighbours.isEmpty { return vertexFallback() }
-        gather(neighbours.map { $0.index })
-        // Nearest vertices had no incident triangles (isolated) — fall back.
-        if candidates.isEmpty { return vertexFallback() }
+        var candidates = hits.map { candidate($0, target: target, p: p, srcN: srcN) }
 
         // Drop the triangles that can't be this sample's counterpart. If the whole
         // k-neighbourhood is the far wall the real counterpart is further out but
-        // still local, so widen once. kNearest rather than rangeSearch: a radius
-        // search truncates at maxResults in unspecified order, so it can drop the
-        // very triangle being hunted, while kNearest truncates by DISTANCE —
-        // exactly the ordering this search is defined by.
+        // still local, so widen once and re-derive the candidate pool from that
+        // wider (still exact) query, a superset of the original k by construction.
         var pool: [Candidate]
         var noCounterpart = false
         if srcN != nil {
             var compatible = candidates.filter(\.compatible)
             if compatible.isEmpty, k < widenedK {
-                gather(target.kd.kNearest(to: p, k: widenedK).map { $0.index })
+                candidates = target.bvh.kNearestTriangles(to: p, k: widenedK).map {
+                    candidate($0, target: target, p: p, srcN: srcN)
+                }
                 compatible = candidates.filter(\.compatible)
             }
             if compatible.isEmpty {
@@ -487,12 +491,7 @@ public enum DeviationTools {
             pool = candidates
         }
 
-        // `nearest` is the closest surface FULL STOP — over every candidate, never
-        // the gated pool. It's what max / rms / p95 / symmetricHausdorff are
-        // defined as, so the gate must not move them; only the sign channel below
-        // is allowed to prefer the corresponding surface over the closest one.
-        guard let closest = candidates.min(by: { $0.distance < $1.distance }),
-              let win = pool.min(by: { $0.distance < $1.distance }) else { return nil }
+        guard let win = pool.min(by: { $0.distance < $1.distance }) else { return nil }
         let signedDist = win.positive ? win.distance : -win.distance
 
         // Tie band: candidates within 15% of the winning distance are "comparably
@@ -521,13 +520,11 @@ public enum DeviationTools {
     ) -> [SignedHit] {
         assert(normals == nil || normals!.count == points.count,
                "signedDistances: normals must be 1:1 with points")
-        var stamp = [Int](repeating: -1, count: target.triangles.count)
         var out = [SignedHit](repeating: SignedHit(nearest: 0, signed: 0, ambiguous: false),
                               count: points.count)
         let ns = normals?.count == points.count ? normals : nil
         for (i, p) in points.enumerated() {
-            if let hit = signedQuery(p, normal: ns?[i], target: target, k: 6,
-                                     stamp: &stamp, stampToken: i, signMode: signMode) {
+            if let hit = signedQuery(p, normal: ns?[i], target: target, k: 6, signMode: signMode) {
                 out[i] = hit
             }
         }

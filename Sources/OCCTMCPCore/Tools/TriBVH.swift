@@ -1,15 +1,31 @@
 // TriBVH — a minimal AABB bounding-volume hierarchy over a triangle soup,
-// for ray-triangle nearest-hit queries. Backs `mesh_thickness` (Phase 2):
-// the ray method samples up to `maxSamples` surface points and casts a ray
-// from each along its inward normal, and brute-forcing that against a
-// 400k-triangle scan (2000 samples × 400k tris ≈ 800M ray-triangle tests)
-// is not acceptable within the 2-minute request budget.
+// for ray-triangle nearest-hit queries AND exact nearest-triangle-to-point
+// queries. Backs `mesh_thickness` (Phase 2): the ray method samples up to
+// `maxSamples` surface points and casts a ray from each along its inward
+// normal, and brute-forcing that against a 400k-triangle scan (2000 samples
+// × 400k tris ≈ 800M ray-triangle tests) is not acceptable within the
+// 2-minute request budget. `DeviationTools.TriMesh` builds one of these too
+// (#116, see below) for its own correspondence search.
 //
-// `DeviationTools.TriMesh` already indexes VERTICES (a KD-tree, for nearest-
-// point queries), but has no triangle-level spatial index — a ray query
-// needs to cull whole TRIANGLES by their bounding box, not walk from a
-// nearby vertex outward. Hence a separate, small structure here rather than
-// extending TriMesh.
+// `DeviationTools.TriMesh` also indexes VERTICES (a KD-tree, for nearest-
+// point queries), but a vertex index has no triangle-level spatial index:
+// a ray query needs to cull whole TRIANGLES by their bounding box, not walk
+// from a nearby vertex outward. Hence a separate, small structure here
+// rather than extending TriMesh directly (`TriMesh.bvh` wraps one).
+//
+// `nearestTriangle`/`kNearestTriangles` (#116) exist because a k-nearest-
+// VERTEX search, which is what DeviationTools.signedQuery used before this,
+// is not a nearest-TRIANGLE search: a large, low-curvature triangle's
+// closest point to a query can sit far from all three of its own vertices
+// (a coarsely tessellated planar/cylindrical solid face is the common case),
+// so none of its vertices land in even a generously sized k-nearest-vertex
+// set and the triangle is never gathered as a candidate at all, reported
+// as overstating `measure_deviation`'s `max`/`p95`/`symmetricHausdorff` by
+// 15x-317x on real fixtures (OCCTMCP#116). Pruning branch-and-bound directly
+// on each TRIANGLE's own bounding box (not its vertices) is what makes this
+// exhaustive regardless of triangle size: a subtree is only skipped when its
+// bounding box is PROVABLY farther than the current best, which is a correct
+// admissible bound for the triangles inside it.
 //
 // Deliberately unsophisticated per the design brief ("nothing fancy"):
 // median-split on the longest axis (re-sorting the node's own triangle
@@ -169,6 +185,129 @@ struct TriBVH {
         }
         if let r = node.right {
             traverse(r, origin: origin, direction: direction, tMin: tMin, bestT: &bestT, best: &best, vertices: vertices, triangles: triangles)
+        }
+    }
+
+    // MARK: - Nearest-triangle-to-point query (#116)
+
+    /// One triangle in the running for a nearest-point query: the closest
+    /// point ON that triangle to the query, and the (exact) distance to it.
+    struct NearestHit {
+        let triangleIndex: Int
+        let point: SIMD3<Double>
+        let distance: Double
+    }
+
+    /// The EXACT nearest triangle (by point-to-triangle distance) to `p`,
+    /// full stop, not an approximation via nearby vertices. `nil` only for
+    /// an empty tree, which `init?` already rules out.
+    func nearestTriangle(to p: SIMD3<Double>) -> NearestHit? {
+        var bestDist = Double.infinity
+        var best: NearestHit? = nil
+        TriBVH.nearestTraverse(root, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+        return best
+    }
+
+    /// The exact `k` nearest triangles (by point-to-triangle distance) to
+    /// `p`, sorted nearest-first. Rank 1 is always identical to
+    /// `nearestTriangle(to:)` regardless of `k`: both are exact, `k` only
+    /// controls how many of the close-but-not-closest candidates come back,
+    /// which is what a correspondence gate (normal compatibility, tie-band
+    /// disagreement) needs beyond the single winner.
+    func kNearestTriangles(to p: SIMD3<Double>, k: Int) -> [NearestHit] {
+        guard k > 0 else { return [] }
+        var heap: [NearestHit] = []   // kept sorted ascending by distance, capped at k
+        heap.reserveCapacity(k)
+        TriBVH.kNearestTraverse(root, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
+        return heap
+    }
+
+    /// Squared distance from `p` to its closest point INSIDE the box
+    /// `[boundsMin, boundsMax]` (0 if `p` is inside). An admissible lower
+    /// bound on the distance from `p` to anything the box contains, which is
+    /// what makes pruning by it exact rather than heuristic.
+    private static func pointAABBDistanceSquared(
+        _ p: SIMD3<Double>, boundsMin: SIMD3<Double>, boundsMax: SIMD3<Double>
+    ) -> Double {
+        let c = simd_clamp(p, boundsMin, boundsMax)
+        let d = p - c
+        return simd_length_squared(d)
+    }
+
+    private static func nearestTraverse(
+        _ node: Node, p: SIMD3<Double>, bestDist: inout Double, best: inout NearestHit?,
+        vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)]
+    ) {
+        guard pointAABBDistanceSquared(p, boundsMin: node.boundsMin, boundsMax: node.boundsMax) <= bestDist * bestDist else { return }
+
+        if node.isLeaf {
+            for ti in node.triangleIndices {
+                let (a, b, c) = triangles[ti]
+                let cp = DeviationTools.closestPointOnTriangle(p, vertices[Int(a)], vertices[Int(b)], vertices[Int(c)])
+                let d = simd_length(p - cp)
+                guard d.isFinite, d < bestDist else { continue }
+                bestDist = d
+                best = NearestHit(triangleIndex: ti, point: cp, distance: d)
+            }
+            return
+        }
+        guard let l = node.left, let r = node.right else {
+            if let only = node.left ?? node.right {
+                nearestTraverse(only, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+            }
+            return
+        }
+        // Visit the nearer child first so `bestDist` tightens as early as
+        // possible, maximising how much the farther child's own bound prunes.
+        let ld = pointAABBDistanceSquared(p, boundsMin: l.boundsMin, boundsMax: l.boundsMax)
+        let rd = pointAABBDistanceSquared(p, boundsMin: r.boundsMin, boundsMax: r.boundsMax)
+        if ld <= rd {
+            nearestTraverse(l, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+            nearestTraverse(r, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+        } else {
+            nearestTraverse(r, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+            nearestTraverse(l, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+        }
+    }
+
+    private static func kNearestTraverse(
+        _ node: Node, p: SIMD3<Double>, k: Int, heap: inout [NearestHit],
+        vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)]
+    ) {
+        let boxDist2 = pointAABBDistanceSquared(p, boundsMin: node.boundsMin, boundsMax: node.boundsMax)
+        if heap.count >= k, let worst = heap.last, boxDist2 > worst.distance * worst.distance { return }
+
+        if node.isLeaf {
+            for ti in node.triangleIndices {
+                let (a, b, c) = triangles[ti]
+                let cp = DeviationTools.closestPointOnTriangle(p, vertices[Int(a)], vertices[Int(b)], vertices[Int(c)])
+                let d = simd_length(p - cp)
+                guard d.isFinite else { continue }
+                if heap.count < k {
+                    let insertAt = heap.firstIndex { $0.distance > d } ?? heap.count
+                    heap.insert(NearestHit(triangleIndex: ti, point: cp, distance: d), at: insertAt)
+                } else if let worst = heap.last, d < worst.distance {
+                    heap.removeLast()
+                    let insertAt = heap.firstIndex { $0.distance > d } ?? heap.count
+                    heap.insert(NearestHit(triangleIndex: ti, point: cp, distance: d), at: insertAt)
+                }
+            }
+            return
+        }
+        guard let l = node.left, let r = node.right else {
+            if let only = node.left ?? node.right {
+                kNearestTraverse(only, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
+            }
+            return
+        }
+        let ld = pointAABBDistanceSquared(p, boundsMin: l.boundsMin, boundsMax: l.boundsMax)
+        let rd = pointAABBDistanceSquared(p, boundsMin: r.boundsMin, boundsMax: r.boundsMax)
+        if ld <= rd {
+            kNearestTraverse(l, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
+            kNearestTraverse(r, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
+        } else {
+            kNearestTraverse(r, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
+            kNearestTraverse(l, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
         }
     }
 

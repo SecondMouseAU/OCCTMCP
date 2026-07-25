@@ -35,6 +35,17 @@
 // family. `axisDirection`'s sign is arbitrary and its meaning is
 // kind-dependent (surface NORMAL for plane, no axis at all for sphere) —
 // see `ZoneSlippage`'s doc comment in ZoneRegistry.swift.
+//
+// erosionSkipped (#114): the weld/adjacency guard above protects against a
+// broken triangle-index correspondence, but there's a SEPARATE failure mode
+// it doesn't cover: a zone too small/thin for the boundary-vertex erosion
+// below to engage still gets a classification, just one computed against
+// boundary-contaminated normals, and that can read as a confident, plausible,
+// WRONG kind (an exact plane measured at helix@0.66 in the field report).
+// Unlike the weld-guard case this isn't reported as an omission: an eroded
+// zone is often still correctly classified (a small cylinder is a common
+// case), so `ZoneSlippage.erosionSkipped` flags it per zone alongside the
+// untouched numbers instead of hiding a possibly-correct answer.
 
 import Foundation
 import simd
@@ -225,7 +236,11 @@ public enum MeshZoneTools {
                 let floor = max(slippageErosionFloorTriangles, region.triangleIndices.count / 4)
                 let eroded = interior.count >= floor
                 let slipTris = eroded ? interior : region.triangleIndices
-                if !eroded, interior.count < region.triangleIndices.count {
+                // Same condition that names the zone in the warning below (#114):
+                // erosion was genuinely SKIPPED (not just "the whole region was
+                // already interior", which needs no flag at all).
+                let contaminated = !eroded && interior.count < region.triangleIndices.count
+                if contaminated {
                     contaminatedZones.append("\(zoneIds[zi]) (\(interior.count)/\(region.triangleIndices.count) interior)")
                 }
                 let slip = welded.slippage(forTriangles: slipTris, maxSamples: 2000)
@@ -234,7 +249,8 @@ public enum MeshZoneTools {
                     axisPoint: slip.axisPoint.map { [$0.x, $0.y, $0.z] },
                     axisDirection: slip.axisDirection.map { [$0.x, $0.y, $0.z] },
                     pitchPerRadianMm: slip.pitch,
-                    confidence: slip.confidence
+                    confidence: slip.confidence,
+                    erosionSkipped: contaminated
                 )
             }
             if !contaminatedZones.isEmpty {
