@@ -428,13 +428,13 @@ struct SlippageSweepAxisTests {
 @Suite("ZoneSweepTool.selectSweepAxis: pure axis-selection logic (#109)")
 struct SelectSweepAxisTests {
 
-    func record(kind: String, axisDirection: [Double]?, confidence: Double) -> ZoneRecord {
+    func record(kind: String, axisDirection: [Double]?, confidence: Double, erosionSkipped: Bool = false) -> ZoneRecord {
         ZoneRecord(
             zoneId: "zone:x#0", bodyId: "x", index: 0, triangleIndices: [0, 1, 2], areaMm2: 1,
             fit: ZoneFit(kind: "plane", params: [], residualRmsMm: 0, residualMaxMm: 0, inlierRatio: 1),
             params: SegmentParamsUsed(maxDihedralDegrees: 20, mergeRelativeTolerance: 0.004, maxMergeAngleDegrees: 50, minRegionTriangles: 8, maxZones: 64, deflection: 0.5),
             meshSignature: MeshSignature(triangleCount: 10, bboxMin: [0, 0, 0], bboxMax: [1, 1, 1]),
-            slippage: ZoneSlippage(kind: kind, axisPoint: [0, 0, 0], axisDirection: axisDirection, pitchPerRadianMm: nil, confidence: confidence)
+            slippage: ZoneSlippage(kind: kind, axisPoint: [0, 0, 0], axisDirection: axisDirection, pitchPerRadianMm: nil, confidence: confidence, erosionSkipped: erosionSkipped)
         )
     }
 
@@ -516,6 +516,33 @@ struct SelectSweepAxisTests {
         let sel = ZoneSweepTool.selectSweepAxis(record: rec, explicit: nil)
         #expect(sel.source == "slippage")
     }
+
+    // ── #114: erosionSkipped gates the axis default independently of confidence ──
+
+    @Test("erosionSkipped falls back to PCA with a warning even at high confidence")
+    func erosionSkippedFallsBackWithWarning() {
+        // The reported case in miniature: a HIGH-confidence eligible kind that
+        // was never eroded. Confidence alone doesn't protect against this
+        // (#114): the classification can be a confident, plausible, wrong
+        // kind, so the gate must fire regardless of how high confidence reads.
+        let rec = record(kind: "helix", axisDirection: [0, 0, 1], confidence: 0.664, erosionSkipped: true)
+        let sel = ZoneSweepTool.selectSweepAxis(record: rec, explicit: nil)
+        #expect(sel.source == "pca")
+        #expect(sel.axis == nil)
+        let warning = try? #require(sel.warning)
+        #expect(warning?.contains("helix") == true)
+        #expect(warning?.contains("0.664") == true)
+        #expect(warning?.lowercased().contains("erosion") == true)
+    }
+
+    @Test("erosionSkipped false with sufficient confidence still uses the slippage axis")
+    func erosionNotSkippedStillUsesSlippage() {
+        let rec = record(kind: "cylinder", axisDirection: [0, 0, 1], confidence: 0.9, erosionSkipped: false)
+        let sel = ZoneSweepTool.selectSweepAxis(record: rec, explicit: nil)
+        #expect(sel.source == "slippage")
+        #expect(sel.axis == SIMD3(0, 0, 1))
+        #expect(sel.warning == nil)
+    }
 }
 
 /// The erosion half of #109's review: on a CONNECTED mesh, zone-boundary
@@ -573,7 +600,7 @@ struct SlippageErosionTests {
         try out.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
-    struct SlippageEntry: Decodable { let kind: String; let axisDirection: [Double]?; let confidence: Double }
+    struct SlippageEntry: Decodable { let kind: String; let axisDirection: [Double]?; let confidence: Double; let erosionSkipped: Bool }
     struct ZoneEntry: Decodable { let id: String; let triangleCount: Int; let meanNormal: [Double]; let slippage: SlippageEntry? }
     struct ZoneReport: Decodable { let zoneCount: Int; let zones: [ZoneEntry]; let warnings: [String] }
     struct ImportReport: Decodable { let addedBodyIds: [String]; let warnings: [String] }
@@ -607,6 +634,7 @@ struct SlippageErosionTests {
         for zone in r.zones {
             let slip = try #require(zone.slippage, "zone \(zone.id) missing slippage")
             #expect(slip.kind == "plane", "zone \(zone.id): expected plane, got \(slip.kind)")
+            #expect(!slip.erosionSkipped, "zone \(zone.id): a 200-triangle panel eroded cleanly, erosionSkipped must be false")
             let dir = try #require(slip.axisDirection)
             let a = simd_normalize(SIMD3(dir[0], dir[1], dir[2]))
             let n = simd_normalize(SIMD3(zone.meanNormal[0], zone.meanNormal[1], zone.meanNormal[2]))
@@ -616,14 +644,15 @@ struct SlippageErosionTests {
     }
 
     @MainActor
-    @Test("coarse connected L-panel: zones too small to erode keep their classification but are named in a warning")
+    @Test("coarse connected L-panel: zones too small to erode keep their classification, flagged erosionSkipped, and named in a warning")
     func coarseLPanelWarnsInsteadOfSilentContamination() async throws {
         let r = try await segmentLPanel(gridN: 2, label: "coarse")
         #expect(r.zoneCount == 2)
         #expect(r.warnings.contains { $0.contains("boundary erosion skipped") },
                 "an 8-triangle panel cannot erode below the floor and must be named honestly: \(r.warnings)")
         for zone in r.zones {
-            #expect(zone.slippage != nil, "zone \(zone.id): classification must still be reported alongside the warning")
+            let slip = try #require(zone.slippage, "zone \(zone.id): classification must still be reported alongside the warning")
+            #expect(slip.erosionSkipped, "zone \(zone.id): erosion was skipped, erosionSkipped must be true (#114)")
         }
     }
 }

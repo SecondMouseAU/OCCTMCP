@@ -151,4 +151,28 @@ struct ZoneRegistryTests {
         let differentBbox = sig(100, min: [0, 0, 0], max: [10, 10, 12])
         #expect(!a.matches(differentBbox))
     }
+
+    // ── #114: ZoneSlippage.erosionSkipped backward-compat decode ──────────
+
+    @Test("ZoneSlippage decodes erosionSkipped: true/false explicitly")
+    func erosionSkippedDecodesExplicitly() throws {
+        for value in [true, false] {
+            let json = """
+            { "kind": "plane", "axisPoint": null, "axisDirection": null, "pitchPerRadianMm": null, "confidence": 0.5, "erosionSkipped": \(value) }
+            """
+            let slip = try JSONDecoder().decode(ZoneSlippage.self, from: Data(json.utf8))
+            #expect(slip.erosionSkipped == value)
+        }
+    }
+
+    @Test("ZoneSlippage decodes a pre-#114 sidecar (no erosionSkipped key) as false, not an error")
+    func erosionSkippedMissingKeyDecodesAsFalse() throws {
+        let json = """
+        { "kind": "cylinder", "axisPoint": [0, 0, 0], "axisDirection": [0, 0, 1], "pitchPerRadianMm": null, "confidence": 0.9 }
+        """
+        let slip = try JSONDecoder().decode(ZoneSlippage.self, from: Data(json.utf8))
+        #expect(!slip.erosionSkipped)
+        #expect(slip.kind == "cylinder")
+        #expect(slip.confidence == 0.9)
+    }
 }

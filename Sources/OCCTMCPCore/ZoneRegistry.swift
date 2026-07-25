@@ -18,7 +18,8 @@
 //                   "maxZones": 64, "deflection": 0.5 },
 //       "meshSignature": { "triangleCount": 1234, "bboxMin": [...], "bboxMax": [...] },
 //       "slippage": { "kind": "plane", "axisPoint": [...], "axisDirection": [...],
-//                     "pitchPerRadianMm": null, "confidence": 0.92 } }
+//                     "pitchPerRadianMm": null, "confidence": 0.92,
+//                     "erosionSkipped": false } }
 //   ]
 // }
 //
@@ -27,7 +28,10 @@
 // `Decodable` treats a missing key on an `Optional` property as `nil`, not a
 // decode error — no version bump needed. See `ZoneSlippage`'s doc comment
 // for the field semantics (axis sign arbitrariness, confidence-as-gap, the
-// per-kind axis meaning).
+// per-kind axis meaning). `slippage.erosionSkipped` (#114) is itself
+// backward-compatible one level down: a sidecar written before #114 has
+// `slippage` but no `erosionSkipped` key inside it, and `ZoneSlippage`'s own
+// custom `init(from:)` decodes that as `false`.
 
 import Foundation
 
@@ -67,18 +71,57 @@ public struct ZoneFit: Sendable, Codable {
 /// arbitrary — this is what makes a near-symmetric body (whose true
 /// eigen-spectrum has no clean separation to begin with) read as
 /// low-confidence rather than confidently wrong.
+///
+/// **`erosionSkipped` (#114):** `confidence` does NOT protect against the
+/// other failure mode: a zone too small/thin for `MeshZoneTools`' boundary
+/// erosion to engage keeps its full-region classification, computed against
+/// boundary-contaminated vertex normals, and that contamination can produce
+/// a plausible, ROUTABLE, WRONG kind at high confidence (measured: an exact
+/// planar zone reading `helix` at confidence 0.66). `erosionSkipped: true`
+/// flags exactly this case; the numbers alongside it are left untouched
+/// (not zeroed, not omitted) because an eroded-but-still-correct zone is
+/// common too (a small cylinder can classify correctly even when too thin
+/// to erode), so a caller joining on the zone table without reading
+/// `warnings` should treat `erosionSkipped: true` as "verify before
+/// trusting `kind`/`confidence`," not as "kind is definitely wrong."
 public struct ZoneSlippage: Sendable, Codable {
     public let kind: String
     public let axisPoint: [Double]?
     public let axisDirection: [Double]?
     public let pitchPerRadianMm: Double?
     public let confidence: Double
-    public init(kind: String, axisPoint: [Double]?, axisDirection: [Double]?, pitchPerRadianMm: Double?, confidence: Double) {
+    /// True when `MeshZoneTools`' boundary-vertex erosion guard could not
+    /// run for this zone (too small/thin: under 24 interior triangles, or
+    /// under 25% of the zone) and the classification was computed against
+    /// the FULL region including boundary-contaminated vertices. Absent (not
+    /// `false`) on a `zones.json` sidecar written before #114; decodes as
+    /// `false` via the same missing-key convention `slippage` itself uses on
+    /// pre-#109 sidecars.
+    public let erosionSkipped: Bool
+    public init(
+        kind: String, axisPoint: [Double]?, axisDirection: [Double]?, pitchPerRadianMm: Double?,
+        confidence: Double, erosionSkipped: Bool = false
+    ) {
         self.kind = kind
         self.axisPoint = axisPoint
         self.axisDirection = axisDirection
         self.pitchPerRadianMm = pitchPerRadianMm
         self.confidence = confidence
+        self.erosionSkipped = erosionSkipped
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, axisPoint, axisDirection, pitchPerRadianMm, confidence, erosionSkipped
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(String.self, forKey: .kind)
+        axisPoint = try c.decodeIfPresent([Double].self, forKey: .axisPoint)
+        axisDirection = try c.decodeIfPresent([Double].self, forKey: .axisDirection)
+        pitchPerRadianMm = try c.decodeIfPresent(Double.self, forKey: .pitchPerRadianMm)
+        confidence = try c.decode(Double.self, forKey: .confidence)
+        erosionSkipped = try c.decodeIfPresent(Bool.self, forKey: .erosionSkipped) ?? false
     }
 }
 

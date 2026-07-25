@@ -149,6 +149,40 @@ struct SignedSpatialDeviationTests {
         return combined
     }
 
+    /// One HUGE flat triangle (a stand-in for a coarsely tessellated planar
+    /// solid face, #116) plus a DENSE cluster of tiny triangles far off to
+    /// one side. Both lie in z=0. A query point above the big triangle's
+    /// interior, far from all three of ITS vertices and far from the dense
+    /// cluster too, is the exact shape of the reported bug: a k-nearest-
+    /// VERTEX search would have the dense cluster's many nearby vertices
+    /// saturate its candidate set (if the cluster happened to be closer in
+    /// vertex-space) while the true nearest SURFACE is the big triangle.
+    /// Here the cluster is placed far from the query so it plays no role at
+    /// all in the correct answer; this fixture exists to prove the ENGINE
+    /// (TriMesh -> signedQuery, not just the standalone TriBVH unit) finds
+    /// the big triangle through a real OCCT Shape/mesh round-trip, where a
+    /// flat facet always re-tessellates to itself regardless of deflection.
+    func bigSparseTriangleWithDistractorCluster() throws -> Shape {
+        var v: [SIMD3<Float>] = [
+            SIMD3(-1000, -1000, 0), SIMD3(1000, -1000, 0), SIMD3(0, 1000, 0),
+        ]
+        var idx: [UInt32] = [0, 1, 2]
+        for i in 0..<200 {
+            let cx = Float(500.0 + Double(i) * 0.01)
+            let cy: Float = -900
+            let base = UInt32(v.count)
+            v.append(SIMD3(cx, cy, 0))
+            v.append(SIMD3(cx + 0.005, cy, 0))
+            v.append(SIMD3(cx, cy + 0.005, 0))
+            idx += [base, base + 1, base + 2]
+        }
+        guard let mesh = OCCTSwift.Mesh(vertices: v, indices: idx),
+              let shape = mesh.toShape() else {
+            throw TestError.fixture("failed to build big-sparse-triangle fixture")
+        }
+        return shape
+    }
+
     enum TestError: Error { case fixture(String) }
 
     // ── decode mirrors ──────────────────────────────────────────────────
@@ -386,16 +420,14 @@ struct SignedSpatialDeviationTests {
 
         // Equidistant (0.05) to both patches; the upper patch's normal reads it
         // shy (−), the lower patch's reads it proud (+) — a coin-flip winner.
-        var stamp = [Int](repeating: -1, count: refTris.triangles.count)
         let hit = try #require(DeviationTools.signedQuery(
-            SIMD3(0, 0, 0), target: refTris, k: 6, stamp: &stamp, stampToken: 0))
+            SIMD3(0, 0, 0), target: refTris, k: 6))
         #expect(hit.ambiguous)
         #expect(abs(abs(hit.signed) - 0.05) < 0.01)
 
         // Far below both patches, only the lower one is in reach ⇒ unambiguous.
-        var stamp2 = [Int](repeating: -1, count: refTris.triangles.count)
         let clear = try #require(DeviationTools.signedQuery(
-            SIMD3(0, 0, -5), target: refTris, k: 6, stamp: &stamp2, stampToken: 0))
+            SIMD3(0, 0, -5), target: refTris, k: 6))
         #expect(!clear.ambiguous)
     }
 
@@ -416,9 +448,8 @@ struct SignedSpatialDeviationTests {
         let p = SIMD3<Double>(0, 0, -4.5)
         let n = SIMD3<Double>(0, 0, 1)
 
-        var stamp = [Int](repeating: -1, count: refTris.triangles.count)
         let naive = try #require(DeviationTools.signedQuery(
-            p, target: refTris, k: 6, stamp: &stamp, stampToken: 0, signMode: .nearest))
+            p, target: refTris, k: 6, signMode: .nearest))
         // The bug, reproduced: the inner wall is nearer (2.5 vs 4.5) and faces the
         // cavity, so a shy flank reads PROUD — wrong side, wrong magnitude.
         #expect(abs(naive.signed - 2.5) < 0.01, "expected the #72 artifact, got \(naive.signed)")
@@ -426,9 +457,8 @@ struct SignedSpatialDeviationTests {
         // wrong answer is exactly what cost a dispatch cycle.
         #expect(!naive.ambiguous, "the artifact is unflagged — that's what makes it dangerous")
 
-        var stamp2 = [Int](repeating: -1, count: refTris.triangles.count)
         let robust = try #require(DeviationTools.signedQuery(
-            p, normal: n, target: refTris, k: 6, stamp: &stamp2, stampToken: 0, signMode: .robust))
+            p, normal: n, target: refTris, k: 6, signMode: .robust))
         // The fix: the inner wall's normal opposes the sample's, so it can't claim
         // the correspondence — the outer skin does, at the true 4.5 shy.
         #expect(abs(robust.signed + 4.5) < 0.01, "expected true −4.5 shy, got \(robust.signed)")
@@ -471,10 +501,9 @@ struct SignedSpatialDeviationTests {
         // side is unknowable; say so rather than pick one.
         let refShape = try thinWallSandwichReference()
         let refTris = try #require(DeviationTools.TriMesh(shape: refShape, deflection: 0.05))
-        var stamp = [Int](repeating: -1, count: refTris.triangles.count)
         let hit = try #require(DeviationTools.signedQuery(
             SIMD3(0, 0, -5), normal: SIMD3(0, 0, -1), target: refTris,
-            k: 6, stamp: &stamp, stampToken: 0, signMode: .robust))
+            k: 6, signMode: .robust))
         #expect(hit.ambiguous)
         // The magnitude is still the honest nearest-surface distance (lower patch
         // at z=−0.05) — only the sign channel is withheld.
@@ -545,5 +574,27 @@ struct SignedSpatialDeviationTests {
         #expect(abs(rr.fromToTo.mean - nr.fromToTo.mean) < 1e-9,
                 "signMode must not move the unsigned figures")
         #expect(abs(rr.fromToTo.mean - 2.5) < 0.05, "got \(rr.fromToTo.mean)")
+    }
+
+    // ── #116: exact nearest-triangle search (not a k-nearest-vertex approximation) ──
+
+    @Test("signedQuery finds a large sparse triangle's interior through a real Shape/TriMesh round-trip")
+    func signedQueryFindsLargeSparseTriangle() throws {
+        let refShape = try bigSparseTriangleWithDistractorCluster()
+        // A flat facet always re-tessellates to itself regardless of deflection,
+        // so this preserves the fixture's exact big-triangle-plus-cluster shape.
+        let refTris = try #require(DeviationTools.TriMesh(shape: refShape, deflection: 1.0))
+
+        // Directly above the big triangle's interior: ~1000+ units from any of
+        // its own 3 vertices, and ~1000+ units from the distractor cluster too.
+        // Before #116 a k-nearest-VERTEX search would never gather the big
+        // triangle as a candidate at all (none of its vertices are anywhere
+        // near this query), so the reported `nearest` would come from whatever
+        // unrelated geometry happened to have closer VERTICES, wildly
+        // overstating the true distance. The true nearest surface is the big
+        // triangle's own interior, exactly `50` below the query.
+        let query = SIMD3<Double>(0, -300, 50)
+        let hit = try #require(DeviationTools.signedQuery(query, target: refTris, k: 6, signMode: .nearest))
+        #expect(abs(hit.nearest - 50) < 1e-6, "expected the exact perpendicular distance to the big triangle, got \(hit.nearest)")
     }
 }

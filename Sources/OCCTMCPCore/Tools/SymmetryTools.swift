@@ -163,15 +163,13 @@ public enum SymmetryTools {
                 continue
             }
             let unitAxis = simd_normalize(axis)
-            var stamp = [Int](repeating: -1, count: tri.triangles.count)
             var dists: [Double] = []
             dists.reserveCapacity(sampleIndices.count)
-            for (token, idx) in sampleIndices.enumerated() {
+            for idx in sampleIndices {
                 let p = tri.vertices[idx]
                 let reflected = p - 2 * simd_dot(p - centroid, unitAxis) * unitAxis
                 if let hit = DeviationTools.signedQuery(
-                    reflected, normal: nil, target: tri, k: 6,
-                    stamp: &stamp, stampToken: token, signMode: .nearest
+                    reflected, normal: nil, target: tri, k: 6, signMode: .nearest
                 ) {
                     dists.append(hit.nearest)
                 }
