@@ -901,6 +901,21 @@ func catalogTools() -> [Tool] {
             ])
         ),
         Tool(
+            name: "symmetric_difference_volume",
+            description: "The direct geometric fidelity figure a mean/RMS surface deviation can hide via cancellation (#122): the two ONE-SIDED volumes between fromBodyId and referenceBodyId (excess material only from lands in, missing material only reference lands in) and their sum. boolean_op cannot produce a true symmetric-difference solid against a mesh-only, possibly non-watertight reference (subtract fails both directions on a real STL); this instead classifies deterministic Halton-sequence sample points against BOTH bodies via OCCTSwiftMesh's generalized winding number (robust to open/non-watertight/self-intersecting meshes, unlike a parity/ray test) and reports the resulting volumes plus a Monte Carlo standard error. Cost scales as O(maxSamples x (fromTriangles + referenceTriangles)) per sample point (no spatial acceleration upstream); keep maxSamples modest (the default, 300) for scan-scale meshes.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "fromBodyId": .object(["type": .string("string"), "description": .string("Candidate body (e.g. the reconstruction).")]),
+                    "referenceBodyId": .object(["type": .string("string"), "description": .string("Reference body (e.g. the source mesh); may be a non-watertight mesh.")]),
+                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
+                    "maxSamples": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Monte Carlo sample points (Halton low-discrepancy sequence) tested against both meshes. Default 300; cost is O(maxSamples x triangleCount) per body, much steeper per-sample than surface-deviation tools.")]),
+                ]),
+                "required": .array([.string("fromBodyId"), .string("referenceBodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
             name: "signed_deviation_heatmap",
             description: "Render `fromBodyId`'s surface coloured by SIGNED distance to `referenceBodyId` — proud (over-build) red, on-target near-white, shy (under-build) blue — via a diverging colormap, with a colorbar legend. Shows exactly WHERE a reconstruction departs, which a scalar deviation can't. Per-triangle bands; pure-Swift offscreen render to PNG. CAVEAT: the sign is only trustworthy when `referenceBodyId` is a watertight/single-surface solid. Against an OPEN, thin-walled reference (a raw scan/STL skin where an outer and inner surface are a small gap apart) the nearest-triangle sign can flip per sample with no real positional meaning; those triangles render GREY instead of red/blue and are counted in the response's `ambiguousTriangles`/`ambiguousFraction`. A mostly-grey render means trust the magnitude (or `cross_section_compare`), not this tool's sign.",
             inputSchema: .object([
@@ -1964,6 +1979,18 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             outerEnvelope: arguments["outerEnvelope"]?.boolValue ?? true,
             outputDir: arguments["outputDir"]?.stringValue,
             imagePrefix: arguments["imagePrefix"]?.stringValue ?? "section"
+        ).asCallToolResult()
+
+    case "symmetric_difference_volume":
+        guard let fromId = arguments["fromBodyId"]?.stringValue,
+              let refId = arguments["referenceBodyId"]?.stringValue else {
+            return ToolText("symmetric_difference_volume requires `fromBodyId` and `referenceBodyId`.", isError: true).asCallToolResult()
+        }
+        return await SymmetricDifferenceTools.symmetricDifferenceVolume(
+            fromBodyId: fromId,
+            referenceBodyId: refId,
+            deflection: arguments["deflection"]?.numberValue,
+            maxSamples: arguments["maxSamples"]?.intValue ?? SymmetricDifferenceTools.defaultMaxSamples
         ).asCallToolResult()
 
     case "signed_deviation_heatmap":
