@@ -33,6 +33,7 @@ export class ServeProcess {
   private buffer = "";
   private queue: PendingRequest[] = [];
   private supported = true;
+  private spawning?: Promise<void>;
 
   isSupported(): boolean {
     return this.supported;
@@ -60,6 +61,20 @@ export class ServeProcess {
   private async ensureChild(): Promise<void> {
     if (this.child && this.child.exitCode === null && !this.child.killed) return;
 
+    // this.spawning is set synchronously (before the first await below), so a
+    // second concurrent send() that reaches this method before the spawn
+    // settles observes it already set and awaits the SAME promise instead of
+    // racing its own spawn. Cleared via .finally() so a later respawn (after
+    // the child dies) isn't permanently blocked by a one-time flag.
+    if (!this.spawning) {
+      this.spawning = this.spawnChild().finally(() => {
+        this.spawning = undefined;
+      });
+    }
+    return this.spawning;
+  }
+
+  private async spawnChild(): Promise<void> {
     const oc = await resolveOcctkit();
     const args = [...oc.baseArgs, "run", "--serve"];
     const child = spawn(oc.command, args, {
