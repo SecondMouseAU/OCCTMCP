@@ -278,7 +278,7 @@ export async function compareVersions(since: number): Promise<ToolResult> {
 
   const current = await readManifest();
   const idx = history.length - since;
-  if (idx < 0) {
+  if (idx < 0 || idx >= history.length) {
     return text(
       `Not enough history: requested ${since} runs back, only ${history.length} snapshots available. ` +
         `Make at least ${since} state changes (execute_script or scene-mutation tools) before comparing.`
