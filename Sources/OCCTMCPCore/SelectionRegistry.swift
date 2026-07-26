@@ -222,10 +222,19 @@ public actor SelectionRegistry {
         return graphUIDs[selectionId]
     }
 
-    public func clear() {
+    /// Drop every selection. Returns the count cleared, atomically with the
+    /// clear itself (mirrors `ZoneRegistry.clear`): a caller that needs to
+    /// report how many were removed must read the count in the SAME actor
+    /// call as the mutation, since a separate `count()` call beforehand can
+    /// race against another task recording or clearing on this actor between
+    /// the two awaits.
+    @discardableResult
+    public func clear() -> Int {
+        let cleared = anchors.count
         snapshots.removeAll()
         anchors.removeAll()
         graphUIDs.removeAll()
+        return cleared
     }
 
     public func count() -> Int {
