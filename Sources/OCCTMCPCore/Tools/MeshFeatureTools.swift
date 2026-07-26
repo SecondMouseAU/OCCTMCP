@@ -120,11 +120,7 @@ public enum MeshFeatureTools {
         let defl = deflection ?? DeviationTools.defaultDeflection(for: shape)
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
 
-        var meshParams = MeshParameters.default
-        meshParams.deflection = defl
-        meshParams.internalVertices = true
-        meshParams.inParallel = true
-        meshParams.allowQualityDecrease = true
+        let meshParams = DeviationTools.standardMeshParameters(deflection: defl)
         guard let mesh = shape.mesh(parameters: meshParams), mesh.triangleCount > 0 else {
             return .init("Failed to tessellate '\(bodyId)'.", isError: true)
         }

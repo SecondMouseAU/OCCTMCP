@@ -219,14 +219,7 @@ public enum DeviationTools {
         let incident: [[Int]]   // vertexIndex → triangle indices
 
         init?(shape: Shape, deflection: Double) {
-            var params = MeshParameters.default
-            params.deflection = deflection
-            params.internalVertices = true
-            params.inParallel = true
-            // Re-meshing keeps an existing finer/coarser triangulation unless we
-            // allow it to be replaced, so the requested deflection actually takes
-            // effect on an already-tessellated import (OCCTSwift #211).
-            params.allowQualityDecrease = true
+            let params = DeviationTools.standardMeshParameters(deflection: deflection)
             guard let mesh = shape.mesh(parameters: params) else { return nil }
 
             let verts = mesh.vertices.map { SIMD3<Double>(Double($0.x), Double($0.y), Double($0.z)) }
@@ -597,6 +590,25 @@ public enum DeviationTools {
         let diag = simd_length(b.max - b.min)
         // 0.5% of the diagonal, with a 1µm floor for degenerate/tiny shapes.
         return Swift.max(diag * 0.005, 1e-6)
+    }
+
+    /// The standard mesh recipe shared across every deflection-sensitive
+    /// diagnostic tool (measure_deviation, cross_section_compare,
+    /// symmetric_difference_volume, mesh_curvature, mesh_diagnose,
+    /// detect_mesh_features, segment_mesh_zones, zone_continuity_sweep,
+    /// fit_primitives, align_bodies) so they mesh consistently and stay
+    /// numerically comparable against each other (#125). This is the
+    /// canonical construction path — don't hand-roll another copy.
+    static func standardMeshParameters(deflection: Double) -> MeshParameters {
+        var params = MeshParameters.default
+        params.deflection = deflection
+        params.internalVertices = true
+        params.inParallel = true
+        // Re-meshing keeps an existing finer/coarser triangulation unless we
+        // allow it to be replaced, so the requested deflection actually takes
+        // effect on an already-tessellated import (OCCTSwift #211).
+        params.allowQualityDecrease = true
+        return params
     }
 
     /// Closest point on triangle (a,b,c) to `p`.
