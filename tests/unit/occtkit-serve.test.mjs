@@ -2,7 +2,7 @@
  * Regression test for #128: ServeProcess.ensureChild() must not spawn two
  * occtkit children when two send() calls race before any child exists.
  *
- * Exercises the real spawn path (no mocking of `child_process`/`resolveOcctkit` —
+ * Exercises the real spawn path (no mocking of `child_process`/`resolveOcctkit`:
  * ESM named exports aren't reconfigurable, so `node:test`'s `mock.method` can't
  * stub them in place). Instead, a tiny fake "occtkit" executable is placed at
  * the front of PATH; it records its own PID to a counter file on startup and
