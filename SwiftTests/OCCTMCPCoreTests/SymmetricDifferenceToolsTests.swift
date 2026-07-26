@@ -1,12 +1,26 @@
 // Unit tests for symmetric_difference_volume (#122): a scripted box compared against itself
 // (symmetric difference ~0), a box compared against a known-larger box (the excess volume is
 // computable in closed form), a hand-written open-box STL (non-watertight reference, the exact
-// case boolean_op cannot handle), and a reversed-winding copy of a box (proves classification is
-// orientation-agnostic, not just "happens to work" on OCCT's own consistently-wound meshes).
+// case boolean_op cannot handle), a genuinely reversed-winding raw mesh built directly via
+// `OCCTSwiftMesh.Mesh`'s own vertex/index initializer (proves classification is orientation-
+// agnostic on the REAL `windingNumber(at:)` output), and a hand-written STL whose per-facet
+// winding is locally inconsistent (graceful degradation: high ambiguity, not a silent wrong
+// answer).
+//
+// NOTE on why the reversed-winding mesh is built directly rather than via a `Shape`: OCCT's own
+// `Shape.mesh()` re-tessellates a valid solid to consistently outward-facing triangles regardless
+// of the shape's own topological orientation (empirically confirmed: a `.mirrored()` box's mesh
+// still reads `windingNumber ~= +1`, not `~= -1`), and a raw STL with every facet's vertex order
+// reversed does not reliably come back as a clean GLOBAL inversion after round-tripping through
+// `Shape.loadSTL` either (it can come back locally INCONSISTENT instead, i.e. `isOrientable ==
+// false`; see `inconsistentWindingStillFlagsAmbiguous` below, which exercises exactly that case).
+// `OCCTSwiftMesh.Mesh(vertices:indices:)` sidesteps both of those and is the only reliable way,
+// within the APIs available here, to construct a genuinely globally-inverted mesh for a test.
 
 import Foundation
 import Testing
 import OCCTSwift
+import OCCTSwiftMesh
 import ScriptHarness
 import simd
 @testable import OCCTMCPCore
@@ -14,7 +28,7 @@ import simd
 @Suite("symmetric_difference_volume: winding-number volume comparison")
 struct SymmetricDifferenceToolsTests {
 
-    func scene(_ bodies: [(id: String, shape: Shape)]) throws -> ManifestStore {
+    func scene(_ bodies: [(id: String, shape: Shape)]) throws -> (store: ManifestStore, dir: String) {
         let dir = NSTemporaryDirectory() + "occtmcp-symdiff-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let descriptors = bodies.map { BodyDescriptor(id: $0.id, file: "\($0.id).brep", color: [1, 1, 1, 1]) }
@@ -24,7 +38,7 @@ struct SymmetricDifferenceToolsTests {
         for b in bodies {
             try Exporter.writeBREP(shape: b.shape, to: URL(fileURLWithPath: "\(dir)/\(b.id).brep"))
         }
-        return store
+        return (store, dir)
     }
 
     struct Report: Decodable {
@@ -81,13 +95,71 @@ struct SymmetricDifferenceToolsTests {
         try out.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
+    /// A fully CLOSED box (all 6 faces), every OTHER face's triangle vertex order reversed
+    /// relative to `writeOpenBoxSTL`'s `quad()` (alternating outward/inward per face rather than
+    /// uniformly, deliberately): after round-tripping through `Shape.loadSTL` -> `Shape.mesh()`,
+    /// this comes back with `isOrientable == false` (a locally-inconsistent mesh), not a cleanly
+    /// globally-inverted one. Used to prove graceful degradation (high `ambiguousFraction`,
+    /// `reliable: false`), not orientation-agnosticism itself; see `boxMesh(reversed:)` below for
+    /// the fixture that tests that.
+    static func writeInconsistentWindingBoxSTL(to path: String, halfExtent: Double = 5) throws {
+        func quad(_ a: SIMD3<Double>, _ b: SIMD3<Double>, _ c: SIMD3<Double>, _ d: SIMD3<Double>, reversed: Bool) -> [(SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)] {
+            reversed ? [(a, c, b), (a, d, c)] : [(a, b, c), (a, c, d)]
+        }
+        let e = halfExtent
+        var tris: [(SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)] = []
+        tris += quad(SIMD3(-e, -e, -e), SIMD3(-e, e, -e), SIMD3(e, e, -e), SIMD3(e, -e, -e), reversed: false)  // -Z
+        tris += quad(SIMD3(-e, -e, e), SIMD3(-e, e, e), SIMD3(e, e, e), SIMD3(e, -e, e), reversed: true)       // +Z (flipped)
+        tris += quad(SIMD3(e, -e, -e), SIMD3(e, e, -e), SIMD3(e, e, e), SIMD3(e, -e, e), reversed: false)      // +X
+        tris += quad(SIMD3(-e, -e, e), SIMD3(-e, e, e), SIMD3(-e, e, -e), SIMD3(-e, -e, -e), reversed: true)   // -X (flipped)
+        tris += quad(SIMD3(-e, e, -e), SIMD3(-e, e, e), SIMD3(e, e, e), SIMD3(e, e, -e), reversed: false)      // +Y
+        tris += quad(SIMD3(-e, -e, e), SIMD3(-e, -e, -e), SIMD3(e, -e, -e), SIMD3(e, -e, e), reversed: true)   // -Y (flipped)
+        var out = "solid inconsistentbox\n"
+        for (a, b, c) in tris {
+            let n = simd_normalize(simd_cross(b - a, c - a))
+            out += "  facet normal \(n.x) \(n.y) \(n.z)\n    outer loop\n"
+            out += "      vertex \(a.x) \(a.y) \(a.z)\n      vertex \(b.x) \(b.y) \(b.z)\n      vertex \(c.x) \(c.y) \(c.z)\n"
+            out += "    endloop\n  endfacet\n"
+        }
+        out += "endsolid inconsistentbox\n"
+        try out.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    /// A genuine closed-box `OCCTSwiftMesh.Mesh`, built directly from vertex/index arrays (see
+    /// the file header for why this, rather than a `Shape`, is what actually exercises a globally
+    /// reversed winding). `reversed` swaps each triangle's last two indices, negating every
+    /// triangle's contribution to `windingNumber` (Mesh+Winding.swift's documented linearity).
+    /// Every face's standard (non-reversed) split was hand-verified outward via the right-hand
+    /// rule (`cross(v1-v0, v2-v0)` points away from the origin for each of the 6 faces).
+    static func boxMesh(halfExtent e: Double = 5, reversed: Bool) -> Mesh {
+        let ef = Float(e)
+        let v: [SIMD3<Float>] = [
+            SIMD3(-ef, -ef, -ef), SIMD3(-ef, ef, -ef), SIMD3(ef, ef, -ef), SIMD3(ef, -ef, -ef),
+            SIMD3(-ef, -ef, ef), SIMD3(-ef, ef, ef), SIMD3(ef, ef, ef), SIMD3(ef, -ef, ef),
+        ]
+        let quads: [[UInt32]] = [
+            [0, 1, 2, 3],  // -Z
+            [4, 7, 6, 5],  // +Z
+            [3, 2, 6, 7],  // +X
+            [0, 4, 5, 1],  // -X
+            [1, 5, 6, 2],  // +Y
+            [0, 3, 7, 4],  // -Y
+        ]
+        var indices: [UInt32] = []
+        for q in quads {
+            indices += reversed ? [q[0], q[2], q[1], q[0], q[3], q[2]] : [q[0], q[1], q[2], q[0], q[2], q[3]]
+        }
+        return Mesh(vertices: v, indices: indices)!
+    }
+
     // MARK: - Tests
 
     @MainActor
     @Test("a box against itself: symmetric difference ~0, both volumes agree")
     func identicalBodiesReadZeroDifference() async throws {
         let box = try #require(Shape.box(width: 10, height: 10, depth: 10))
-        let store = try scene([(id: "a", shape: box), (id: "b", shape: box)])
+        let (store, dir) = try scene([(id: "a", shape: box), (id: "b", shape: box)])
+        defer { try? FileManager.default.removeItem(atPath: dir) }
 
         let result = await SymmetricDifferenceTools.symmetricDifferenceVolume(
             fromBodyId: "a", referenceBodyId: "b", maxSamples: 2000, store: store
@@ -112,7 +184,8 @@ struct SymmetricDifferenceToolsTests {
         // two symmetric slabs, one above and one below the shorter box, total 10*10*(14-10)=400.
         let shortBox = try #require(Shape.box(width: 10, height: 10, depth: 10))
         let tallBox = try #require(Shape.box(width: 10, height: 10, depth: 14))
-        let store = try scene([(id: "tall", shape: tallBox), (id: "short", shape: shortBox)])
+        let (store, dir) = try scene([(id: "tall", shape: tallBox), (id: "short", shape: shortBox)])
+        defer { try? FileManager.default.removeItem(atPath: dir) }
 
         let result = await SymmetricDifferenceTools.symmetricDifferenceVolume(
             fromBodyId: "tall", referenceBodyId: "short", maxSamples: 4000, store: store
@@ -172,26 +245,70 @@ struct SymmetricDifferenceToolsTests {
         #expect(r.referenceVolumeMm3 > 500, "expected a substantial sampled reference volume, got \(r.referenceVolumeMm3)")
     }
 
-    @MainActor
-    @Test("classification is orientation-agnostic: reversed triangle winding doesn't change the result")
-    func reversedWindingDoesNotFlipResult() async throws {
-        let box = try #require(Shape.box(width: 10, height: 10, depth: 10))
-        let store = try scene([(id: "a", shape: box), (id: "b", shape: box)])
-
-        // classify() is the unit under test here directly: a mesh read with reversed winding
-        // reads windingNumber ~ -1 inside (per Mesh+Winding.swift's own documented linearity), and
-        // classify() must still call that "inside".
+    @Test("classify() is orientation-agnostic on the pure function")
+    func classifyIsOrientationAgnostic() {
         #expect(SymmetricDifferenceTools.classify(1.0) == true)
         #expect(SymmetricDifferenceTools.classify(-1.0) == true, "inverted-winding interior must still classify as inside")
         #expect(SymmetricDifferenceTools.classify(0.0) == false)
         #expect(SymmetricDifferenceTools.classify(0.5) == nil, "the midpoint between outside and inside is genuinely ambiguous")
         #expect(SymmetricDifferenceTools.classify(2.0) == true, "a doubled/nested-shell multiplicity is still enclosed")
+    }
 
-        // End-to-end sanity: the tool itself still runs and reports a normal-winding pair correctly.
-        let result = await SymmetricDifferenceTools.symmetricDifferenceVolume(
-            fromBodyId: "a", referenceBodyId: "b", maxSamples: 500, store: store
+    @Test("a genuinely reversed-winding mesh: windingNumber itself reads ~-1 inside, and classify() still calls it inside")
+    func reversedWindingMeshClassifiesCorrectly() {
+        let normal = Self.boxMesh(reversed: false)
+        let reversed = Self.boxMesh(reversed: true)
+        let center = SIMD3<Double>(0, 0, 0)
+        let outside = SIMD3<Double>(20, 20, 20)
+
+        let wNormalCenter = normal.windingNumber(at: center)
+        let wReversedCenter = reversed.windingNumber(at: center)
+        #expect(abs(wNormalCenter - 1.0) < 0.01, "expected the normally-wound box to read ~+1 at its center, got \(wNormalCenter)")
+        #expect(abs(wReversedCenter + 1.0) < 0.01, "expected the reversed-wound box to read ~-1 at its center (proving genuine inversion), got \(wReversedCenter)")
+
+        #expect(SymmetricDifferenceTools.classify(wNormalCenter) == true)
+        #expect(SymmetricDifferenceTools.classify(wReversedCenter) == true, "an inverted-winding interior must still classify as inside")
+        #expect(SymmetricDifferenceTools.classify(normal.windingNumber(at: outside)) == false)
+        #expect(SymmetricDifferenceTools.classify(reversed.windingNumber(at: outside)) == false)
+    }
+
+    @MainActor
+    @Test("a locally-inconsistent-winding STL reference: high ambiguity and reliable=false, not a silent wrong answer")
+    func inconsistentWindingStillFlagsAmbiguous() async throws {
+        let dir = NSTemporaryDirectory() + "occtmcp-symdiff-inconsistent-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let stlPath = "\(dir)/inconsistent.stl"
+        try Self.writeInconsistentWindingBoxSTL(to: stlPath, halfExtent: 5)
+
+        let store = ManifestStore(path: "\(dir)/manifest.json")
+        try store.write(ScriptManifest(description: "symdiff-inconsistent", bodies: []))
+
+        struct ImportReport: Decodable { let addedBodyIds: [String]; let warnings: [String] }
+        let importResult = await IOTools.importFile(
+            inputPath: stlPath, format: .stl, idPrefix: "inconsistentbox", store: store, history: SceneHistory()
         )
-        #expect(!result.isError)
+        #expect(!importResult.isError, "import failed: \(importResult.text)")
+        let imported = try JSONDecoder().decode(ImportReport.self, from: Data(importResult.text.utf8))
+        let inconsistentBodyId = try #require(imported.addedBodyIds.first)
+
+        let normalBox = try #require(Shape.box(width: 10, height: 10, depth: 10))
+        let manifest = try #require(try store.read())
+        try store.write(ScriptManifest(
+            version: manifest.version, timestamp: manifest.timestamp, description: manifest.description,
+            bodies: manifest.bodies + [BodyDescriptor(id: "normal", file: "normal.brep", color: [1, 1, 1, 1])]
+        ))
+        try Exporter.writeBREP(shape: normalBox, to: URL(fileURLWithPath: "\(dir)/normal.brep"))
+
+        let result = await SymmetricDifferenceTools.symmetricDifferenceVolume(
+            fromBodyId: "normal", referenceBodyId: inconsistentBodyId, maxSamples: 2000, store: store
+        )
+        #expect(!result.isError, "a locally-inconsistent reference must not hard-fail: \(result.text)")
+        let r = try decode(result)
+
+        #expect(r.ambiguousFraction > SymmetricDifferenceTools.ambiguousWarnFraction, "expected a substantial ambiguous fraction from the inconsistent winding, got \(r.ambiguousFraction)")
+        #expect(!r.reliable, "an unreliable classification must be flagged, not silently reported as clean")
+        #expect(r.warnings.contains { $0.lowercased().contains("uncertain") || $0.lowercased().contains("ambiguous") })
     }
 
     @Test("halton sequence is deterministic and stays within the unit cube")

@@ -50,9 +50,14 @@ public enum SymmetricDifferenceTools {
         public let ambiguousSamples: Int
         public let ambiguousFraction: Double
         public let boundingBoxVolumeMm3: Double
-        /// Sampled total volume of `fromBodyId` (intersection + fromOnly).
+        /// Sampled total volume of `fromBodyId`, from `fromBodyId`'s OWN classification only
+        /// (independent of whether `referenceBodyId` classified confidently at the same sample
+        /// point). May differ slightly from `intersectionVolumeMm3 + fromOnlyVolumeMm3`, which
+        /// use a different (jointly-confident) sample subset; both are honest, just different
+        /// denominators.
         public let fromVolumeMm3: Double
-        /// Sampled total volume of `referenceBodyId` (intersection + referenceOnly).
+        /// Sampled total volume of `referenceBodyId`, from `referenceBodyId`'s OWN classification
+        /// only. See `fromVolumeMm3`.
         public let referenceVolumeMm3: Double
         public let intersectionVolumeMm3: Double
         public let unionVolumeMm3: Double
@@ -79,8 +84,10 @@ public enum SymmetricDifferenceTools {
         public let referenceExactVolumeMm3: Double?
         public let fromWatertight: Bool
         public let referenceWatertight: Bool
-        /// false when `ambiguousFraction` exceeds `ambiguousWarnFraction`: the classification
-        /// itself is too uncertain at this sample count to trust the volumes above.
+        /// false when `ambiguousFraction` exceeds `ambiguousWarnFraction` (the classification
+        /// itself is too uncertain at this sample count), or when a body's sampled volume
+        /// disagrees with its own exact BREP volume by more than noise can explain: either signal
+        /// means the volumes above should not be trusted without raising `maxSamples`.
         public let reliable: Bool
         public let warnings: [String]
     }
@@ -93,6 +100,11 @@ public enum SymmetricDifferenceTools {
     /// symptom) reliably does.
     static let ambiguityBand = 0.25
     static let ambiguousWarnFraction = 0.15
+    /// Floor on the exact-vs-sampled volume disagreement that triggers a warning; the actual
+    /// threshold used is `max(this, 2 * relativeStdErr)`, since at low sample counts (or a body
+    /// occupying only a modest fraction of the combined bbox) this fixed fraction alone can sit
+    /// within a body's own Monte Carlo noise, which would otherwise flag a genuinely closed,
+    /// correctly-sampled solid as possibly non-closed.
     static let exactVolumeDisagreementWarnFraction = 0.10
 
     @MainActor
@@ -108,7 +120,7 @@ public enum SymmetricDifferenceTools {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             refShape = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store).shape
         } catch {
-            return .init("\(error)")
+            return .init("\(error)", isError: true)
         }
 
         guard maxSamples > 0 else {
@@ -143,47 +155,84 @@ public enum SymmetricDifferenceTools {
                 isError: true)
         }
 
-        var insideBoth = 0, fromOnly = 0, referenceOnly = 0, ambiguous = 0
+        // Each body's OWN confident-classification count backs its OWN volume estimate
+        // (`fromConfident`/`refConfident`), so noise in one body's mesh never contaminates the
+        // other's `...VolumeMm3`. The joint (difference) buckets need BOTH bodies confident at
+        // the same sample point, and are counted against their OWN confident subset
+        // (`jointConfident`, tracked including the `(false, false)` "outside both" case): dividing
+        // by the full sample count instead would silently treat every ambiguous sample as "outside
+        // both bodies," biasing every joint figure low exactly where the reference is roughest.
+        // Rescaling by the confident subset extrapolates instead: the ambiguous region is assumed
+        // to partition like the region that DID classify, the same "exclude and rescale" approach
+        // `DeviationTools.directedStats` already uses for its own signed aggregates.
+        var insideBoth = 0, fromOnly = 0, referenceOnly = 0, outsideBoth = 0, jointAmbiguous = 0
+        var fromConfident = 0, fromInside = 0
+        var refConfident = 0, refInside = 0
         for i in 1...maxSamples {
             let p = lo + haltonPoint(index: i) * extent
-            guard let ca = classify(fromMesh.windingNumber(at: p)),
-                  let cb = classify(refMesh.windingNumber(at: p)) else {
-                ambiguous += 1
+            let ca = classify(fromMesh.windingNumber(at: p))
+            let cb = classify(refMesh.windingNumber(at: p))
+            if let ca = ca {
+                fromConfident += 1
+                if ca { fromInside += 1 }
+            }
+            if let cb = cb {
+                refConfident += 1
+                if cb { refInside += 1 }
+            }
+            guard let ca = ca, let cb = cb else {
+                jointAmbiguous += 1
                 continue
             }
             switch (ca, cb) {
             case (true, true): insideBoth += 1
             case (true, false): fromOnly += 1
             case (false, true): referenceOnly += 1
-            case (false, false): break
+            case (false, false): outsideBoth += 1
             }
         }
+        let jointConfident = insideBoth + fromOnly + referenceOnly + outsideBoth
 
-        let n = Double(maxSamples)
-        func vol(_ count: Int) -> Double { Double(count) / n * bboxVolume }
+        func fraction(_ count: Int, over denom: Int) -> Double {
+            denom > 0 ? Double(count) / Double(denom) : 0
+        }
+        func vol(_ count: Int, over denom: Int) -> Double { fraction(count, over: denom) * bboxVolume }
+        /// Relative standard error of a confident-subset proportion `count/denom`, propagated to
+        /// the volume it scales: a Bernoulli proportion's absolute std error is
+        /// `sqrt(p(1-p)/denom)`, and dividing by `p` (relative error is scale-invariant under the
+        /// `x bboxVolume` step) gives the noise floor an exact-volume comparison has to clear
+        /// before a disagreement means anything beyond sampling noise.
+        func relativeStdErr(count: Int, denom: Int) -> Double {
+            guard denom > 0 else { return 0 }
+            let p = Double(count) / Double(denom)
+            guard p > 1e-9 else { return 0 }
+            return ((1 - p) / (p * Double(denom))).squareRoot()
+        }
 
-        let intersection = vol(insideBoth)
-        let fromOnlyVol = vol(fromOnly)
-        let referenceOnlyVol = vol(referenceOnly)
-        let fromVolume = intersection + fromOnlyVol
-        let referenceVolume = intersection + referenceOnlyVol
+        let fromVolume = vol(fromInside, over: fromConfident)
+        let referenceVolume = vol(refInside, over: refConfident)
+        let intersection = vol(insideBoth, over: jointConfident)
+        let fromOnlyVol = vol(fromOnly, over: jointConfident)
+        let referenceOnlyVol = vol(referenceOnly, over: jointConfident)
         let symDiff = fromOnlyVol + referenceOnlyVol
         let union = intersection + fromOnlyVol + referenceOnlyVol
         let symDiffFraction: Double? = union > 1e-12 ? symDiff / union : nil
 
-        let sdFrac = Double(fromOnly + referenceOnly) / n
-        let stdErr = bboxVolume * (sdFrac * (1 - sdFrac) / n).squareRoot()
+        let sdFrac = fraction(fromOnly + referenceOnly, over: jointConfident)
+        let stdErr = jointConfident > 0
+            ? bboxVolume * (sdFrac * (1 - sdFrac) / Double(jointConfident)).squareRoot() : 0
 
-        let ambiguousFraction = Double(ambiguous) / n
+        let ambiguousFraction = Double(jointAmbiguous) / Double(maxSamples)
         var warnings: [String] = []
         var reliable = true
         if ambiguousFraction > ambiguousWarnFraction {
             reliable = false
             warnings.append(
-                "\(ambiguous)/\(maxSamples) samples (\(Int((ambiguousFraction * 100).rounded()))%) had an " +
+                "\(jointAmbiguous)/\(maxSamples) samples (\(Int((ambiguousFraction * 100).rounded()))%) had an " +
                 "uncertain winding-number classification for at least one body, likely a non-watertight, " +
-                "self-intersecting, or very thin-walled region. Volumes below are still the best available " +
-                "estimate but are not fully reliable at this sample count."
+                "self-intersecting, or very thin-walled region. The joint figures (intersectionVolumeMm3, " +
+                "fromOnlyVolumeMm3, referenceOnlyVolumeMm3, symmetricDifferenceVolumeMm3) extrapolate from " +
+                "the remaining confidently-classified samples and are not fully reliable at this sample count."
             )
         }
         if symDiff < 2 * stdErr {
@@ -195,6 +244,12 @@ public enum SymmetricDifferenceTools {
 
         let fromWatertight = fromMesh.integrityReport(weldTolerance: 0).isWatertight
         let refWatertight = refMesh.integrityReport(weldTolerance: 0).isWatertight
+        if !fromWatertight {
+            warnings.append(
+                "'\(fromBodyId)' is not watertight; volumes are the generalized-winding-number " +
+                "estimate (robust to this), not an exact mass-properties figure."
+            )
+        }
         if !refWatertight {
             warnings.append(
                 "'\(referenceBodyId)' is not watertight; volumes are the generalized-winding-number " +
@@ -202,11 +257,18 @@ public enum SymmetricDifferenceTools {
             )
         }
 
+        // The comparison threshold is the LARGER of the fixed floor and a multiple of this body's
+        // own Monte Carlo noise: at the default maxSamples (300), a body occupying a moderate
+        // fraction of the combined bbox can have a relative standard error comparable to or
+        // exceeding a fixed 10% on sampling noise alone, which would otherwise flag a genuinely
+        // closed, correctly-sampled solid as possibly non-closed.
         let fromExact = fromShape.volumeInertia?.volume
         let refExact = refShape.volumeInertia?.volume
         if let fe = fromExact, abs(fe) > 1e-9 {
             let rel = abs(fe - fromVolume) / abs(fe)
-            if rel > exactVolumeDisagreementWarnFraction {
+            let threshold = max(exactVolumeDisagreementWarnFraction, 2 * relativeStdErr(count: fromInside, denom: fromConfident))
+            if rel > threshold {
+                reliable = false
                 warnings.append(
                     "'\(fromBodyId)': sampled volume (\(fmt(fromVolume))) disagrees with the exact BREP " +
                     "volume (\(fmt(fe))) by \(Int((rel * 100).rounded()))%; raise maxSamples, or '\(fromBodyId)' " +
@@ -216,7 +278,9 @@ public enum SymmetricDifferenceTools {
         }
         if let re = refExact, abs(re) > 1e-9 {
             let rel = abs(re - referenceVolume) / abs(re)
-            if rel > exactVolumeDisagreementWarnFraction {
+            let threshold = max(exactVolumeDisagreementWarnFraction, 2 * relativeStdErr(count: refInside, denom: refConfident))
+            if rel > threshold {
+                reliable = false
                 warnings.append(
                     "'\(referenceBodyId)': sampled volume (\(fmt(referenceVolume))) disagrees with the exact " +
                     "BREP volume (\(fmt(re))) by \(Int((rel * 100).rounded()))%, expected for a non-watertight " +
@@ -230,7 +294,7 @@ public enum SymmetricDifferenceTools {
             referenceBodyId: referenceBodyId,
             deflection: defl,
             samples: maxSamples,
-            ambiguousSamples: ambiguous,
+            ambiguousSamples: jointAmbiguous,
             ambiguousFraction: ambiguousFraction,
             boundingBoxVolumeMm3: bboxVolume,
             fromVolumeMm3: fromVolume,

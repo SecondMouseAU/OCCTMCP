@@ -294,7 +294,7 @@ The two ONE-SIDED volumes between a candidate and a reference body, and their su
 - `symmetricDifferenceVolumeMm3`: the sum of the two; `symmetricDifferenceFraction` is that divided by the union volume (1 minus IoU: 0 = identical, 1 = disjoint), `null` when the union itself sampled to ~0.
 - `estimatedStdErrMm3`: Monte Carlo standard error on `symmetricDifferenceVolumeMm3`. A measured value under ~2x this is noise-dominated at the current `maxSamples`, not necessarily a well-registered pair; raise `maxSamples` to resolve it.
 - `fromExactVolumeMm3` / `referenceExactVolumeMm3`: exact BREP mass-properties volume where computable, reported as a cross-check only (silently unreliable for a non-closed shape, which is exactly the reference-body case this tool exists to handle).
-- `reliable`: `false` when `ambiguousFraction` exceeds 15%, meaning the winding-number classification itself was too uncertain (at this sample count) to trust the volumes.
+- `reliable`: `false` when `ambiguousFraction` exceeds 15% (the winding-number classification itself was too uncertain at this sample count), or when a body's sampled volume disagrees with its own exact BREP volume by more than sampling noise can explain.
 
 **Example**
 
@@ -312,7 +312,7 @@ The two ONE-SIDED volumes between a candidate and a reference body, and their su
 }
 ```
 
-**Notes:** Cost scales as `O(maxSamples × (fromTriangles + referenceTriangles))` per sample point: `windingNumber` has no spatial acceleration upstream (fine at the diagnostic sample counts this tool targets, not fine at the 5-digit `maxSamples` values `measure_deviation` defaults to). Keep `maxSamples` modest for scan-scale meshes; raise it only when `estimatedStdErrMm3` says the current sample count can't resolve the difference you're looking for. Classification is orientation-agnostic (a point classifies as inside when the winding number is close to *any* nonzero integer, not specifically +1), so an inverted-winding reference still reports correctly without a separate orientation pre-pass.
+**Notes:** Cost is `O(fromTriangles + referenceTriangles)` per sample point, so total cost scales with `maxSamples × (fromTriangles + referenceTriangles)`: `windingNumber` has no spatial acceleration upstream (fine at the diagnostic sample counts this tool targets, not fine at the 5-digit `maxSamples` values `measure_deviation` defaults to). Keep `maxSamples` modest for scan-scale meshes; raise it only when `estimatedStdErrMm3` says the current sample count can't resolve the difference you're looking for. Classification is orientation-agnostic (a point classifies as inside when the winding number is close to *any* nonzero integer, not specifically +1), so an inverted-winding reference still reports correctly without a separate orientation pre-pass. `fromVolumeMm3`/`referenceVolumeMm3` are each estimated from their OWN body's confidently-classified samples only, independent of the other body's mesh quality; the joint figures (`intersectionVolumeMm3`, `fromOnlyVolumeMm3`, `referenceOnlyVolumeMm3`, `symmetricDifferenceVolumeMm3`) need both bodies confident at the same sample point and extrapolate from that jointly-confident subset when some samples are ambiguous.
 
 ---
 
