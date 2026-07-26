@@ -10,7 +10,7 @@ These tools read the current scene without modifying it: validating geometry, qu
 
 ## Tools
 
-[`validate_geometry`](#validate_geometry) · [`compute_metrics`](#compute_metrics) · [`query_topology`](#query_topology) · [`measure_distance`](#measure_distance) · [`measure_deviation`](#measure_deviation) · [`deviation_histogram`](#deviation_histogram) · [`cross_section_compare`](#cross_section_compare) · [`symmetric_difference_volume`](#symmetric_difference_volume) · [`recognize_features`](#recognize_features) · [`inspect_assembly`](#inspect_assembly)
+[`validate_geometry`](#validate_geometry) · [`compute_metrics`](#compute_metrics) · [`query_topology`](#query_topology) · [`measure_distance`](#measure_distance) · [`measure_deviation`](#measure_deviation) · [`measure_vertex_fit`](#measure_vertex_fit) · [`deviation_histogram`](#deviation_histogram) · [`cross_section_compare`](#cross_section_compare) · [`symmetric_difference_volume`](#symmetric_difference_volume) · [`recognize_features`](#recognize_features) · [`inspect_assembly`](#inspect_assembly)
 
 Signed / spatially-resolved surface comparison — the certify-a-reconstruction toolset (#61–#63, #66, #70) — also renders to PNG via [`signed_deviation_heatmap`](mesh-visualization.md#signed_deviation_heatmap) and [`overlay_render`](mesh-visualization.md#overlay_render).
 
@@ -96,7 +96,7 @@ Find faces, edges, or vertices on a body matching optional criteria. Returns sta
 | `filter` | object | no | Optional filter: `surfaceType`, `curveType`, `minArea`, `maxArea`. |
 | `limit` | integer (≥1) | no | Maximum number of results to return. |
 
-**Returns** — Array of matching topology entries, each with its stable ID, geometric properties (type, area/length as applicable), and centroid. Returns an empty array when no entities match the filter.
+**Returns** — Array of matching topology entries, each with its stable ID, geometric properties (type, area/length as applicable), and centroid. Edge entries (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit `direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians, measured from the circle's own xAxis) for CIRCULAR edges. Returns an empty array when no entities match the filter.
 
 **Example**
 
@@ -196,6 +196,46 @@ All distances are in model units. Sign convention: **+ proud** (from outside the
 ```
 
 **Notes** — Unlike [`measure_distance`](#measure_distance) (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface. Fidelity scales with `deflection`. Import the reference mesh with [`import_file`](io.md#import_file)`(format: "stl")` or load an invalid in-progress reconstruction with [`read_brep`](io.md#read_brep)`(allowInvalid: true)` before calling.
+
+---
+
+## `measure_vertex_fit`
+
+Exact per-vertex distance table from `fromBodyId`'s own vertices to `toBodyId`'s real BRep geometry (#118). Every scene body is stored as BRep (an STL import is a facet shell, one planar face per triangle), so `fromBodyId`'s own vertices ARE its mesh corner points; each is measured via exact BRepExtrema (no re-tessellation), with the nearest entity kind on `toBodyId` classified per vertex. Swift-only.
+
+**Server:** Swift
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `fromBodyId` | string | yes | Body whose own vertices are measured (typically a mesh/STL import). Must differ from `toBodyId`. |
+| `toBodyId` | string | yes | Body each vertex is measured against (typically a BRep solid, e.g. a reconstruction). |
+| `maxVertices` | integer (≥1) | no | Cap on vertices measured (stride-subsampled if `fromBodyId` has more). Default 2000. |
+| `worstN` | integer (≥0) | no | Worst-N vertices (by distance, largest-first) included in the response. Default 20. |
+| `includeAllVertices` | boolean | no | Return every sampled vertex's entry, not just the worst-N. Default false. |
+
+**Returns**: JSON object: `vertexCount` (total vertices on `fromBodyId`), `sampledCount`, `stride`, `mean`/`rms`/`max`/`p95` (all sampled distances), `worst` (array of `{ index, point, distance, nearestKind }`, largest-first), `vertices` (same shape, every sampled entry, only when `includeAllVertices: true`), and `warnings`.
+
+**Example**
+
+```json
+// tool call arguments
+{ "fromBodyId": "scan_mesh", "toBodyId": "recon", "worstN": 5 }
+```
+```json
+// example result (abridged)
+{
+  "vertexCount": 812, "sampledCount": 812, "stride": 1,
+  "mean": 0.021, "rms": 0.034, "max": 0.211, "p95": 0.098,
+  "worst": [
+    { "index": 403, "point": [12.4, -3.1, 8.0], "distance": 0.211, "nearestKind": "edge" }
+  ],
+  "warnings": []
+}
+```
+
+**Notes**: the instrument neither [`measure_distance`](#measure_distance) (body-to-body, capped at 32 pairs), [`measure_deviation`](#measure_deviation) (mesh-to-mesh, approximate re-tessellation, no raw per-vertex table), nor `find_correspondences` (only matches topological vertices, a handful on a typical solid) provides. Entity INDEX (which specific face/edge) isn't resolved, only the kind (vertex/edge/face): resolving the index would multiply the per-vertex BRepExtrema cost by the target's face/edge count for a "nice to have." The tool spends its second (expensive) BRepExtrema call only on entries that reach the response, not every sampled vertex.
 
 ---
 
