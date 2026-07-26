@@ -20,7 +20,13 @@
 // body"'s own corner points are exactly `Shape.vertices()`: no re-meshing is
 // needed, and the distances measured are the real BRepExtrema distance from
 // each of THOSE points to the target body's real geometry, not a
-// re-tessellated approximation. Per vertex: `Shape.vertex(at:)` builds a
+// re-tessellated approximation. Confirmed empirically, not just assumed
+// (`VertexFitToolsTests.realSTLImportVertexCount`, a real STL import, not a
+// primitive box): `import_file`'s STL path sews/heals on import, so
+// `Shape.vertices()` on the resulting facet shell returns the true deduped
+// corners, not one raw instance per triangle per corner. `vertexCount`
+// (and the sample budget `maxVertices` spends) means what it says; no
+// separate deduplication pass is needed here. Per vertex: `Shape.vertex(at:)` builds a
 // single-point Shape, `.distance(to:)` gets the exact distance, and
 // `.distanceSolutionDetail(to:solutionIndex:0)` classifies the nearest
 // BREP entity kind (vertex / edge / face) on the target. Entity INDEX
@@ -28,6 +34,21 @@
 // returns a parametric location on the entity, not its index, and reverse-
 // matching that against every candidate face/edge per vertex would multiply
 // the already-per-vertex BRepExtrema cost by the target's face/edge count.
+//
+// TWO PASSES, not one, and deliberately so: `Shape.distance(to:)` and
+// `Shape.distanceSolutionDetail(to:solutionIndex:)` each independently
+// construct their own `BRepExtrema_DistShapeShape` on the OCCT side (checked
+// against OCCTBridge_Topology.mm / OCCTBridge_Properties.mm: neither call
+// reuses the other's computation), so getting both costs the full extrema
+// computation TWICE per vertex. `nearestKind` is only useful on entries the
+// caller actually sees, so pass 1 computes `distance` alone for every sampled
+// vertex (cheap side of the pair), and pass 2 spends the second, expensive
+// `distanceSolutionDetail` call ONLY on the entries that end up in the
+// response: the worst-N by default (`worstN`, 20 of possibly `maxVertices`
+// samples), or every sampled entry when `includeAllVertices: true` asks for
+// the full table. This is a real, local cost reduction: with the default
+// knobs, at most 20 of up to 2000 sampled vertices ever pay the second
+// BRepExtrema call, not all 2000.
 //
 // Response is a worst-N summary by default (`worstN`, largest-first), not the
 // full per-vertex table: an unbounded per-vertex array is the wrong default
@@ -48,6 +69,14 @@ public enum VertexFitTools {
         public let distance: Double
         /// Nearest entity kind on `toBodyId`: "vertex" / "edge" / "face".
         public let nearestKind: String
+    }
+
+    /// Pass-1 result: distance only, no entity-kind classification yet (see
+    /// the file header for why that's deferred to a second pass).
+    private struct RawSample {
+        let index: Int
+        let point: SIMD3<Double>
+        let distance: Double
     }
 
     public struct VertexFitReport: Encodable {
@@ -85,6 +114,9 @@ public enum VertexFitTools {
         guard worstN >= 0 else {
             return .init("worstN must be non-negative.", isError: true)
         }
+        guard fromBodyId != toBodyId else {
+            return .init("fromBodyId and toBodyId must be different bodies (every vertex would trivially measure ~0).", isError: true)
+        }
 
         let fromShape: Shape, toShape: Shape
         do {
@@ -108,8 +140,10 @@ public enum VertexFitTools {
             )
         }
 
-        var entries: [VertexFitEntry] = []
-        entries.reserveCapacity((n + stride - 1) / stride)
+        // Pass 1: distance only (see the file header for why entity-kind
+        // classification is deferred to pass 2).
+        var raw: [RawSample] = []
+        raw.reserveCapacity((n + stride - 1) / stride)
         var failed = 0
         var i = 0
         while i < n {
@@ -120,6 +154,32 @@ public enum VertexFitTools {
                 failed += 1
                 continue
             }
+            raw.append(RawSample(index: i, point: p, distance: distResult.distance))
+        }
+        if failed > 0 {
+            warnings.append("\(failed) sampled vertex/vertices failed the distance query and were skipped.")
+        }
+        guard !raw.isEmpty else {
+            return .init("Distance computation produced no samples.", isError: true)
+        }
+
+        let dists = raw.map(\.distance).sorted()
+        let mean = raw.reduce(0.0) { $0 + $1.distance } / Double(raw.count)
+        let sumSq = raw.reduce(0.0) { $0 + $1.distance * $1.distance }
+        let rms = (sumSq / Double(raw.count)).squareRoot()
+        let p95 = DeviationTools.percentile(dists, 0.95)
+
+        // Pass 2: entity-kind classification, ONLY for samples that will
+        // actually appear in the response (worst-N, or every sample when
+        // includeAllVertices asks for the full table). The second
+        // BRepExtrema call is the expensive half of the pair, so this is
+        // where the two-pass split actually pays off.
+        let worstRaw = raw.sorted { $0.distance > $1.distance }.prefix(worstN)
+        let needsKind: [RawSample] = includeAllVertices ? raw : Array(worstRaw)
+        var kindByIndex: [Int: String] = [:]
+        kindByIndex.reserveCapacity(needsKind.count)
+        for sample in needsKind {
+            guard let vShape = Shape.vertex(at: sample.point) else { continue }
             let kind: String
             if let detail = vShape.distanceSolutionDetail(to: toShape, solutionIndex: 0) {
                 switch detail.supportType2 {
@@ -130,31 +190,22 @@ public enum VertexFitTools {
             } else {
                 kind = "unknown"
             }
-            entries.append(VertexFitEntry(
-                index: i, point: [p.x, p.y, p.z], distance: distResult.distance, nearestKind: kind
-            ))
-        }
-        if failed > 0 {
-            warnings.append("\(failed) sampled vertex/vertices failed the distance query and were skipped.")
-        }
-        guard !entries.isEmpty else {
-            return .init("Distance computation produced no samples.", isError: true)
+            kindByIndex[sample.index] = kind
         }
 
-        let dists = entries.map(\.distance).sorted()
-        let mean = entries.reduce(0.0) { $0 + $1.distance } / Double(entries.count)
-        let sumSq = entries.reduce(0.0) { $0 + $1.distance * $1.distance }
-        let rms = (sumSq / Double(entries.count)).squareRoot()
-        let p95 = DeviationTools.percentile(dists, 0.95)
-
-        let worst = entries.sorted { $0.distance > $1.distance }.prefix(worstN)
+        func entry(_ sample: RawSample) -> VertexFitEntry {
+            VertexFitEntry(
+                index: sample.index, point: [sample.point.x, sample.point.y, sample.point.z],
+                distance: sample.distance, nearestKind: kindByIndex[sample.index] ?? "unknown"
+            )
+        }
 
         let report = VertexFitReport(
             fromBodyId: fromBodyId, toBodyId: toBodyId,
-            vertexCount: n, sampledCount: entries.count, stride: stride,
+            vertexCount: n, sampledCount: raw.count, stride: stride,
             mean: mean, rms: rms, max: dists.last ?? 0, p95: p95,
-            worst: Array(worst),
-            vertices: includeAllVertices ? entries : nil,
+            worst: worstRaw.map(entry),
+            vertices: includeAllVertices ? raw.map(entry) : nil,
             warnings: warnings
         )
         return IntrospectionTools.encode(report)

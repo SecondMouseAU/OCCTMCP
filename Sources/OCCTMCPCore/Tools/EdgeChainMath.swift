@@ -280,8 +280,16 @@ enum EdgeChainMath {
             case (nil, let a?):
                 fit = .arc(a)
             case (nil, nil):
-                // Only reachable for a degenerate (coincident-point) window;
-                // a synthetic zero-length line keeps the segment list total.
+                // Defensive, not expected to fire on real input: coincident
+                // points do NOT reach here (a fully-degenerate covariance
+                // still leaves Jacobi's V at the identity basis, so
+                // `fitLine`'s `eig.vectors[0]` stays unit-length and returns
+                // a legitimate, if arbitrary-direction, zero-residual fit
+                // rather than nil). This only guards a genuine breakdown of
+                // `SymmetryTools.symmetricEigen3x3` producing a non-unit
+                // eigenvector column, which its own normalisation already
+                // treats as the zero vector. A synthetic zero-length line
+                // keeps the segment list total either way.
                 fit = .line(LineFit(point: points[i], direction: SIMD3(1, 0, 0), maxResidual: 0, rmsResidual: 0))
             }
             segments.append(Segment(startIndex: i, endIndex: end, fit: fit))

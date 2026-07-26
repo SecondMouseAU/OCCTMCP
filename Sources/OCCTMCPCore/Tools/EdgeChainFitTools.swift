@@ -18,6 +18,19 @@ import simd
 
 public enum EdgeChainFitTools {
 
+    /// Hard cap on `points.count`. `EdgeChainMath.segment`'s greedy grower
+    /// re-fits its growing window from scratch at every step (a fresh PCA +
+    /// Jacobi eigensolve per candidate length), so segmenting one long
+    /// unbroken run costs O(n^2), not O(n). A points array this large isn't a
+    /// realistic single edge chain anyway (a genuine design curve doesn't
+    /// have thousands of facet points; that volume is scan noise or an
+    /// un-decimated mesh), so this rejects outright rather than silently
+    /// eating a slow call: matches the "budget, don't surprise" convention
+    /// every other sampling-heavy tool in this codebase follows (`maxSamples`,
+    /// `maxVertices`, `maxRings`, ...), sized to the same order of magnitude
+    /// as `VertexFitTools`' own default `maxVertices` budget.
+    static let maxPoints = 2000
+
     public struct SegmentEntry: Encodable {
         public let startIndex: Int
         public let endIndex: Int
@@ -54,6 +67,12 @@ public enum EdgeChainFitTools {
     ) async -> ToolText {
         guard points.count >= 2 else {
             return .init("fit_edge_chain requires at least 2 points.", isError: true)
+        }
+        guard points.count <= maxPoints else {
+            return .init(
+                "fit_edge_chain: \(points.count) points exceeds the \(maxPoints)-point cap (segmentation cost grows quadratically with a single unbroken run's length). Downsample the chain before calling, or split it into shorter sub-chains.",
+                isError: true
+            )
         }
         let tol = toleranceMm ?? defaultTolerance(points)
         guard tol > 0 else {

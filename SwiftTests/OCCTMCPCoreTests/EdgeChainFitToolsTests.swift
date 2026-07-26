@@ -185,6 +185,20 @@ struct EdgeChainFitToolsTests {
         #expect(badTol.isError)
     }
 
+    @Test("tool: rejects a points array over the maxPoints cap, accepts one at exactly the cap")
+    func toolPointsCap() async throws {
+        let tooMany = (0...(EdgeChainFitTools.maxPoints)).map { SIMD3<Double>(Double($0), 0, 0) }
+        #expect(tooMany.count == EdgeChainFitTools.maxPoints + 1)
+        let overCap = await EdgeChainFitTools.fitEdgeChain(points: tooMany)
+        #expect(overCap.isError)
+        #expect(overCap.text.contains("\(EdgeChainFitTools.maxPoints)"))
+
+        let exactlyAtCap = (0..<(EdgeChainFitTools.maxPoints)).map { SIMD3<Double>(Double($0), 0, 0) }
+        #expect(exactlyAtCap.count == EdgeChainFitTools.maxPoints)
+        let atCap = await EdgeChainFitTools.fitEdgeChain(points: exactlyAtCap)
+        #expect(!atCap.isError, "exactly maxPoints must still be accepted: \(atCap.text)")
+    }
+
     @Test("tool: closed:true is reported but not segmented across the wrap")
     func toolClosedWarning() async throws {
         let points = (0..<20).map { i -> SIMD3<Double> in
