@@ -143,6 +143,39 @@ public enum IntrospectionTools {
             public let curveType: String?
             public let area: Double?
             public let boundingBox: MetricsReport.BBox?
+            /// Edge start/end points (`[start, end]`, world coordinates). nil
+            /// for faces/vertices (#119).
+            public let endpoints: [[Double]]?
+            /// Unit tangent direction. Populated for LINE edges only (#119).
+            public let direction: [Double]?
+            /// Geometric centre of a circular edge (centre of curvature).
+            /// Populated for circular edges only (#119).
+            public let circleCenter: [Double]?
+            public let radius: Double?
+            public let axis: [Double]?
+            public let startAngle: Double?
+            public let endAngle: Double?
+
+            public init(
+                id: String, surfaceType: String? = nil, curveType: String? = nil,
+                area: Double? = nil, boundingBox: MetricsReport.BBox? = nil,
+                endpoints: [[Double]]? = nil, direction: [Double]? = nil,
+                circleCenter: [Double]? = nil, radius: Double? = nil, axis: [Double]? = nil,
+                startAngle: Double? = nil, endAngle: Double? = nil
+            ) {
+                self.id = id
+                self.surfaceType = surfaceType
+                self.curveType = curveType
+                self.area = area
+                self.boundingBox = boundingBox
+                self.endpoints = endpoints
+                self.direction = direction
+                self.circleCenter = circleCenter
+                self.radius = radius
+                self.axis = axis
+                self.startAngle = startAngle
+                self.endAngle = endAngle
+            }
         }
     }
 
@@ -204,12 +237,17 @@ public enum IntrospectionTools {
                 totalScanned += 1
                 let kind = String(describing: edge.curveType)
                 if let want = filter.curveType, want != kind { continue }
+                let geom = SelectionTools.edgeGeometryFields(edge: edge)
                 results.append(.init(
                     id: "edge[\(i)]",
-                    surfaceType: nil,
                     curveType: kind,
-                    area: nil,
-                    boundingBox: nil
+                    endpoints: geom.endpoints,
+                    direction: geom.direction,
+                    circleCenter: geom.circleCenter,
+                    radius: geom.radius,
+                    axis: geom.axis,
+                    startAngle: geom.startAngle,
+                    endAngle: geom.endAngle
                 ))
             }
         case "vertex":

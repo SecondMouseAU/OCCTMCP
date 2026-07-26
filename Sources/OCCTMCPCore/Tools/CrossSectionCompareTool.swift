@@ -29,6 +29,21 @@
 // `ProfileMath.swift`, shared with ZoneSweepTool (#102). This file's own logic
 // is unchanged by that split; it now calls `ProfileMath.*` instead of local
 // functions of the same name.
+//
+// #123: the default outerEnvelope mode's per-station `rms`/`maxAbs` used to feed
+// envelopeDeviation the RAW union of every contour a station's cut produced
+// (outer boundary AND any inner window-return / bore loop), trusting the
+// envelope's own per-bin max-radius selection to drop the inner ones. That
+// only holds when tessellation is dense enough that the outer loop has a point
+// in nearly every angular bin; against a real mesh cross-section (moderate
+// deflection, an axle bore running through a hub/rim profile) it isn't, and a
+// bin the outer loop skipped but the bore loop happened to land in read back
+// at the BORE's radius: `fillGapsCircular` marks that bin `filled` and never
+// interpolates it, so `rms`/`maxAbs` reported the bore-to-hub / bore-to-OD
+// radius gap (mm-scale, insensitive to the station's real fit) instead of
+// genuine profile deviation. Fixed by filtering to depth-0 (outer) contours
+// before building the envelope's input points; see
+// `ProfileMath.outerEnvelopePoints`.
 
 import Foundation
 import OCCTSwift
@@ -211,11 +226,14 @@ public enum CrossSectionCompareTool {
                 let signedMean: Double, rms: Double, maxAbs: Double, shapeL2: Double
                 if outerEnvelope {
                     // Compare against the reference's OUTER boundary per angular
-                    // direction — inner window-return / frame paths (smaller radius)
-                    // are excluded, so a thin-wall section stops polluting the
-                    // aggregate. All section geometry feeds the envelope.
-                    let candPts = fromLoops.flatMap { $0 } + fromOpen.flatMap { $0 }
-                    let refPts = refLoops.flatMap { $0 } + refOpen.flatMap { $0 }
+                    // direction: inner window-return / frame / bore paths (smaller
+                    // radius) are excluded UP FRONT via depth filtering (#123), not
+                    // left to envelopeDeviation's per-bin max-radius selection to
+                    // drop implicitly: that only holds at dense tessellation (see
+                    // ProfileMath.outerEnvelopePoints for the sparse-bin failure mode
+                    // this replaced).
+                    let candPts = ProfileMath.outerEnvelopePoints(contours: fromSec?.contours ?? [], open: fromOpen)
+                    let refPts = ProfileMath.outerEnvelopePoints(contours: refSec?.contours ?? [], open: refOpen)
                     let e = ProfileMath.envelopeDeviation(candidate: candPts, reference: refPts)
                     (signedMean, rms, maxAbs, shapeL2) = (e.signedMean, e.rms, e.maxAbs, e.shapeL2)
                 } else {

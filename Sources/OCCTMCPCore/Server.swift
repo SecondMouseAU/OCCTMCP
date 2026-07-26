@@ -675,7 +675,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "select_topology",
-            description: "Pick faces / edges / vertices on a scene body matching criteria. Returns server-tracked selectionIds (sel:<bodyId>#<kind>[<idx>]) plus an anchor snapshot — the LLM can refer back via remap_selection / add_dimension.",
+            description: "Pick faces / edges / vertices on a scene body matching criteria. Returns server-tracked selectionIds (sel:<bodyId>#<kind>[<idx>]) plus an anchor snapshot, which the LLM can refer back to via remap_selection / add_dimension. Edge anchors (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -788,7 +788,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "query_topology",
-            description: "Find faces / edges / vertices on a body matching criteria. Returns stable IDs (face[N], edge[N], vertex[N]).",
+            description: "Find faces / edges / vertices on a body matching criteria. Returns stable IDs (face[N], edge[N], vertex[N]). Edge results (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1424,7 +1424,7 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "detect_mesh_features",
-            description: "Crease-ring feature outlines (doors, panels, window returns, recesses) on a raw scan mesh via dihedral-fold-edge detection (OCCTSwiftMesh.Mesh.creaseEdges, OCCTSwiftMesh#28), for meshes where recognize_features (BREP/AAG) cannot operate at all — a scanned/STL body has no B-rep face/edge structure to recognize features against. Meshes the body, welds it (MANDATORY precondition: on unwelded input every edge is a boundary edge and the dihedral angle is undefined, so zero creases are ever found regardless of the body's actual geometry), then chains dihedral-fold edges exceeding minAngleDegrees into closed rings (e.g. a door outline) and open paths (a crease running off an open mesh boundary), largest-first. Y/T junctions where 3+ creases meet split cleanly into separate rings/paths rather than being wandered through arbitrarily; leftover edges that couldn't be chained are counted in unchainedCreaseEdgeCount, never dropped. When segment_mesh_zones has already been run for this body (same mesh state, verified by signature), each ring reports containingZones: the zone id(s) whose triangles are incident to the ring's own vertices, majority first — omitted with a warning if the zone table is stale or the internal weld guard failed, omitted silently (no warning) if no zones are registered for this body at all. Optional render: the body surface as a neutral translucent grey mesh, plus each ring as its own categorically-colored wireframe overlay with a legend. maxRings' default of 64 is tuned for simple parts; dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths, and truncation at the default can make the reported closed/open ring split look unrepresentative; raise maxRings substantially for coverage-style analysis and check the truncation warning.",
+            description: "Crease-ring feature outlines (doors, panels, window returns, recesses) on a raw scan mesh via dihedral-fold-edge detection (OCCTSwiftMesh.Mesh.creaseEdges, OCCTSwiftMesh#28), for meshes where recognize_features (BREP/AAG) cannot operate at all — a scanned/STL body has no B-rep face/edge structure to recognize features against. Meshes the body, welds it (MANDATORY precondition: on unwelded input every edge is a boundary edge and the dihedral angle is undefined, so zero creases are ever found regardless of the body's actual geometry), then chains dihedral-fold edges exceeding minAngleDegrees into closed rings (e.g. a door outline) and open paths (a crease running off an open mesh boundary), largest-first. Y/T junctions where 3+ creases meet split cleanly into separate rings/paths rather than being wandered through arbitrarily; leftover edges that couldn't be chained are counted in unchainedCreaseEdgeCount, never dropped. When segment_mesh_zones has already been run for this body (same mesh state, verified by signature), each ring reports containingZones: the zone id(s) whose triangles are incident to the ring's own vertices, majority first — omitted with a warning if the zone table is stale or the internal weld guard failed, omitted silently (no warning) if no zones are registered for this body at all. Pass includePoints:true (#120) to also return each ring/path's ordered world-coordinate vertex polyline, not just its statistics; edge-level verification (comparing a built solid's edges against the mesh's own crease lines) needs the ordered chain itself. Optional render: the body surface as a neutral translucent grey mesh, plus each ring as its own categorically-colored wireframe overlay with a legend. maxRings' default of 64 is tuned for simple parts; dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths, and truncation at the default can make the reported closed/open ring split look unrepresentative; raise maxRings substantially for coverage-style analysis and check the truncation warning.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1432,11 +1432,47 @@ func catalogTools() -> [Tool] {
                     "minAngleDegrees": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "maximum": .double(180), "description": .string("Dihedral fold-angle threshold in degrees; an edge whose two triangles' normals differ by at least this much is a crease. Default 30.")]),
                     "maxRings": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on returned rings/paths; the largest (by length) are kept, the rest counted in a warning. Default 64, tuned for simple parts. Dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths: measured truncation of 70-99% at the default on such fixtures, which can also make the reported closed/open split look unrepresentative (all-open in the visible top-N while real closed boundaries sit further down the list). If the truncation warning fires, raise this substantially for coverage-style analysis.")]),
                     "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
+                    "includePoints": .object(["type": .string("boolean"), "description": .string("Include each ring/path's ordered world-coordinate vertex polyline (#120). Default false; ring statistics only.")]),
                     "render": .object(["type": .string("boolean"), "description": .string("Render the body with each ring overlaid as a categorically-colored wireframe, with a legend. Default true.")]),
                     "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_features.png).")]),
                     "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
                 ]),
                 "required": .array([.string("bodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "measure_vertex_fit",
+            description: "Exact per-vertex distance table from fromBodyId's own vertices to toBodyId's real BRep geometry (#118): the vertex-fit instrument measure_distance (body-to-body, capped at 32 pairs, 0 for overlapping bodies), measure_deviation (mesh-to-mesh, approximate, no raw per-vertex table), and find_correspondences (only matches toBodyId's topological vertices, a handful on a typical solid) don't provide. Every scene body is stored as BRep (an STL import is a facet shell, one planar face per triangle), so fromBodyId's own Shape.vertices() ARE its mesh corner points; each is measured via exact BRepExtrema (Shape.vertex(at:).distance(to:)) against toBodyId, with the nearest entity KIND (vertex/edge/face) classified via distanceSolutionDetail. Entity index isn't resolved (would multiply the per-vertex cost by toBodyId's face/edge count for a 'nice to have'). Response is mean/rms/max/p95 plus a worst-N table (largest-first, default 20); pass includeAllVertices:true for the full per-vertex table instead.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "fromBodyId": .object(["type": .string("string"), "description": .string("Body whose OWN vertices are measured (typically a mesh/STL import).")]),
+                    "toBodyId": .object(["type": .string("string"), "description": .string("Body each vertex is measured against (typically a BRep solid, e.g. a reconstruction).")]),
+                    "maxVertices": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on vertices measured (stride-subsampled if fromBodyId has more). Default 2000.")]),
+                    "worstN": .object(["type": .string("integer"), "minimum": .int(0), "description": .string("Worst-N vertices (by distance, largest-first) included in the response. Default 20.")]),
+                    "includeAllVertices": .object(["type": .string("boolean"), "description": .string("Return every sampled vertex's entry, not just the worst-N. Default false.")]),
+                ]),
+                "required": .array([.string("fromBodyId"), .string("toBodyId")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "fit_edge_chain",
+            description: "Segments an ordered 3D point chain into line and circular-arc runs (#121): per-segment kind, endpoints, unit direction (line) or center/radius/axis/startAngle/endAngle (arc), and fit residuals. A raw STL has no curved edges by construction: an arc exists on the mesh only as a fit over a chain of straight facet edges. fit_primitives/segment_mesh_zones RANSAC-fit SURFACES; nothing upstream fits a circle/arc to an edge chain, which is the gap this closes. The natural source for `points` is detect_mesh_features(includePoints:true)'s per-ring polyline (#120), but any ordered chain works; this tool has no OCCT dependency. Greedy maximal-run segmentation: a window grows while either a line or an arc fits every point within toleranceMm, preferring line (the simpler model) unless the arc fits meaningfully better, so a multi-radius chain (the failure mode a single-circle-only fit collapses into one wrong radius) breaks into separate segments as soon as the current arc's radius stops explaining the next point. closed:true is not yet segmented across the wrap; see the response warnings.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "points": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3)]),
+                        "minItems": .int(2),
+                        "description": .string("Ordered chain of [x,y,z] world points, e.g. from detect_mesh_features's includePoints:true."),
+                    ]),
+                    "closed": .object(["type": .string("boolean"), "description": .string("Whether the chain wraps (last point connects back to first). Not yet segmented across the wrap; see the response warnings. Default false.")]),
+                    "toleranceMm": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "description": .string("Max per-point fit residual (model units) for a segment to stay a single line/arc. Default 0.5% of the chain's own bbox diagonal.")]),
+                ]),
+                "required": .array([.string("points")]),
                 "additionalProperties": .bool(false),
             ])
         ),
@@ -2395,6 +2431,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             minAngleDegrees: minAngle,
             maxRings: arguments["maxRings"]?.intValue ?? 64,
             deflection: arguments["deflection"]?.numberValue,
+            includePoints: arguments["includePoints"]?.boolValue ?? false,
             render: arguments["render"]?.boolValue ?? true,
             renderPath: arguments["renderPath"]?.stringValue,
             options: parseRenderOptions(arguments["options"])
@@ -2430,6 +2467,37 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             render: arguments["render"]?.boolValue ?? true,
             renderPath: arguments["renderPath"]?.stringValue,
             options: parseRenderOptions(arguments["options"])
+        ).asCallToolResult()
+
+    case "measure_vertex_fit":
+        guard let fromId = arguments["fromBodyId"]?.stringValue,
+              let toId = arguments["toBodyId"]?.stringValue else {
+            return ToolText("measure_vertex_fit requires `fromBodyId` and `toBodyId`.", isError: true).asCallToolResult()
+        }
+        return await VertexFitTools.measureVertexFit(
+            fromBodyId: fromId, toBodyId: toId,
+            maxVertices: arguments["maxVertices"]?.intValue ?? 2000,
+            worstN: arguments["worstN"]?.intValue ?? 20,
+            includeAllVertices: arguments["includeAllVertices"]?.boolValue ?? false
+        ).asCallToolResult()
+
+    case "fit_edge_chain":
+        guard let rawPoints = arguments["points"]?.arrayValue, rawPoints.count >= 2 else {
+            return ToolText("fit_edge_chain requires `points`: an array of at least 2 [x,y,z] triples.", isError: true).asCallToolResult()
+        }
+        var points: [SIMD3<Double>] = []
+        points.reserveCapacity(rawPoints.count)
+        for entry in rawPoints {
+            guard let arr = entry.arrayValue, arr.count == 3,
+                  let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue else {
+                return ToolText("fit_edge_chain: every entry in `points` must be a [x,y,z] triple of numbers.", isError: true).asCallToolResult()
+            }
+            points.append(SIMD3(x, y, z))
+        }
+        return await EdgeChainFitTools.fitEdgeChain(
+            points: points,
+            closed: arguments["closed"]?.boolValue ?? false,
+            toleranceMm: arguments["toleranceMm"]?.numberValue
         ).asCallToolResult()
 
     default:

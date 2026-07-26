@@ -57,6 +57,7 @@ struct MeshFeatureToolsTests {
             let maxFoldAngleDegrees: Double
             let edgeCount: Int
             let containingZones: [String]?
+            let points: [[Double]]?
         }
         let bodyId: String
         let ringCount: Int
@@ -254,6 +255,49 @@ struct MeshFeatureToolsTests {
         #expect(Set(r.rings.map(\.id)).count == 4)
         for (i, ring) in r.rings.enumerated() {
             #expect(ring.id == "ring:\(bodyId)#\(i)")
+        }
+    }
+
+    // MARK: - 1b. includePoints (#120): ordered world-coordinate ring polylines
+
+    @MainActor
+    @Test("includePoints: rings carry an ordered polyline at the ring's true radius; omitted by default")
+    func includePointsReturnsOrderedPolyline() async throws {
+        let (store, dir) = try freshScene()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let stlPath = "\(dir)/cyl3.stl"
+        let router = 20.0, rinner = 8.0, segments = 24
+        try Self.writeTieredCylinderSTL(to: stlPath, router: router, rinner: rinner, segments: segments)
+        let bodyId = try await importSTL(stlPath, idPrefix: "cyl3", store: store)
+
+        // Default: points omitted entirely (nil, not an empty array).
+        let withoutPoints = await MeshFeatureTools.detectMeshFeatures(bodyId: bodyId, render: false, store: store)
+        #expect(!withoutPoints.isError, "unexpected error: \(withoutPoints.text)")
+        let rWithout = try JSONDecoder().decode(FeatureReport.self, from: Data(withoutPoints.text.utf8))
+        #expect(rWithout.rings.allSatisfy { $0.points == nil })
+
+        let result = await MeshFeatureTools.detectMeshFeatures(
+            bodyId: bodyId, includePoints: true, render: false, store: store)
+        #expect(!result.isError, "unexpected error: \(result.text)")
+        let r = try JSONDecoder().decode(FeatureReport.self, from: Data(result.text.utf8))
+        #expect(r.ringCount == 4)
+
+        for ring in r.rings {
+            let points = try #require(ring.points, "ring \(ring.id) missing points with includePoints:true")
+            // Closed ring: point count equals edgeCount (no wraparound duplicate).
+            #expect(points.count == ring.edgeCount)
+            #expect(points.allSatisfy { $0.count == 3 })
+
+            // Every point sits at the ring's own radius (router or rinner) about
+            // the tiered cylinder's Z axis, within tessellation tolerance, and at
+            // a Z height that's actually one of the fixture's tier boundaries.
+            let radii = points.map { simd_length(SIMD2($0[0], $0[1])) }
+            let matchesOuterRadius = radii.allSatisfy { abs($0 - router) < 1.0 }
+            let matchesInnerRadius = radii.allSatisfy { abs($0 - rinner) < 1.0 }
+            #expect(matchesOuterRadius || matchesInnerRadius, "ring \(ring.id) points don't sit at a consistent known radius")
+
+            let zs = Set(points.map { ($0[2] * 1000).rounded() / 1000 })
+            #expect(zs.count == 1, "a ring from this fixture should lie in a single Z plane, got \(zs)")
         }
     }
 

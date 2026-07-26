@@ -352,6 +352,62 @@ struct SignedSpatialDeviationTests {
         #expect(squashed.shapeL2 > 0.05)
     }
 
+    // ── #123: outer-envelope rms/maxAbs must not pick up a bore/inner loop ──
+
+    /// A tube (outer cylinder minus a coaxial bore), an axisymmetric annulus
+    /// at every Z station: the shape family #123 reported the bug against (a
+    /// wheel's hub bore running through its rim/hub profile). `rotationDegrees`
+    /// rotates the WHOLE shape about its own axis before meshing: an
+    /// axisymmetric annulus is invariant under that rotation (truly identical
+    /// geometry), but it shifts the mesher's angular starting parameter, which
+    /// is what actually shifts the two bodies' tessellated points out of phase
+    /// with each other, the sparse-tessellation condition #123's bug needed.
+    func boredTube(rotationDegrees: Double) throws -> Shape {
+        let outerRadius = 7.5, boreRadius = 1.5, height = 20.0
+        guard let outer = Shape.cylinder(radius: outerRadius, height: height),
+              let bore = Shape.cylinder(radius: boreRadius, height: height),
+              let tube = outer.subtracting(bore) else {
+            throw TestError.fixture("failed to build bored tube")
+        }
+        guard rotationDegrees != 0 else { return tube }
+        guard let rotated = tube.rotated(axis: SIMD3(0, 0, 1), angle: rotationDegrees * .pi / 180) else {
+            throw TestError.fixture("failed to rotate bored tube")
+        }
+        return rotated
+    }
+
+    @Test("cross_section_compare: outer-envelope rms/maxAbs ignore the bore loop (#123)")
+    func outerEnvelopeIgnoresBore() async throws {
+        // Coarse deflection (sparse tessellation) plus a rotated-but-geometrically-
+        // identical reference is exactly the condition #123 reported: before the
+        // fix, rms/maxAbs read close to the bore-to-OD radius gap (~6mm here)
+        // at stations where a sparse bin fell to the bore instead of the true
+        // outer boundary, regardless of the (here, zero) real deviation.
+        let store = try scene([
+            ("from", try boredTube(rotationDegrees: 0)),
+            ("reference", try boredTube(rotationDegrees: 3)),
+        ])
+        defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
+
+        let result = await CrossSectionCompareTool.crossSectionCompare(
+            fromBodyId: "from", referenceBodyId: "reference", axis: SIMD3(0, 0, 1),
+            stations: 8, deflection: 0.4, store: store)
+        #expect(!result.isError, "unexpected error: \(result.text)")
+        let r = try JSONDecoder().decode(CompareReport.self, from: Data(result.text.utf8))
+
+        let valid = r.sections.filter { $0.fromArea > 0 && $0.referenceArea > 0 }
+        #expect(valid.count >= 4, "too few comparable stations to be a meaningful check")
+        for s in valid {
+            // The bore-to-OD gap is 6mm; the bore-to-nothing-else-in-this-fixture
+            // gap has no smaller alternative, so a surviving bug reads close to
+            // that. True deviation between a shape and its own rotation is ~0,
+            // bound well below the bug's signature (not at true-zero) to leave
+            // room for ordinary meshing/binning noise.
+            #expect(s.maxAbs < 1.0, "station \(s.station): maxAbs=\(s.maxAbs), bore loop leaking into the envelope?")
+            #expect(s.rms < 0.3, "station \(s.station): rms=\(s.rms), bore loop leaking into the envelope?")
+        }
+    }
+
     // ── #66: open-shell reference must not read as un-sliced ──────────────
 
     @Test("cross_section_compare: open reference shell still produces sections")

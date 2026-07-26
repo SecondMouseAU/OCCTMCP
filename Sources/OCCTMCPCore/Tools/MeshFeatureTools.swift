@@ -81,11 +81,20 @@ public enum MeshFeatureTools {
             public let maxFoldAngleDegrees: Double
             public let edgeCount: Int
             /// Zone id(s) whose triangles touch this ring's vertices, majority
-            /// first. `nil` when no zones are registered for this body (silent
-            /// — zones are optional context) OR when zones exist but couldn't
-            /// be trusted (stale, or the weld-correspondence guard failed —
-            /// see the file header; a warning names the reason in that case).
+            /// first. `nil` when no zones are registered for this body (silent,
+            /// zones are optional context) OR when zones exist but couldn't be
+            /// trusted (stale, or the weld-correspondence guard failed; see the
+            /// file header, a warning names the reason in that case).
             public let containingZones: [String]?
+            /// Ordered world-coordinate vertex polyline for this ring/path
+            /// (#120), a direct mirror of `CreaseRing.vertexIndices` resolved
+            /// against the welded mesh's vertices, NOT wrapped around for a
+            /// closed ring (use `closed` to decide whether to connect the
+            /// last point back to the first). Only present when
+            /// `includePoints: true` was requested; edge-level verification
+            /// (comparing a built solid's edges against the mesh's own crease
+            /// lines) needs the ordered chain itself, not just ring statistics.
+            public let points: [[Double]]?
         }
         public struct BBox: Encodable {
             public let min: [Double]
@@ -99,6 +108,7 @@ public enum MeshFeatureTools {
         minAngleDegrees: Double = 30,
         maxRings: Int = 64,
         deflection: Double? = nil,
+        includePoints: Bool = false,
         render: Bool = true,
         renderPath: String? = nil,
         options: RenderPreviewTool.Options = .init(),
@@ -209,6 +219,7 @@ public enum MeshFeatureTools {
             }.map(\.key)
         }
 
+        let weldedVerts = welded.vertices
         let entries = rings.enumerated().map { (i, ring) -> FeatureReport.RingEntry in
             FeatureReport.RingEntry(
                 id: "ring:\(bodyId)#\(i)",
@@ -221,7 +232,11 @@ public enum MeshFeatureTools {
                 meanFoldAngleDegrees: ring.meanFoldAngleDegrees,
                 maxFoldAngleDegrees: ring.maxFoldAngleDegrees,
                 edgeCount: ring.closed ? ring.vertexIndices.count : ring.vertexIndices.count - 1,
-                containingZones: containingZones(for: ring)
+                containingZones: containingZones(for: ring),
+                points: includePoints ? ring.vertexIndices.map { idx -> [Double] in
+                    let p = weldedVerts[Int(idx)]
+                    return [Double(p.x), Double(p.y), Double(p.z)]
+                } : nil
             )
         }
 

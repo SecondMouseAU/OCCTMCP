@@ -104,13 +104,36 @@ public struct AnchorSnapshot: Sendable, Codable {
     public var surfaceType: String?
     /// Edge curve type (line / circle / ...). nil for faces/vertices.
     public var curveType: String?
-    /// Geometric centre of a circular edge — the centre of curvature,
+    /// Geometric centre of a circular edge, the centre of curvature,
     /// distinct from `center` (which holds the parameter-midpoint *rim*
     /// point for edges). Lets `add_dimension(radial)` compute an exact
     /// radius from geometry and lets `AnnotationsRenderer.dimension`
-    /// draw a leader from circleCenter → rim. nil for non-edges and
+    /// draw a leader from circleCenter to the rim. nil for non-edges and
     /// non-circular edges.
     public var circleCenter: [Double]?
+    /// Edge start and end points (`[start, end]`, world coordinates), in the
+    /// edge's own topological orientation. Populated for every edge kind,
+    /// not just lines: a colinearity / endpoint-error check against a source
+    /// mesh needs the two endpoints regardless of curve type (#119). nil for
+    /// faces/vertices.
+    public var endpoints: [[Double]]?
+    /// Unit tangent direction. Populated for LINE edges only, where a single
+    /// direction fully describes the edge as a vector in space (#119); a
+    /// curved edge's tangent varies along its length and has no single
+    /// "direction" to report here. nil for faces/vertices/non-line edges.
+    public var direction: [Double]?
+    /// Circle radius (mm). Populated for circular edges only, alongside
+    /// `circleCenter` (#119). nil otherwise.
+    public var radius: Double?
+    /// Unit normal of the circle's plane (its rotation axis). Populated for
+    /// circular edges only (#119). nil otherwise.
+    public var axis: [Double]?
+    /// Start/end parameter of the edge's curve, in radians, measured from the
+    /// circle's own xAxis direction (OCCT's Geom_Circle parametrization:
+    /// point(u) = center + radius * (cos(u) * xDir + sin(u) * yDir), so u IS
+    /// the angle). Populated for circular edges only (#119). nil otherwise.
+    public var startAngle: Double?
+    public var endAngle: Double?
     public init(
         center: [Double],
         normal: [Double]? = nil,
@@ -118,7 +141,13 @@ public struct AnchorSnapshot: Sendable, Codable {
         length: Double? = nil,
         surfaceType: String? = nil,
         curveType: String? = nil,
-        circleCenter: [Double]? = nil
+        circleCenter: [Double]? = nil,
+        endpoints: [[Double]]? = nil,
+        direction: [Double]? = nil,
+        radius: Double? = nil,
+        axis: [Double]? = nil,
+        startAngle: Double? = nil,
+        endAngle: Double? = nil
     ) {
         self.center = center
         self.normal = normal
@@ -127,6 +156,12 @@ public struct AnchorSnapshot: Sendable, Codable {
         self.surfaceType = surfaceType
         self.curveType = curveType
         self.circleCenter = circleCenter
+        self.endpoints = endpoints
+        self.direction = direction
+        self.radius = radius
+        self.axis = axis
+        self.startAngle = startAngle
+        self.endAngle = endAngle
     }
 }
 
