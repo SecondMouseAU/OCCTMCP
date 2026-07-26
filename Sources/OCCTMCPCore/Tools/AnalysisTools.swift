@@ -401,7 +401,7 @@ public enum AnalysisTools {
             case "face-neighbors":
                 let aag = AAG(shape: shape)
                 guard let f = face, f >= 0, f < aag.nodes.count else {
-                    return .init("face-neighbors requires `face` in 0..<\(AAG(shape: shape).nodes.count)", isError: true)
+                    return .init("face-neighbors requires `face` in 0..<\(aag.nodes.count)", isError: true)
                 }
                 let node = aag.nodes[f]
                 let neighbors = aag.neighbors(of: f).sorted().map { nb -> GraphSelectNeighbour in
