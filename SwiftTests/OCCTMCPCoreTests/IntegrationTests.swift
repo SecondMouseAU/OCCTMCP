@@ -1576,6 +1576,216 @@ struct IntegrationTests {
                 "expected matched via bbox inference, got \(entry)")
     }
 
+    @Test("find_correspondences bbox-inference correlates against the selection's OWN body, not an arbitrary one (#131)")
+    func findCorrespondencesBboxInferenceUsesResolvedSourceBody() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built; run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-corrbboxwrong-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // Three bodies. "decoy" is FIRST in the manifest and isn't the
+        // target, so the old "any non-target body" bbox-inference would
+        // pick it: its size happens to match "tgt", so the old code would
+        // have inferred a (wrong) transform from it. "realsrc" is what
+        // sourceSelectionIds actually anchor to, and its size does NOT
+        // match "tgt", so a correctly source-correlated inference must
+        // find no usable size match and fall through to identity, not
+        // silently succeed against "decoy".
+        guard let decoy = Shape.box(width: 20, height: 20, depth: 20),
+              let decoyPlaced = decoy.translated(by: SIMD3(50, 0, 0)),
+              let realSrc = Shape.box(width: 20, height: 20, depth: 35),
+              let realSrcPlaced = realSrc.translated(by: SIMD3(-50, 0, 0)),
+              let tgtShape = Shape.box(width: 20, height: 20, depth: 20),
+              let tgt = tgtShape.translated(by: SIMD3(100, 0, 0)) else {
+            Issue.record("Failed to synthesise boxes")
+            return
+        }
+        try Exporter.writeBREP(shape: decoyPlaced, to: URL(fileURLWithPath: "\(scene)/decoy.brep"))
+        try Exporter.writeBREP(shape: realSrcPlaced, to: URL(fileURLWithPath: "\(scene)/realsrc.brep"))
+        try Exporter.writeBREP(shape: tgt, to: URL(fileURLWithPath: "\(scene)/tgt.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "bbox inference wrong-body test",
+            bodies: [
+                BodyDescriptor(id: "decoy", file: "decoy.brep", color: [1, 0, 0, 1]),
+                BodyDescriptor(id: "realsrc", file: "realsrc.brep", color: [0, 1, 0, 1]),
+                BodyDescriptor(id: "tgt", file: "tgt.brep", color: [0, 0, 1, 1]),
+            ]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        try harness.send(.init(
+            id: 130, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("realsrc"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = (try? JSONSerialization.jsonObject(with: d1)) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+        #expect(selectionId.hasPrefix("sel:realsrc#"), "expected a realsrc selection, got \(selectionId)")
+
+        try harness.send(.init(
+            id: 131, method: "tools/call",
+            params: .object([
+                "name": .string("find_correspondences"),
+                "arguments": .object([
+                    "sourceSelectionIds": .array([.string(selectionId)]),
+                    "targetBodyId": .string("tgt"),
+                ]),
+            ])
+        ))
+        let resp = try harness.recv(timeout: 10)
+        guard case .object(let r2)? = resp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let parsed = (try? JSONSerialization.jsonObject(with: d2)) as? [String: Any] else {
+            Issue.record("find_correspondences response unexpected: \(resp)")
+            return
+        }
+        // The old code would report "bbox-inference" here (wrongly
+        // correlated against "decoy"). Fixed: realsrc's size doesn't match
+        // tgt's, so inference correctly finds nothing usable and falls
+        // through to identity, never touching "decoy" at all.
+        #expect(parsed["transformSource"] as? String == "identity-fallback",
+                "expected identity-fallback (realsrc's size doesn't match tgt's), got transformSource=\(parsed["transformSource"] ?? "nil"); a non-identity result here means the wrong body (decoy) was used")
+    }
+
+    @Test("find_correspondences ignores stale provenance recorded for a different source body (#131)")
+    func findCorrespondencesRejectsMismatchedProvenance() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built; run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-corrprovmismatch-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        // "a" gets mirrored into "mirror-a", recording provenance keyed by
+        // "mirror-a" with sourceBodyId "a". "b" is unrelated and a
+        // different size, so it has no size-matching bbox-inference path
+        // to "mirror-a" either. sourceSelectionIds anchor to "b", not "a":
+        // the stale "a" provenance must not be silently applied.
+        guard let a = Shape.box(width: 20, height: 20, depth: 20),
+              let aPlaced = a.translated(by: SIMD3(20, 0, 0)),
+              let b = Shape.box(width: 20, height: 20, depth: 40),
+              let bPlaced = b.translated(by: SIMD3(-40, 0, 0)) else {
+            Issue.record("Failed to synthesise boxes")
+            return
+        }
+        try Exporter.writeBREP(shape: aPlaced, to: URL(fileURLWithPath: "\(scene)/a.brep"))
+        try Exporter.writeBREP(shape: bPlaced, to: URL(fileURLWithPath: "\(scene)/b.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "provenance mismatch test",
+            bodies: [
+                BodyDescriptor(id: "a", file: "a.brep", color: [1, 0, 0, 1]),
+                BodyDescriptor(id: "b", file: "b.brep", color: [0, 1, 0, 1]),
+            ]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // Mirror "a": this writes provenance.json keyed by "mirror-a"
+        // with sourceBodyId "a".
+        try harness.send(.init(
+            id: 140, method: "tools/call",
+            params: .object([
+                "name": .string("mirror_or_pattern"),
+                "arguments": .object([
+                    "bodyId": .string("a"),
+                    "kind": .string("mirror"),
+                    "params": .object([
+                        "planeOrigin": .array([.double(0), .double(0), .double(0)]),
+                        "planeNormal": .array([.double(1), .double(0), .double(0)]),
+                    ]),
+                ]),
+            ])
+        ))
+        _ = try harness.recv(timeout: 30)
+
+        // Pick a face on "b", unrelated to the "a" -> "mirror-a" provenance.
+        try harness.send(.init(
+            id: 141, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("b"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = (try? JSONSerialization.jsonObject(with: d1)) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+        #expect(selectionId.hasPrefix("sel:b#"), "expected a 'b' selection, got \(selectionId)")
+
+        try harness.send(.init(
+            id: 142, method: "tools/call",
+            params: .object([
+                "name": .string("find_correspondences"),
+                "arguments": .object([
+                    "sourceSelectionIds": .array([.string(selectionId)]),
+                    "targetBodyId": .string("mirror-a"),
+                ]),
+            ])
+        ))
+        let resp = try harness.recv(timeout: 10)
+        guard case .object(let r2)? = resp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let parsed = (try? JSONSerialization.jsonObject(with: d2)) as? [String: Any] else {
+            Issue.record("find_correspondences response unexpected: \(resp)")
+            return
+        }
+        // The old code would report "provenance" here (blindly applying
+        // "a"'s mirror transform to a "b" selection). Fixed: the mismatch
+        // is detected, provenance is rejected, and since "b"'s size
+        // doesn't match "mirror-a" either, it falls all the way through
+        // to identity-fallback with a warning about the ignored provenance.
+        #expect(parsed["transformSource"] as? String == "identity-fallback",
+                "expected identity-fallback (stale 'a' provenance must be rejected for a 'b' source), got transformSource=\(parsed["transformSource"] ?? "nil")")
+        let warnings = parsed["warnings"] as? [String] ?? []
+        #expect(warnings.contains { $0.contains("provenance") && $0.contains("mirror-a") },
+                "expected a warning about the ignored mismatched provenance, got warnings=\(warnings)")
+    }
+
     @Test("annotation tools round-trip via the sidecar")
     func annotationsRoundTrip() async throws {
         guard let binary = Self.binaryURL else {

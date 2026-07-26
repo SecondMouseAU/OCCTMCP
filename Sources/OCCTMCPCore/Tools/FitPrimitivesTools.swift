@@ -1,10 +1,10 @@
-// FitPrimitivesTools — `fit_primitives` (#107). The RANSAC primitive report
+// FitPrimitivesTools: `fit_primitives` (#107). The RANSAC primitive report
 // over a body's (or one zone's) mesh: `OCCTSwiftMesh.Mesh.segmentedRANSAC(_:)`
 // / `segmentedAutoSelect(dihedral:ransac:)` (OCCTSwiftMesh#27/#32, >=1.7.0),
 // wrapped in the same JSON-report + categorical-render conventions
 // MeshZoneTools/ZoneSweepTool established.
 //
-// WHY THIS IS A SEPARATE TOOL FROM `segment_mesh_zones` — Schnabel-style
+// WHY THIS IS A SEPARATE TOOL FROM `segment_mesh_zones`: Schnabel-style
 // RANSAC claims GLOBAL inliers: every triangle within tolerance of a fitted
 // candidate counts, wherever it sits in the mesh, not just triangles
 // contiguous with where the candidate was sampled. `segment_mesh_zones`'s
@@ -17,9 +17,9 @@
 // recur elsewhere in the mesh." See docs/algorithms/ransac-segmentation.md
 // (OCCTSwiftMesh) for the full algorithm writeup.
 //
-// PIPELINE — resolve body (whole mesh) or zone (ZoneRegistry, re-meshed at
+// PIPELINE: resolve body (whole mesh) or zone (ZoneRegistry, re-meshed at
 // the zone's OWN stored deflection + a MeshSignature staleness check +
-// subMesh — the IDENTICAL resolution path ZoneSweepTool.zoneContinuitySweep
+// subMesh: the IDENTICAL resolution path ZoneSweepTool.zoneContinuitySweep
 // uses, for the identical reason: `triangleIndices` only lines up with a mesh
 // built at that exact deflection) -> `segmentedRANSAC` (strategy "ransac",
 // default) or `segmentedAutoSelect` (strategy "auto") -> primitive table
@@ -28,7 +28,7 @@
 // trick, reimplemented here rather than shared since each mesh-analysis tool
 // owns its own render helper, e.g. ZoneSweepTool.renderVerdicts).
 //
-// UNCOVERED VS. CAPPED — kept strictly separate, per design intent, because
+// UNCOVERED VS. CAPPED: kept strictly separate, per design intent, because
 // conflating them under RANSAC's "global inliers" story would misrepresent
 // two very different situations: "genuinely no primitive claims this
 // triangle" vs. "a primitive claimed it, but `maxPrimitives` cut the REPORT
@@ -36,16 +36,16 @@
 // tell these apart when a caller passes its own cap straight into
 // `RANSACSegmentOptions.maxRegions` (the library conflates "never claimed"
 // and "cut by the cap" into that one number, by its own docs). This tool
-// therefore NEVER passes `maxPrimitives` into the library call itself —
+// therefore NEVER passes `maxPrimitives` into the library call itself:
 // it always asks for every region the algorithm found (`maxRegions: nil`),
 // computes `uncoveredFraction` from THAT unbounded `truncatedTriangleCount`,
 // and only then applies `maxPrimitives` itself against the already
 // largest-first-sorted `regions`/`fits` arrays, warning separately (with its
 // own triangle count) about whatever it trims. `uncoveredFraction` therefore
-// always means "no primitive, at any cap, claimed this triangle" — it never
+// always means "no primitive, at any cap, claimed this triangle": it never
 // moves just because `maxPrimitives` got smaller.
 //
-// STRATEGY "auto" — `segmentedAutoSelect` shares the SAME `SegmentedMesh`
+// STRATEGY "auto": `segmentedAutoSelect` shares the SAME `SegmentedMesh`
 // result type across both dihedral growing and RANSAC (by upstream design,
 // see SegmentedMesh's own doc comment), so no special-casing is needed
 // downstream of the bake-off: `strategyScores.chosen` names which one won,
@@ -55,7 +55,7 @@
 // compared on a consistent floor rather than RANSAC's own default silently
 // diverging from dihedral's.
 //
-// DETERMINISM — inherited from the upstream primitive: `segmentedRANSAC`
+// DETERMINISM: inherited from the upstream primitive: `segmentedRANSAC`
 // draws candidates via a deterministic splitmix64 hash (no system RNG), so
 // two calls with identical arguments against an unchanged mesh return
 // byte-identical primitive tables.
@@ -85,7 +85,7 @@ public enum FitPrimitivesTools {
         /// Largest-support-first, matching `SegmentedMesh.regions`' own order.
         public let primitives: [PrimitiveEntry]
         /// Fraction of the fitted mesh's triangles that NO primitive ever claimed as an inlier,
-        /// computed BEFORE any `maxPrimitives` cap — see the file header's "uncovered vs.
+        /// computed BEFORE any `maxPrimitives` cap, see the file header's "uncovered vs.
         /// capped" note. Never moves when `maxPrimitives` shrinks the report.
         public let uncoveredFraction: Double
         public let renderPath: String?
@@ -132,61 +132,26 @@ public enum FitPrimitivesTools {
         let shape = loaded.shape
 
         var warnings: [String] = []
-        var zoneRecord: ZoneRecord? = nil
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let zonesStore = ZonesStore(outputDir: outputDir)
 
-        // Zone resolution: the SAME path ZoneSweepTool.zoneContinuitySweep uses (re-mesh at the
-        // zone's own stored deflection, or triangleIndices no longer lines up with a freshly
-        // built mesh's triangle order).
-        var meshDeflection = deflection ?? DeviationTools.defaultDeflection(for: shape)
-        if let zid = zoneId {
-            await registry.loadSidecarIfNeeded(store: zonesStore)
-            guard let rec = await registry.zone(zid) else {
-                return .init("Unknown zoneId \"\(zid)\". Run segment_mesh_zones first, or list_zones to see what's registered.", isError: true)
-            }
-            guard rec.bodyId == bodyId else {
-                return .init("zoneId \"\(zid)\" belongs to body \"\(rec.bodyId)\", not \"\(bodyId)\".", isError: true)
-            }
-            zoneRecord = rec
-            meshDeflection = rec.params.deflection
-            if let requested = deflection, abs(requested - rec.params.deflection) > 1e-12 {
-                warnings.append("deflection argument (\(requested)) ignored for a zoneId-scoped fit: re-meshing at the zone's own segmentation deflection (\(rec.params.deflection)) so triangleIndices stay valid.")
-            }
-        }
-        guard meshDeflection > 0 else { return .init("deflection must be positive.", isError: true) }
-
-        let meshParams = DeviationTools.standardMeshParameters(deflection: meshDeflection)
-        guard let fullMesh = shape.mesh(parameters: meshParams), fullMesh.triangleCount > 0 else {
-            return .init("Failed to tessellate '\(bodyId)'.", isError: true)
-        }
-
-        let fitMesh: Mesh
-        if let rec = zoneRecord {
-            let bb = shape.bounds
-            let sig = MeshSignature(
-                triangleCount: fullMesh.triangleCount,
-                bboxMin: [Double(bb.min.x), Double(bb.min.y), Double(bb.min.z)],
-                bboxMax: [Double(bb.max.x), Double(bb.max.y), Double(bb.max.z)]
+        // Zone resolution: the SAME path ZoneSweepTool.zoneContinuitySweep uses (#134: extracted
+        // to ZoneSweepTool.resolveZoneMesh, the single copy both tools call).
+        let resolution: ZoneSweepTool.ZoneMeshResolution
+        do {
+            resolution = try await ZoneSweepTool.resolveZoneMesh(
+                shape: shape, bodyId: bodyId, deflection: deflection, zoneId: zoneId,
+                verb: "fit", registry: registry, zonesStore: zonesStore, warnings: &warnings
             )
-            guard sig.matches(rec.meshSignature) else {
-                return .init(
-                    "Zone \"\(rec.zoneId)\" is stale: body \"\(bodyId)\"'s mesh no longer matches the mesh it was segmented from (triangle count / bounding box changed). Re-run segment_mesh_zones.",
-                    isError: true
-                )
-            }
-            guard let sub = fullMesh.subMesh(triangleIndices: rec.triangleIndices) else {
-                return .init("Failed to extract zone \"\(rec.zoneId)\"'s triangles from the current mesh.", isError: true)
-            }
-            fitMesh = sub
-        } else {
-            fitMesh = fullMesh
+        } catch {
+            return .init("\(error)", isError: true)
         }
+        let fitMesh = resolution.mesh
         guard fitMesh.triangleCount > 0 else { return .init("Zone/body has no triangles to fit.", isError: true) }
 
         let totalTriangles = fitMesh.triangleCount
 
-        // Always unbounded at the library call (maxRegions: nil) regardless of `maxPrimitives` —
+        // Always unbounded at the library call (maxRegions: nil) regardless of `maxPrimitives`,
         // see the file header's "uncovered vs. capped" note. `maxPrimitives` is applied ourselves,
         // below, against the already largest-first-sorted regions/fits.
         var ransacOptions = Mesh.RANSACSegmentOptions()
@@ -226,7 +191,7 @@ public enum FitPrimitivesTools {
         }
 
         // maxPrimitives cap: applied ourselves, after the fact, against the already
-        // largest-first-sorted regions/fits — kept separate from uncoveredFraction above.
+        // largest-first-sorted regions/fits, kept separate from uncoveredFraction above.
         var regions = segResult.regions
         var fits = segResult.fits
         if let rawCap = maxPrimitives {
@@ -238,7 +203,7 @@ public enum FitPrimitivesTools {
                 regions = Array(regions.prefix(cap))
                 fits = Array(fits.prefix(cap))
                 warnings.append(
-                    "maxPrimitives=\(cap) capped the report: \(cutCount) smaller primitive(s) covering \(cutTriangles) triangles were dropped from `primitives` (they WERE claimed by a primitive, unlike uncoveredFraction's triangles — not double-counted there)."
+                    "maxPrimitives=\(cap) capped the report: \(cutCount) smaller primitive(s) covering \(cutTriangles) triangles were dropped from `primitives` (they WERE claimed by a primitive, unlike uncoveredFraction's triangles, not double-counted there)."
                 )
             }
         }
