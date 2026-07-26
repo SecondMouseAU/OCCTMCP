@@ -1,4 +1,4 @@
-// CorrespondenceTools — find_correspondences. Maps selectionIds from a
+// CorrespondenceTools: find_correspondences. Maps selectionIds from a
 // source body onto a target body that's a known transform of the source
 // (typically a `mirror_or_pattern` output, but works for any pair of
 // same-topology bodies under a given transform).
@@ -10,7 +10,7 @@
 //     selectionId Y on body B under transform T". Returns target
 //     selectionId per source id.
 //
-// pattern instances aren't OCCT-derivatives of the source — they're
+// pattern instances aren't OCCT-derivatives of the source: they're
 // independent Shapes that share topology under a transform. There's no
 // history relationship to walk; the algorithm is pure geometry: apply
 // the transform to each source anchor's centroid, then find the
@@ -145,9 +145,15 @@ public enum CorrespondenceTools {
         /// `"explicit"` (caller-supplied), `"provenance"` (read from
         /// `<output_dir>/provenance.json`), `"bbox-inference"`
         /// (translation derived from bbox alignment), or
-        /// `"identity-fallback"` (no hint and inference failed —
+        /// `"identity-fallback"` (no hint and inference failed:
         /// returns a zero-translation default).
         public let transformSource: String
+        /// Non-empty when a fallback was skipped or rejected rather than
+        /// silently applied against the wrong body (#131): a stale
+        /// provenance record recorded for a different source body, or
+        /// `sourceSelectionIds` spanning more than one body (which neither
+        /// fallback can honestly correlate against a single target).
+        public let warnings: [String]
     }
 
     /// Resolve correspondences from `sourceSelectionIds` onto `targetBodyId`
@@ -156,11 +162,11 @@ public enum CorrespondenceTools {
     /// the snapshot, or recomputed from the source BREP) is transformed,
     /// then matched against the same-kind sub-shapes of the target body
     /// by minimum centroid distance. Tolerance defaults to 1% of the
-    /// target body's bbox diagonal — same sizing as remap_selection's
+    /// target body's bbox diagonal: same sizing as remap_selection's
     /// heuristic so confidence values are directly comparable.
     ///
     /// `transform` is optional. When omitted:
-    ///   1. read `<output_dir>/provenance.json` — `mirror_or_pattern`
+    ///   1. read `<output_dir>/provenance.json`: `mirror_or_pattern`
     ///      records its mirror plane there for every output body.
     ///   2. fall back to bbox-translation inference: source and
     ///      target bbox sizes match, transform is the centroid delta.
@@ -197,23 +203,58 @@ public enum CorrespondenceTools {
         let targetShape = targetLineage.shape
         let targetGraph = targetLineage.graph
 
-        // Resolve the effective transform — explicit hint wins; then
+        // Resolve the effective transform: explicit hint wins; then
         // provenance.json (mirror_or_pattern's record); then bbox
         // inference. If all three fail we report transform=nil but
         // continue with identity, since the caller might just want
         // index-aligned matching on truly identical bodies.
+        //
+        // #131: the provenance and bbox-inference fallbacks both need to
+        // know which body `sourceSelectionIds` actually anchor to, so they
+        // can refuse to correlate against provenance/geometry recorded for
+        // a DIFFERENT body instead of silently applying it. A selectionId's
+        // bodyId is embedded in the string itself (self-describing, no
+        // registry round-trip needed): that's the ground truth, since
+        // `sourceSelectionIds`, not a `sourceBodyId` argument, is what the
+        // caller actually passes. When they span more than one body,
+        // neither fallback can honestly pick a single source to correlate
+        // against, so both are skipped in favor of the honest
+        // identity-fallback.
+        let sourceBodyIds = Set(sourceSelectionIds.compactMap { TopologyAnchor.parse($0)?.bodyId })
+        let resolvedSourceBodyId = sourceBodyIds.count == 1 ? sourceBodyIds.first : nil
+
+        var warnings: [String] = []
+        if transform == nil, sourceBodyIds.count > 1 {
+            warnings.append(
+                "sourceSelectionIds resolve to \(sourceBodyIds.count) different bodies (\(sourceBodyIds.sorted().joined(separator: ", "))); provenance and bbox-inference fallbacks need a single source body to correlate against, so both were skipped in favor of an identity transform."
+            )
+        }
+
+        func validatedProvenance(sourceBodyId: String) -> TransformHint? {
+            guard let prov = ProvenanceStore(outputDir: outputDir).read()[targetBodyId] else { return nil }
+            guard prov.sourceBodyId == sourceBodyId else {
+                warnings.append(
+                    "Ignored provenance for \"\(targetBodyId)\": recorded against source body \"\(prov.sourceBodyId)\", but sourceSelectionIds resolve to \"\(sourceBodyId)\"."
+                )
+                return nil
+            }
+            return prov.transform
+        }
+
         let resolvedTransform: TransformHint
         let transformSource: String
         if let hint = transform {
             resolvedTransform = hint
             transformSource = "explicit"
-        } else if let prov = ProvenanceStore(outputDir: outputDir).read()[targetBodyId] {
-            resolvedTransform = prov.transform
+        } else if let srcId = resolvedSourceBodyId, let prov = validatedProvenance(sourceBodyId: srcId) {
+            resolvedTransform = prov
             transformSource = "provenance"
-        } else if let inferred = inferTranslation(
-            manifest: manifest, outputDir: outputDir,
-            targetShape: targetShape, targetBodyId: targetBodyId
-        ) {
+        } else if let srcId = resolvedSourceBodyId,
+                  let inferred = inferTranslation(
+                      manifest: manifest, outputDir: outputDir,
+                      targetShape: targetShape, targetBodyId: targetBodyId,
+                      sourceBodyId: srcId
+                  ) {
             resolvedTransform = inferred
             transformSource = "bbox-inference"
         } else {
@@ -259,7 +300,7 @@ public enum CorrespondenceTools {
                 continue
             }
 
-            // Resolve source centroid — registry snapshot first (cheap),
+            // Resolve source centroid: registry snapshot first (cheap),
             // BREP recompute as fallback.
             let snapshot = await registry.snapshot(for: sid)
             let sourceCentroid: SIMD3<Double>?
@@ -286,7 +327,7 @@ public enum CorrespondenceTools {
 
             switch anchor {
             case .body:
-                // Whole-body picks always rebind to the target body —
+                // Whole-body picks always rebind to the target body,
                 // no geometry matching needed.
                 let newAnchor = TopologyAnchor.body(bodyId: targetBodyId)
                 out.append(.init(
@@ -339,7 +380,8 @@ public enum CorrespondenceTools {
 
         return IntrospectionTools.encode(CorrespondencesReport(
             correspondences: out,
-            transformSource: transformSource
+            transformSource: transformSource,
+            warnings: warnings
         ))
     }
 
@@ -441,23 +483,25 @@ public enum CorrespondenceTools {
 
     /// Infer a translation transform from how source and target
     /// bounding boxes align. Returns nil if the boxes have meaningfully
-    /// different sizes (which would imply rotation / scale / mirror —
+    /// different sizes (which would imply rotation / scale / mirror,
     /// none of which we attempt to recover from bbox alone).
     ///
     /// The provenance path handles `mirror_or_pattern` outputs cleanly;
     /// this is the catch-all for "the LLM duplicated something via
     /// `execute_script` and didn't bother to record a transform."
+    ///
+    /// `sourceBodyId` is the body `sourceSelectionIds` actually resolve to
+    /// (#131): it used to be "any body that isn't the target," picked
+    /// with no correlation to the caller's real source, which could
+    /// silently compare the wrong pair when the scene has 3+ bodies.
     private static func inferTranslation(
         manifest: ScriptManifest,
         outputDir: String,
         targetShape: Shape,
-        targetBodyId: String
+        targetBodyId: String,
+        sourceBodyId: String
     ) -> TransformHint? {
-        // Pick any source body that isn't the target. Multi-source
-        // selection workflows pass the source explicitly via the
-        // selectionId prefix, but for inference we just need ONE shape
-        // to compare bboxes against.
-        guard let sourceBody = manifest.bodies.first(where: { $0.id != targetBodyId }),
+        guard let sourceBody = manifest.body(withId: sourceBodyId),
               let sourceShape = try? Shape.loadBREP(fromPath: "\(outputDir)/\(sourceBody.file)") else {
             return nil
         }

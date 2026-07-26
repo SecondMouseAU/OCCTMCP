@@ -1,4 +1,4 @@
-// ZoneSweepTool — `zone_continuity_sweep` (#102). A zone's (or a whole
+// ZoneSweepTool: `zone_continuity_sweep` (#102). A zone's (or a whole
 // body's) loftable-extent map: slice along an axis, compare each station's
 // profile against a running reference, and report the maximal within-
 // tolerance runs (the completable / loftable extents) plus the deviation
@@ -126,7 +126,7 @@ public enum ZoneSweepTool {
     }
 
     /// Slippage kinds (#109, OCCTSwiftMesh#26/#31) whose `axisDirection` is a
-    /// valid SWEEP direction. Plane's axis is the surface NORMAL — sweeping
+    /// valid SWEEP direction. Plane's axis is the surface NORMAL: sweeping
     /// along it is exactly wrong, not merely unhelpful. Sphere has no
     /// preferred axis at all, and freeform has neither; both are excluded by
     /// construction (their `ZoneSlippage.axisDirection` is `nil`), but kept
@@ -137,7 +137,7 @@ public enum ZoneSweepTool {
     /// Confidence floor below which a slippage classification is too
     /// uncertain to default the sweep axis to. Mirrors the upstream
     /// semantics of `SlippageResult.confidence` (a spectral-gap diagnostic,
-    /// not a probability — docs/algorithms/slippage.md, OCCTSwiftMesh#26/
+    /// not a probability, docs/algorithms/slippage.md, OCCTSwiftMesh#26/
     /// #31): a gap barely past the detection floor means the classification
     /// itself is close to arbitrary, which is exactly the case a near-
     /// symmetric body (no clean eigenvalue separation to begin with)
@@ -152,7 +152,7 @@ public enum ZoneSweepTool {
         public let warning: String?
     }
 
-    /// Picks the sweep axis in priority order — pure and geometry-free (the
+    /// Picks the sweep axis in priority order: pure and geometry-free (the
     /// actual PCA computation, when this returns `axis: nil`, is the
     /// caller's job; this only decides WHETHER to use it):
     ///
@@ -230,6 +230,107 @@ public enum ZoneSweepTool {
         return v
     }
 
+    // MARK: - Zone mesh resolution (shared with FitPrimitivesTools, #134)
+
+    /// The result of resolving a `bodyId`/`zoneId` pair to a mesh: either the
+    /// zone's own sub-mesh (with the `ZoneRecord` it came from) or the whole
+    /// body's mesh when `zoneId` is nil.
+    struct ZoneMeshResolution {
+        let mesh: Mesh
+        let zoneRecord: ZoneRecord?
+    }
+
+    enum ZoneMeshResolutionError: Error, CustomStringConvertible {
+        case unknownZoneId(String)
+        case zoneBodyMismatch(zoneId: String, ownerBodyId: String, requestedBodyId: String)
+        case nonPositiveDeflection
+        case tessellationFailed(bodyId: String)
+        case staleZone(zoneId: String, bodyId: String)
+        case subMeshExtractionFailed(zoneId: String)
+
+        var description: String {
+            switch self {
+            case .unknownZoneId(let id):
+                return "Unknown zoneId \"\(id)\". Run segment_mesh_zones first, or list_zones to see what's registered."
+            case .zoneBodyMismatch(let zoneId, let ownerBodyId, let requestedBodyId):
+                return "zoneId \"\(zoneId)\" belongs to body \"\(ownerBodyId)\", not \"\(requestedBodyId)\"."
+            case .nonPositiveDeflection:
+                return "deflection must be positive."
+            case .tessellationFailed(let bodyId):
+                return "Failed to tessellate '\(bodyId)'."
+            case .staleZone(let zoneId, let bodyId):
+                return "Zone \"\(zoneId)\" is stale: body \"\(bodyId)\"'s mesh no longer matches the mesh it was segmented from (triangle count / bounding box changed). Re-run segment_mesh_zones."
+            case .subMeshExtractionFailed(let zoneId):
+                return "Failed to extract zone \"\(zoneId)\"'s triangles from the current mesh."
+            }
+        }
+    }
+
+    /// Resolve `bodyId`/`zoneId` to a mesh, re-meshing at the zone's own
+    /// stored deflection when `zoneId` is given (never a caller-supplied
+    /// one, since `triangleIndices` only lines up with a mesh built at that
+    /// exact deflection). Was independently duplicated between
+    /// `zone_continuity_sweep` and `fit_primitives` (#134, the same
+    /// copy-paste-recipe failure #125 fixed for `MeshParameters`); this is
+    /// the single copy both call.
+    ///
+    /// `verb` names the calling tool's action ("sweep", "fit") for the
+    /// deflection-mismatch warning's wording only; it changes no behavior.
+    /// Warnings are appended to the caller's own accumulator via `inout`
+    /// rather than returned separately, since both callers already keep a
+    /// running `warnings` array they add to before and after this call.
+    static func resolveZoneMesh(
+        shape: Shape,
+        bodyId: String,
+        deflection: Double?,
+        zoneId: String?,
+        verb: String,
+        registry: ZoneRegistry,
+        zonesStore: ZonesStore,
+        warnings: inout [String]
+    ) async throws -> ZoneMeshResolution {
+        var meshDeflection = deflection ?? DeviationTools.defaultDeflection(for: shape)
+        var zoneRecord: ZoneRecord? = nil
+        if let zid = zoneId {
+            await registry.loadSidecarIfNeeded(store: zonesStore)
+            guard let rec = await registry.zone(zid) else {
+                throw ZoneMeshResolutionError.unknownZoneId(zid)
+            }
+            guard rec.bodyId == bodyId else {
+                throw ZoneMeshResolutionError.zoneBodyMismatch(zoneId: zid, ownerBodyId: rec.bodyId, requestedBodyId: bodyId)
+            }
+            zoneRecord = rec
+            meshDeflection = rec.params.deflection
+            if let requested = deflection, abs(requested - rec.params.deflection) > 1e-12 {
+                warnings.append("deflection argument (\(requested)) ignored for a zoneId-scoped \(verb): re-meshing at the zone's own segmentation deflection (\(rec.params.deflection)) so triangleIndices stay valid.")
+            }
+        }
+        guard meshDeflection > 0 else { throw ZoneMeshResolutionError.nonPositiveDeflection }
+
+        let meshParams = DeviationTools.standardMeshParameters(deflection: meshDeflection)
+        guard let fullMesh = shape.mesh(parameters: meshParams), fullMesh.triangleCount > 0 else {
+            throw ZoneMeshResolutionError.tessellationFailed(bodyId: bodyId)
+        }
+
+        guard let rec = zoneRecord else {
+            return ZoneMeshResolution(mesh: fullMesh, zoneRecord: nil)
+        }
+
+        let bb = shape.bounds
+        let sig = MeshSignature(
+            triangleCount: fullMesh.triangleCount,
+            bboxMin: [Double(bb.min.x), Double(bb.min.y), Double(bb.min.z)],
+            bboxMax: [Double(bb.max.x), Double(bb.max.y), Double(bb.max.z)]
+        )
+        guard sig.matches(rec.meshSignature) else {
+            throw ZoneMeshResolutionError.staleZone(zoneId: rec.zoneId, bodyId: bodyId)
+        }
+        guard let sub = fullMesh.subMesh(triangleIndices: rec.triangleIndices) else {
+            throw ZoneMeshResolutionError.subMeshExtractionFailed(zoneId: rec.zoneId)
+        }
+        return ZoneMeshResolution(mesh: sub, zoneRecord: rec)
+    }
+
     // MARK: - Tool
 
     public struct SweepReport: Encodable {
@@ -294,56 +395,20 @@ public enum ZoneSweepTool {
         let shape = loaded.shape
 
         var warnings: [String] = []
-        var zoneRecord: ZoneRecord? = nil
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let zonesStore = ZonesStore(outputDir: outputDir)
 
-        // A zone-scoped sweep MUST re-mesh at the SAME deflection the zone
-        // was segmented with, or `triangleIndices` no longer lines up with a
-        // freshly-built mesh's triangle order.
-        var meshDeflection = deflection ?? DeviationTools.defaultDeflection(for: shape)
-        if let zid = zoneId {
-            await registry.loadSidecarIfNeeded(store: zonesStore)
-            guard let rec = await registry.zone(zid) else {
-                return .init("Unknown zoneId \"\(zid)\". Run segment_mesh_zones first, or list_zones to see what's registered.", isError: true)
-            }
-            guard rec.bodyId == bodyId else {
-                return .init("zoneId \"\(zid)\" belongs to body \"\(rec.bodyId)\", not \"\(bodyId)\".", isError: true)
-            }
-            zoneRecord = rec
-            meshDeflection = rec.params.deflection
-            if let requested = deflection, abs(requested - rec.params.deflection) > 1e-12 {
-                warnings.append("deflection argument (\(requested)) ignored for a zoneId-scoped sweep: re-meshing at the zone's own segmentation deflection (\(rec.params.deflection)) so triangleIndices stay valid.")
-            }
-        }
-        guard meshDeflection > 0 else { return .init("deflection must be positive.", isError: true) }
-
-        let meshParams = DeviationTools.standardMeshParameters(deflection: meshDeflection)
-        guard let fullMesh = shape.mesh(parameters: meshParams), fullMesh.triangleCount > 0 else {
-            return .init("Failed to tessellate '\(bodyId)'.", isError: true)
-        }
-
-        let sliceMesh: Mesh
-        if let rec = zoneRecord {
-            let bb = shape.bounds
-            let sig = MeshSignature(
-                triangleCount: fullMesh.triangleCount,
-                bboxMin: [Double(bb.min.x), Double(bb.min.y), Double(bb.min.z)],
-                bboxMax: [Double(bb.max.x), Double(bb.max.y), Double(bb.max.z)]
+        let resolution: ZoneMeshResolution
+        do {
+            resolution = try await resolveZoneMesh(
+                shape: shape, bodyId: bodyId, deflection: deflection, zoneId: zoneId,
+                verb: "sweep", registry: registry, zonesStore: zonesStore, warnings: &warnings
             )
-            guard sig.matches(rec.meshSignature) else {
-                return .init(
-                    "Zone \"\(rec.zoneId)\" is stale: body \"\(bodyId)\"'s mesh no longer matches the mesh it was segmented from (triangle count / bounding box changed). Re-run segment_mesh_zones.",
-                    isError: true
-                )
-            }
-            guard let sub = fullMesh.subMesh(triangleIndices: rec.triangleIndices) else {
-                return .init("Failed to extract zone \"\(rec.zoneId)\"'s triangles from the current mesh.", isError: true)
-            }
-            sliceMesh = sub
-        } else {
-            sliceMesh = fullMesh
+        } catch {
+            return .init("\(error)", isError: true)
         }
+        let zoneRecord = resolution.zoneRecord
+        let sliceMesh = resolution.mesh
 
         // ── axis + station placement (mirrors CrossSectionCompareTool) ──
         let sliceVerts = sliceMesh.vertices
