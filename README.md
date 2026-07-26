@@ -8,7 +8,7 @@ MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD
 
 Part of the [OCCTSwift ecosystem](https://github.com/SecondMouseAU/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
 
-The Swift implementation calls OCCT directly in-process — no subprocess, no JSONL marshalling — and exposes 74 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, alignment, and dimension overlays.
+The Swift implementation calls OCCT directly in-process (no subprocess, no JSONL marshalling) and exposes 75 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, alignment, and dimension overlays.
 
 ## How It Works
 
@@ -23,7 +23,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 ## Tools
 
-74 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot — useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
+75 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot, useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
 
 ### Authoring
 
@@ -98,6 +98,7 @@ Against a watertight reference these are the same surface and the families agree
 |------|---------|
 | `deviation_histogram` | Signed point-to-surface deviation distribution: μ / σ / median / p95 / proud-shy extremes, percent within ±tolerance, bucket histogram + optional PNG. A non-zero mean or bimodal shape ⇒ systematic error |
 | `cross_section_compare` | Slice both bodies at N stations across their shared axis-extent overlap; per-section signed-mean / RMS / area-ratio / centroid-offset + a pose-robust radial shape scalar, with overlay PNGs. Default `outerEnvelope` mode compares against the reference's outer boundary per angular direction so inner window-return / frame paths of a thin-wall or scanned part don't pollute the aggregate; each station reports `axisCoord` (world position along the axis). Handles open-shell references (raw scan / STL skin) whose sections are open arcs, reports the `overlap` range, and warns on stations that sliced only one body. The highest-leverage detector of a wrong-shape section |
+| `symmetric_difference_volume` (#122) | The direct geometric fidelity figure a mean/RMS surface deviation can hide via cancellation: the two one-sided volumes between a candidate and a reference (excess-only, missing-only) and their sum, via `OCCTSwiftMesh`'s generalized winding number (robust against an open/non-watertight/self-intersecting reference, unlike `boolean_op`'s subtract, which fails outright against one). Deterministic Halton-sequence Monte Carlo sampling; reports a standard error and an exact-BREP-volume cross-check where available |
 | `signed_deviation_heatmap` | Render the candidate surface coloured by signed distance (proud = red, shy = blue) through a diverging colormap with a colorbar legend. Triangles whose sign can't be established against an open/thin-walled reference render grey (`ambiguousTriangles`/`ambiguousFraction`, excluded from signedMin/Max/Mean) rather than a coin-flip red/blue — see `signMode` above |
 | `overlay_render` | Render the reference mesh semi-transparent over the opaque candidate solid — see the departure in 3D |
 
@@ -196,7 +197,7 @@ LLM read/write over an attributed reconstruction graph — annotate per-node dec
 
 This repo ships two implementations side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`) — the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 74 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
+- **Swift** (`Sources/`, `Package.swift`): the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 75 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
 
 Both speak stdio MCP and read/write the same manifest format.

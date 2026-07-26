@@ -10,7 +10,7 @@ These tools read the current scene without modifying it: validating geometry, qu
 
 ## Tools
 
-[`validate_geometry`](#validate_geometry) · [`compute_metrics`](#compute_metrics) · [`query_topology`](#query_topology) · [`measure_distance`](#measure_distance) · [`measure_deviation`](#measure_deviation) · [`deviation_histogram`](#deviation_histogram) · [`cross_section_compare`](#cross_section_compare) · [`recognize_features`](#recognize_features) · [`inspect_assembly`](#inspect_assembly)
+[`validate_geometry`](#validate_geometry) · [`compute_metrics`](#compute_metrics) · [`query_topology`](#query_topology) · [`measure_distance`](#measure_distance) · [`measure_deviation`](#measure_deviation) · [`deviation_histogram`](#deviation_histogram) · [`cross_section_compare`](#cross_section_compare) · [`symmetric_difference_volume`](#symmetric_difference_volume) · [`recognize_features`](#recognize_features) · [`inspect_assembly`](#inspect_assembly)
 
 Signed / spatially-resolved surface comparison — the certify-a-reconstruction toolset (#61–#63, #66, #70) — also renders to PNG via [`signed_deviation_heatmap`](mesh-visualization.md#signed_deviation_heatmap) and [`overlay_render`](mesh-visualization.md#overlay_render).
 
@@ -269,6 +269,50 @@ Slice **both** bodies at N stations across their shared axis-extent overlap and 
 **Returns** — a report with `overlap` (`[lo,hi]` shared axis extent), `referenceMode` (`"envelope"` | `"profile"`), `meanSignedAcrossSections`, `maxAbsSignedSection`, `worstStation` / `worstAxisCoord`, `warnings[]`, and a `sections[]` array. Each section carries `station`, `axisCoord` (**world** position along the axis), `offset` (overlap-relative), `signedMean` / `rms` / `maxAbs`, `centroidOffset`, `areaRatio`, `shapeL2` (pose-invariant shape scalar — defined for open profiles too), `fromContours` / `referenceContours` / `fromOpenPaths` / `referenceOpenPaths`, `openProfile`, `registrationSmell`, and `imagePath`.
 
 **Notes** — Handles open-shell references (raw scan / STL skin) whose sections are open arcs. `registrationSmell` flags a station that sliced only one body (mis-registration / differing extents). Pair with [`import_file`](io.md#import_file)`(format: "stl")` to get the reference mesh into the scene.
+
+---
+
+## `symmetric_difference_volume`
+
+The two ONE-SIDED volumes between a candidate and a reference body, and their sum: the direct geometric fidelity figure a mean/RMS surface deviation can hide via cancellation (a part undersized in one place and oversized in another reads *better* on a mean). `boolean_op` cannot produce a true symmetric-difference solid against a mesh-only, possibly non-watertight reference (empirically: `subtract` fails both directions on a real STL reference); this instead classifies sample points against both bodies via `OCCTSwiftMesh.Mesh.windingNumber(at:)`, the generalized winding number, which stays a well-defined real number on open/self-intersecting meshes rather than the undefined result a parity/ray test gives ([#122](https://github.com/SecondMouseAU/OCCTMCP/issues/122)). Swift-only.
+
+**Server:** Swift
+
+**Parameters**
+
+| name | type | required | description |
+|------|:----:|:--------:|-------------|
+| `fromBodyId` | string | yes | Candidate body (e.g. the reconstruction). |
+| `referenceBodyId` | string | yes | Reference body (e.g. the source mesh); may be a non-watertight mesh. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the from-body bbox diagonal. |
+| `maxSamples` | integer | no | Monte Carlo sample points (deterministic Halton low-discrepancy sequence) tested against both meshes. Default 300. |
+
+**Returns:** `{ samples, ambiguousSamples, ambiguousFraction, boundingBoxVolumeMm3, fromVolumeMm3, referenceVolumeMm3, intersectionVolumeMm3, unionVolumeMm3, fromOnlyVolumeMm3, referenceOnlyVolumeMm3, symmetricDifferenceVolumeMm3, symmetricDifferenceFraction, estimatedStdErrMm3, fromExactVolumeMm3, referenceExactVolumeMm3, fromWatertight, referenceWatertight, reliable, warnings }`.
+
+- `fromOnlyVolumeMm3`: excess / over-build material (inside the candidate, not the reference).
+- `referenceOnlyVolumeMm3`: missing / under-build material (inside the reference, not the candidate).
+- `symmetricDifferenceVolumeMm3`: the sum of the two; `symmetricDifferenceFraction` is that divided by the union volume (1 minus IoU: 0 = identical, 1 = disjoint), `null` when the union itself sampled to ~0.
+- `estimatedStdErrMm3`: Monte Carlo standard error on `symmetricDifferenceVolumeMm3`. A measured value under ~2x this is noise-dominated at the current `maxSamples`, not necessarily a well-registered pair; raise `maxSamples` to resolve it.
+- `fromExactVolumeMm3` / `referenceExactVolumeMm3`: exact BREP mass-properties volume where computable, reported as a cross-check only (silently unreliable for a non-closed shape, which is exactly the reference-body case this tool exists to handle).
+- `reliable`: `false` when `ambiguousFraction` exceeds 15% (the winding-number classification itself was too uncertain at this sample count), or when a body's sampled volume disagrees with its own exact BREP volume by more than sampling noise can explain.
+
+**Example**
+
+```json
+// tool call arguments
+{ "fromBodyId": "recon", "referenceBodyId": "source_mesh", "maxSamples": 2000 }
+```
+```json
+// example result (abridged)
+{
+  "fromVolumeMm3": 58900.3, "referenceVolumeMm3": 58750.1,
+  "fromOnlyVolumeMm3": 210.4, "referenceOnlyVolumeMm3": 60.2,
+  "symmetricDifferenceVolumeMm3": 270.6, "symmetricDifferenceFraction": 0.0046,
+  "estimatedStdErrMm3": 38.1, "reliable": true, "warnings": []
+}
+```
+
+**Notes:** Cost is `O(fromTriangles + referenceTriangles)` per sample point, so total cost scales with `maxSamples × (fromTriangles + referenceTriangles)`: `windingNumber` has no spatial acceleration upstream (fine at the diagnostic sample counts this tool targets, not fine at the 5-digit `maxSamples` values `measure_deviation` defaults to). Keep `maxSamples` modest for scan-scale meshes; raise it only when `estimatedStdErrMm3` says the current sample count can't resolve the difference you're looking for. Classification is orientation-agnostic (a point classifies as inside when the winding number is close to *any* nonzero integer, not specifically +1), so an inverted-winding reference still reports correctly without a separate orientation pre-pass. `fromVolumeMm3`/`referenceVolumeMm3` are each estimated from their OWN body's confidently-classified samples only, independent of the other body's mesh quality; the joint figures (`intersectionVolumeMm3`, `fromOnlyVolumeMm3`, `referenceOnlyVolumeMm3`, `symmetricDifferenceVolumeMm3`) need both bodies confident at the same sample point and extrapolate from that jointly-confident subset when some samples are ambiguous.
 
 ---
 
