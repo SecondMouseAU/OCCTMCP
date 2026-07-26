@@ -219,4 +219,10 @@ describe("compare_versions", () => {
     const r = await sceneTools.compareVersions(5);
     assert.match(r.content[0].text, /Not enough history/);
   });
+
+  it("returns 'not enough history' for since=0 instead of throwing (#130)", async () => {
+    await sceneTools.snapshotScene();
+    const r = await sceneTools.compareVersions(0);
+    assert.match(r.content[0].text, /Not enough history/);
+  });
 });
