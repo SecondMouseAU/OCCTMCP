@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { readFile, writeFile, unlink, rename, stat } from "fs/promises";
+import { readFile, writeFile, unlink, rename, rm, stat } from "fs/promises";
 import { existsSync, mkdirSync } from "fs";
 import { join, basename, extname, dirname } from "path";
 import { tmpdir } from "os";
@@ -489,7 +489,8 @@ export async function mirrorOrPattern(
     });
   }
   await writeManifest(m);
-  await unlink(stagingDir).catch(() => {});
+  // stagingDir is a directory, not a file: unlink() can't remove it (EPERM/EISDIR).
+  await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
 
   return text(
     `Pattern ${kind} on "${bodyId}" → ${newIds.length} bodies: ${newIds.join(", ")}\n\n${r.stdout}`
@@ -607,7 +608,9 @@ async function mergeStagedImport(
   }
 
   await writeManifest(live);
-  await unlink(stagedManifestPath).catch(() => {});
+  // Removes the whole staging dir, not just the manifest file inside it, so
+  // no empty occtmcp-<verb>-<uuid> directory is left behind in $TMPDIR.
+  await rm(staging, { recursive: true, force: true }).catch(() => {});
 
   const summary = [
     `Imported ${importedIds.length} bodies via ${verb}: ${importedIds.join(", ")}.`,
