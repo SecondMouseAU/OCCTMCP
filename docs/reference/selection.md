@@ -34,7 +34,9 @@ registers server-tracked `selectionId`s in the format `sel:<bodyId>#<kind>[<idx>
 
 **Returns:** Array of `selectionId` strings plus an anchor snapshot (centroid, kind, index) for
 each matched entity. The registry retains these until `clear_selections` is called or the session
-ends.
+ends. Edge anchors (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit
+`direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians,
+measured from the circle's own xAxis) for CIRCULAR edges.
 
 **Example**
 

@@ -10,9 +10,9 @@ struct PingTests {
         #expect(tools.contains(where: { $0.name == "ping" }))
     }
 
-    @Test("server exposes exactly 75 tools (#122 adds symmetric_difference_volume)")
+    @Test("server exposes exactly 77 tools (#118 adds measure_vertex_fit, #121 adds fit_edge_chain)")
     func toolCount() async throws {
-        #expect(catalogTools().count == 75)
+        #expect(catalogTools().count == 77)
     }
 
     @Test("ping handler returns pong")

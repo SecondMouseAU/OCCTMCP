@@ -1,10 +1,10 @@
-// SelectionTools — select_topology picks faces / edges / vertices on a
+// SelectionTools: select_topology picks faces / edges / vertices on a
 // scene body and registers them with SelectionRegistry. Returns
 // self-describing selectionIds plus an anchor snapshot (centroid +
 // shape-specific metadata) so the LLM can both refer back and reason
 // about what was picked.
 //
-// This is the foundation for the rest of v0.4 — remap_selection,
+// This is the foundation for the rest of v0.4: remap_selection,
 // add_dimension, add_scene_primitive, select_by_feature all consume
 // selectionIds produced here.
 
@@ -150,28 +150,20 @@ public enum SelectionTools {
                 if let hi = filter.maxLength, length > hi { continue }
 
                 let center = edgeMidpoint(edge: edge)
-                // For circular edges, also capture the geometric centre
-                // (centre of curvature). `center` is the rim point at
-                // the parameter midpoint; circleCenter is the centre of
-                // the circle — radial dimensions need both.
-                let circleCenter: [Double]?
-                if edge.isCircle, let bounds = edge.parameterBounds {
-                    let mid = (bounds.first + bounds.last) * 0.5
-                    if let c = edge.centerOfCurvature(at: mid) {
-                        circleCenter = [c.x, c.y, c.z]
-                    } else {
-                        circleCenter = nil
-                    }
-                } else {
-                    circleCenter = nil
-                }
+                let geom = edgeGeometryFields(edge: edge)
                 let index = graphIndex(for: Shape.fromEdge(edge), kind: .edge, in: graph, fallback: i)
                 let anchor = TopologyAnchor.edge(bodyId: bodyId, index: index)
                 let snapshot = AnchorSnapshot(
                     center: center.map { [$0.x, $0.y, $0.z] } ?? [0, 0, 0],
                     length: length,
                     curveType: curveType,
-                    circleCenter: circleCenter
+                    circleCenter: geom.circleCenter,
+                    endpoints: geom.endpoints,
+                    direction: geom.direction,
+                    radius: geom.radius,
+                    axis: geom.axis,
+                    startAngle: geom.startAngle,
+                    endAngle: geom.endAngle
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
                 if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: index) {
@@ -187,7 +179,7 @@ public enum SelectionTools {
             }
 
         case "vertex":
-            // Not shape.vertices() — that returns bare SIMD3 points with
+            // Not shape.vertices(): that returns bare SIMD3 points with
             // no Shape wrapper to look up in the graph, and (per #91) its
             // order doesn't match the graph's vertex-kind index order
             // anyway. subShapes(ofType: .vertex) gives real vertex Shapes
@@ -252,12 +244,63 @@ public enum SelectionTools {
         return edge.length
     }
 
-    /// Resolve `sub`'s node index in `graph` for `kind` (#91). Falls
-    /// back to `fallback` — the naive enumeration index — if the graph
-    /// is absent or doesn't know the shape; should not happen in
-    /// practice for a sub-shape freshly enumerated from the exact shape
-    /// the graph was built from, but a stale fallback is safer than
-    /// dropping the selection outright.
+    /// Geometric detail for an edge (#119): endpoints for every edge kind, a
+    /// unit direction for LINE edges (a straight edge is a vector in space;
+    /// without this, colinearity / endpoint-error checks against a source
+    /// mesh need `execute_script`), and radius/axis/startAngle/endAngle for
+    /// CIRCULAR edges (alongside `circleCenter`, computed the same way
+    /// `selectTopology`'s edge case already does).
+    static func edgeGeometryFields(edge: Edge) -> (
+        endpoints: [[Double]]?, direction: [Double]?,
+        circleCenter: [Double]?, radius: Double?, axis: [Double]?,
+        startAngle: Double?, endAngle: Double?
+    ) {
+        let ep = edge.endpoints
+        let endpoints: [[Double]]? = [[ep.start.x, ep.start.y, ep.start.z], [ep.end.x, ep.end.y, ep.end.z]]
+
+        var direction: [Double]? = nil
+        if edge.isLine {
+            let d = ep.end - ep.start
+            let len = simd_length(d)
+            if len > 1e-12 { direction = [d.x / len, d.y / len, d.z / len] }
+        }
+
+        var circleCenter: [Double]? = nil
+        var radius: Double? = nil
+        var axis: [Double]? = nil
+        var startAngle: Double? = nil
+        var endAngle: Double? = nil
+        if edge.isCircle, let bounds = edge.parameterBounds {
+            let mid = (bounds.first + bounds.last) * 0.5
+            if let c = edge.centerOfCurvature(at: mid) {
+                circleCenter = [c.x, c.y, c.z]
+            }
+            // `curve3D` must stay alive for as long as `circleProperties` is
+            // used: CircleProperties wraps the SAME native handle without
+            // retaining its parent Curve3D, so a temporary (e.g.
+            // `edge.curve3D?.circleProperties`, never bound to a name) gets
+            // deallocated the instant this expression finishes, releasing
+            // the handle circleProperties still points at (a real crash,
+            // caught by EdgeGeometryFieldsTests).
+            if let curve = edge.curve3D {
+                let props = curve.circleProperties
+                radius = props.radius
+                let n = simd_cross(props.xAxis.direction, props.yAxis.direction)
+                let len = simd_length(n)
+                if len > 1e-12 { axis = [n.x / len, n.y / len, n.z / len] }
+            }
+            startAngle = bounds.first
+            endAngle = bounds.last
+        }
+
+        return (endpoints, direction, circleCenter, radius, axis, startAngle, endAngle)
+    }
+
+    /// Resolve `sub`'s node index in `graph` for `kind` (#91). Falls back to
+    /// `fallback` (the naive enumeration index) if the graph is absent or
+    /// doesn't know the shape; should not happen in practice for a sub-shape
+    /// freshly enumerated from the exact shape the graph was built from, but
+    /// a stale fallback is safer than dropping the selection outright.
     static func graphIndex(
         for sub: Shape?,
         kind: BRepGraph.NodeKind,

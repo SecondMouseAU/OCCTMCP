@@ -40,6 +40,34 @@ enum ProfileMath {
         return pool.max(by: { $0.area < $1.area })?.points
     }
 
+    /// The point set `envelopeDeviation` should see for the OUTER-envelope
+    /// comparison (#123): depth-0 (outermost) closed contours only, the same
+    /// filter as `mainLoop` above, with the same fallback to all contours when
+    /// none are depth 0, plus every open path unioned in.
+    ///
+    /// Feeding `envelopeDeviation` the raw union of EVERY contour (inner
+    /// window-return / bore loops included) and relying on its per-bin
+    /// max-radius selection to drop them only holds when the tessellation is
+    /// dense enough that the outer loop has a point in (near) every one of the
+    /// `bins` angular sectors. A real mesh cross-section at typical deflection
+    /// is not that dense: whichever bins the outer loop happens to skip, a
+    /// SMALLER-radius inner loop's own point can land in instead and gets
+    /// marked `filled` at that wrong (small) radius, and `fillGapsCircular`
+    /// then treats it as real data rather than a gap to interpolate across.
+    /// Against a bored/webbed part (an axle hole running through a hub/rim
+    /// profile) this reads as a near-constant `rms`/`maxAbs` tracking the
+    /// bore-to-hub or bore-to-OD radius GAP rather than genuine
+    /// profile-to-profile deviation, insensitive to the station's actual fit
+    /// quality: exactly the symptom reported in #123 (100x-200x too large,
+    /// unresponsive to a station's own areaRatio). Filtering to the outer
+    /// loop(s) up front removes the inner contour from the input entirely, so
+    /// there is no wrong-radius point left for a sparse bin to pick up.
+    static func outerEnvelopePoints(contours: [MeshContour], open: [[SIMD2<Double>]]) -> [SIMD2<Double>] {
+        let outer = contours.filter { $0.depth == 0 }
+        let pool = outer.isEmpty ? contours : outer
+        return pool.flatMap { $0.points } + open.flatMap { $0 }
+    }
+
     static func polylineLength(_ path: [SIMD2<Double>]) -> Double {
         guard path.count >= 2 else { return 0 }
         var sum = 0.0

@@ -10,7 +10,7 @@ The mesh-inspection surface for raw scans / STL skins (#101, #102, Phase 2 of th
 
 ## Tools
 
-[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones) · [`mesh_diagnose`](#mesh_diagnose) · [`mesh_thickness`](#mesh_thickness) · [`detect_symmetry`](#detect_symmetry) · [`align_bodies`](#align_bodies) · [`mesh_curvature`](#mesh_curvature) · [`detect_mesh_features`](#detect_mesh_features) · [`fit_primitives`](#fit_primitives)
+[`segment_mesh_zones`](#segment_mesh_zones) · [`zone_continuity_sweep`](#zone_continuity_sweep) · [`list_zones`](#list_zones) · [`clear_zones`](#clear_zones) · [`mesh_diagnose`](#mesh_diagnose) · [`mesh_thickness`](#mesh_thickness) · [`detect_symmetry`](#detect_symmetry) · [`align_bodies`](#align_bodies) · [`mesh_curvature`](#mesh_curvature) · [`detect_mesh_features`](#detect_mesh_features) · [`fit_edge_chain`](#fit_edge_chain) · [`fit_primitives`](#fit_primitives)
 
 ---
 
@@ -513,6 +513,109 @@ Crease-ring feature outlines (doors, panels, window returns, recesses) on a raw 
 **Rings vs. paths.** Fold edges (dihedral angle ≥ `minAngleDegrees`) are chained into CLOSED rings (e.g. a door outline) and OPEN paths (a crease that runs off an open mesh boundary, or terminates at a junction from just one side) — both land in the same `rings` array (`closed` distinguishes them), largest-first by length. **Junction-aware:** a Y/T intersection where 3+ creases meet a single vertex is never wandered through arbitrarily — the chaining always stops there, splitting cleanly into separate rings/paths instead of picking one arbitrary continuation. Leftover edges that couldn't be chained (a defensive walk-length-cap backstop, not expected to fire on well-formed input) are counted in `unchainedCreaseEdgeCount`, never dropped.
 
 **Zone interplay.** When [`segment_mesh_zones`](#segment_mesh_zones) has already been run for this body, each ring reports `containingZones`: the zone id(s) whose triangles are incident to the ring's own vertices, majority first. This needs the SAME welded-mesh + triangle-COUNT-survival guard `segment_mesh_zones`' own `adjacentZones` established (proof the weld here didn't drop a degenerate triangle, so a triangle index means the same triangle in both the welded mesh and the zones' UNWELDED `triangleIndices`), plus a `MeshSignature` staleness check (the zone table might have been minted from a different mesh state, e.g. a different deflection). Any stale zone or a failed guard omits `containingZones` (`null` on every ring) with an honest warning; no zones registered for this body at all is not a warning — zones are optional context, not a prerequisite.
+
+**Server:** Swift only
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `bodyId` | string | yes | Body to analyse. |
+| `minAngleDegrees` | number (0, 180] | no | Dihedral fold-angle threshold in degrees; an edge whose two triangles' normals differ by at least this much is a crease. Default 30. |
+| `maxRings` | integer (≥ 1) | no | Cap on returned rings/paths; the largest (by length) are kept, the rest counted in a warning. Default 64, tuned for simple parts. Dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths: measured truncation of 70-99% at the default on such fixtures, which can also make the reported closed/open split look unrepresentative. Raise this substantially for coverage-style analysis if the truncation warning fires. |
+| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the body's bbox diagonal. |
+| `includePoints` | boolean | no | Include each ring/path's ordered world-coordinate vertex polyline (#120). Default `false`; ring statistics only. |
+| `render` | boolean | no | Render the body with each ring overlaid as a categorically-colored wireframe, with a legend. Default `true`. |
+| `renderPath` | string | no | Override the default render path (`<output_dir>/<bodyId>_features.png`). |
+| `options` | object | no | Render options — same shape as [`render_preview`](mesh-visualization.md#render_preview)'s `options` (camera, width, height, background). |
+
+**Returns** — `{ bodyId, ringCount, unchainedCreaseEdgeCount, rings: [{ id ("ring:<bodyId>#<n>", largest-first), closed, lengthMm, bbox: { min, max }, meanFoldAngleDegrees, maxFoldAngleDegrees, edgeCount, containingZones?, points? }], renderPath?, warnings[] }`. Bounded: no raw per-triangle arrays, and `points` (ordered world-coordinate polyline, `ring.vertexIndices` resolved against the welded mesh, NOT wrapped for a closed ring) is present only when `includePoints: true` was requested. `lengthMm`/`bbox` are in the mesh's own coordinate units (matching every other length-valued field in this codebase — `areaMm2`, `thicknessMm`, etc. — none of which carry a unit suffix that implies unit conversion happened).
+
+**Render** — the body surface as a neutral translucent grey mesh (`ViewportBody.directMesh`, built off the same welded mesh), plus one edges-only `ViewportBody` per ring (`edges: [[ring vertex positions, wrapped if closed]]`, no mesh triangles at all) in a categorical color. `OffscreenRenderer` draws a body's wireframe unconditionally whenever it has no mesh triangles of its own, so an edges-only ring body renders regardless of `displayMode` — no tube-strip-quad fallback needed. Composited with `ChartRenderer.overlayZoneLegend`.
+
+**Example**
+
+```json
+// tool call arguments
+{ "bodyId": "door_scan", "minAngleDegrees": 25, "maxRings": 16 }
+```
+```json
+// example result
+{
+  "bodyId": "door_scan",
+  "ringCount": 2,
+  "unchainedCreaseEdgeCount": 0,
+  "rings": [
+    { "id": "ring:door_scan#0", "closed": true, "lengthMm": 3120.0,
+      "bbox": { "min": [0, -900, 0], "max": [0, 900, 2100] },
+      "meanFoldAngleDegrees": 88.4, "maxFoldAngleDegrees": 91.2, "edgeCount": 84,
+      "containingZones": ["zone:door_scan#1", "zone:door_scan#3"] },
+    { "id": "ring:door_scan#1", "closed": true, "lengthMm": 640.0,
+      "bbox": { "min": [15, -300, 1500], "max": [15, 300, 1900] },
+      "meanFoldAngleDegrees": 89.9, "maxFoldAngleDegrees": 90.5, "edgeCount": 24,
+      "containingZones": null }
+  ],
+  "renderPath": "/tmp/door_scan_features.png",
+  "warnings": []
+}
+```
+
+**Notes** — A SQUARE/rectangular raised or recessed feature's own vertical corners are themselves additional 90-degree creases (where two adjacent walls meet), turning every corner into a degree-3 junction that can fragment what would otherwise read as one clean ring into several short open paths; a ROUND feature (no corners) doesn't have this failure mode. `minAngleDegrees` too low picks up ordinary tessellation noise as spurious creases (particularly on a coarsely-triangulated curved surface); too high misses genuine shallow-fillet transitions. This tool is detection + reporting only — it does not fit a primitive, measure the feature's depth, or attempt to reconstruct a B-rep face from the enclosed region; pair with [`cross_section_compare`](introspection.md#cross_section_compare) or [`mesh_thickness`](#mesh_thickness) to characterize a ring's enclosed feature further, or [`fit_edge_chain`](#fit_edge_chain) (`includePoints: true` feeds it directly) to segment a ring's own boundary into line/arc runs.
+
+**Drives** — `OCCTSwiftMesh` `Mesh.creaseEdges(minAngleDegrees:)` (dihedral-fold-edge detection + junction-aware ring/path chaining, OCCTSwiftMesh#28, ≥1.7.0) + `Mesh.welded()`; `ZoneRegistry` for the optional zone interplay; render reuses the edges-only-`ViewportBody` + `ChartRenderer.overlayZoneLegend` trick.
+
+---
+
+## `fit_edge_chain`
+
+Segments an ordered 3D point chain into line and circular-arc runs (#121): per-segment kind, endpoints, unit direction (line) or center/radius/axis/startAngle/endAngle (arc), and fit residuals. A raw STL has no curved edges by construction: an arc exists on the mesh only as a fit over a chain of straight facet edges, and neither [`fit_primitives`](#fit_primitives) nor [`segment_mesh_zones`](#segment_mesh_zones) (both fit SURFACES over a mesh's triangles, not a 1D edge chain) close that gap.
+
+Takes `points` directly rather than a `bodyId`: the natural source is `detect_mesh_features`'s [`includePoints: true`](#detect_mesh_features) per-ring polyline, but any ordered chain works, and this tool has no OCCT dependency at all as a result.
+
+**Segmentation** is a greedy maximal-run grower: a window grows while either a line or an arc fits every point within `toleranceMm`, preferring the line (the simpler model) unless the arc fits meaningfully better. A multi-radius chain, the failure mode this tool exists to catch, where a single-circle-only fit collapses two real blend radii into one wrong averaged radius, breaks into separate segments as soon as the current arc's radius stops explaining the next point.
+
+**Server:** Swift only
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `points` | array of `[x, y, z]` | yes | Ordered chain of world points, e.g. from `detect_mesh_features`'s `includePoints: true`. At least 2, capped at 2000 (segmentation cost grows quadratically with a single unbroken run's length; downsample longer chains first). |
+| `closed` | boolean | no | Whether the chain wraps (last point connects back to first). **Not yet segmented across the wrap**, see Notes. Default `false`. |
+| `toleranceMm` | number (> 0) | no | Max per-point fit residual (model units) for a segment to stay a single line/arc. Default 0.5% of the chain's own bbox diagonal. |
+
+**Returns**: `{ pointCount, closed, toleranceMm, segmentCount, segments: [{ startIndex, endIndex, pointCount, kind ("line" | "arc"), startPoint, endPoint, direction?, center?, radius?, axis?, startAngle?, endAngle?, maxResidualMm, rmsResidualMm }], warnings[] }`. Consecutive segments share an endpoint (`segments[i].endIndex == segments[i+1].startIndex`). `direction` is present for `"line"` segments only; `center`/`radius`/`axis`/`startAngle`/`endAngle` for `"arc"` segments only.
+
+**Example**
+
+```json
+// tool call arguments
+{ "points": [[0,0,0], [2,0,0], [4,0,0], [5,0.2,0], [5.8,1,0], [6,3,0]], "toleranceMm": 0.05 }
+```
+```json
+// example result (abridged)
+{
+  "pointCount": 6, "closed": false, "toleranceMm": 0.05, "segmentCount": 2,
+  "segments": [
+    { "startIndex": 0, "endIndex": 2, "pointCount": 3, "kind": "line",
+      "startPoint": [0,0,0], "endPoint": [4,0,0], "direction": [1,0,0],
+      "maxResidualMm": 0.0, "rmsResidualMm": 0.0 },
+    { "startIndex": 2, "endIndex": 5, "pointCount": 4, "kind": "arc",
+      "startPoint": [4,0,0], "endPoint": [6,3,0],
+      "center": [4,3,0], "radius": 3.0, "axis": [0,0,1],
+      "startAngle": -1.5708, "endAngle": -0.3217,
+      "maxResidualMm": 0.02, "rmsResidualMm": 0.01 }
+  ],
+  "warnings": []
+}
+```
+
+**Notes**: `axis`'s sign is arbitrary (inherent to eigenvector recovery, the same caveat `align_bodies`/slippage classification's own axis outputs carry), but is chosen consistently with `startAngle`/`endAngle`: rotating from `startAngle` to `endAngle` about `axis` by the right-hand rule always traces the arc in the chain's own point order, never backwards, so `endAngle > startAngle` always. **KNOWN LIMITATION:** `closed: true` chains are not segmented across the wrap (the last point back to the first is never tested as part of the same run as the first); the chain's start point is exactly as non-canonical here as it is for `zone_continuity_sweep`'s own closed-ring resampling, and the tool surfaces this as a response warning rather than silently mis-segmenting.
+
+**Drives**: pure Swift geometry (PCA line/plane fit + a classic Kasa algebraic circle fit in-plane); no OCCT/OCCTSwiftMesh call at all.
+
+---
+
 ## `fit_primitives`
 
 RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBAL-inlier primitive extraction (`OCCTSwiftMesh.Mesh.segmentedRANSAC(_:)` / `segmentedAutoSelect(dihedral:ransac:)`, OCCTSwiftMesh#27/#32, closing #107).
@@ -531,17 +634,6 @@ RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBA
 
 | name | type | required | description |
 |------|------|:--------:|-------------|
-| `bodyId` | string | yes | Body to analyse. |
-| `minAngleDegrees` | number (0, 180] | no | Dihedral fold-angle threshold in degrees; an edge whose two triangles' normals differ by at least this much is a crease. Default 30. |
-| `maxRings` | integer (≥ 1) | no | Cap on returned rings/paths; the largest (by length) are kept, the rest counted in a warning. Default 64, tuned for simple parts. Dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths: measured truncation of 70-99% at the default on such fixtures, which can also make the reported closed/open split look unrepresentative. Raise this substantially for coverage-style analysis if the truncation warning fires. |
-| `deflection` | number | no | Mesh linear deflection. Default 0.5% of the body's bbox diagonal. |
-| `render` | boolean | no | Render the body with each ring overlaid as a categorically-colored wireframe, with a legend. Default `true`. |
-| `renderPath` | string | no | Override the default render path (`<output_dir>/<bodyId>_features.png`). |
-| `options` | object | no | Render options — same shape as [`render_preview`](mesh-visualization.md#render_preview)'s `options` (camera, width, height, background). |
-
-**Returns** — `{ bodyId, ringCount, unchainedCreaseEdgeCount, rings: [{ id ("ring:<bodyId>#<n>", largest-first), closed, lengthMm, bbox: { min, max }, meanFoldAngleDegrees, maxFoldAngleDegrees, edgeCount, containingZones? }], renderPath?, warnings[] }`. Bounded: no raw per-triangle or per-vertex arrays. `lengthMm`/`bbox` are in the mesh's own coordinate units (matching every other length-valued field in this codebase — `areaMm2`, `thicknessMm`, etc. — none of which carry a unit suffix that implies unit conversion happened).
-
-**Render** — the body surface as a neutral translucent grey mesh (`ViewportBody.directMesh`, built off the same welded mesh), plus one edges-only `ViewportBody` per ring (`edges: [[ring vertex positions, wrapped if closed]]`, no mesh triangles at all) in a categorical color. `OffscreenRenderer` draws a body's wireframe unconditionally whenever it has no mesh triangles of its own, so an edges-only ring body renders regardless of `displayMode` — no tube-strip-quad fallback needed. Composited with `ChartRenderer.overlayZoneLegend`.
 | `bodyId` | string | yes | Body to fit. |
 | `zoneId` | string | no | A `zone:<bodyId>#<n>` id from `segment_mesh_zones`, scoping the fit to just that zone's own triangles. Omit to fit the whole body. |
 | `strategy` | string | no | `"ransac"` (default) or `"auto"`. |
@@ -563,26 +655,11 @@ RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBA
 
 ```json
 // tool call arguments
-{ "bodyId": "door_scan", "minAngleDegrees": 25, "maxRings": 16 }
 { "bodyId": "carbody_scan", "strategy": "auto", "minSupportTriangles": 50 }
 ```
 ```json
 // example result
 {
-  "bodyId": "door_scan",
-  "ringCount": 2,
-  "unchainedCreaseEdgeCount": 0,
-  "rings": [
-    { "id": "ring:door_scan#0", "closed": true, "lengthMm": 3120.0,
-      "bbox": { "min": [0, -900, 0], "max": [0, 900, 2100] },
-      "meanFoldAngleDegrees": 88.4, "maxFoldAngleDegrees": 91.2, "edgeCount": 84,
-      "containingZones": ["zone:door_scan#1", "zone:door_scan#3"] },
-    { "id": "ring:door_scan#1", "closed": true, "lengthMm": 640.0,
-      "bbox": { "min": [15, -300, 1500], "max": [15, 300, 1900] },
-      "meanFoldAngleDegrees": 89.9, "maxFoldAngleDegrees": 90.5, "edgeCount": 24,
-      "containingZones": null }
-  ],
-  "renderPath": "/tmp/door_scan_features.png",
   "bodyId": "carbody_scan",
   "zoneId": null,
   "strategy": "auto",
@@ -597,9 +674,6 @@ RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style GLOBA
 }
 ```
 
-**Notes** — A SQUARE/rectangular raised or recessed feature's own vertical corners are themselves additional 90-degree creases (where two adjacent walls meet), turning every corner into a degree-3 junction that can fragment what would otherwise read as one clean ring into several short open paths; a ROUND feature (no corners) doesn't have this failure mode. `minAngleDegrees` too low picks up ordinary tessellation noise as spurious creases (particularly on a coarsely-triangulated curved surface); too high misses genuine shallow-fillet transitions. This tool is detection + reporting only — it does not fit a primitive, measure the feature's depth, or attempt to reconstruct a B-rep face from the enclosed region; pair with [`cross_section_compare`](introspection.md#cross_section_compare) or [`mesh_thickness`](#mesh_thickness) to characterize a ring's enclosed feature further.
-
-**Drives** — `OCCTSwiftMesh` `Mesh.creaseEdges(minAngleDegrees:)` (dihedral-fold-edge detection + junction-aware ring/path chaining, OCCTSwiftMesh#28, ≥1.7.0) + `Mesh.welded()`; `ZoneRegistry` for the optional zone interplay; render reuses the edges-only-`ViewportBody` + `ChartRenderer.overlayZoneLegend` trick.
 **Notes** — Both bodies/zones mesh at the standard `MeshParameters` recipe shared with `DeviationTools`/`MeshZoneTools`. A zoneId-scoped fit re-meshes at the zone's own stored deflection unconditionally (a `deflection` argument is ignored, with a warning, since `triangleIndices` would otherwise no longer line up with a freshly built mesh). Render reuses the band-group trick (`ChartRenderer.categoricalColor` + `overlayZoneLegend`) `segment_mesh_zones`/`zone_continuity_sweep` established, coloring each returned primitive's triangles as one flat-colored group.
 
 **Drives** — `OCCTSwiftMesh` `Mesh.segmentedRANSAC(_:)` / `Mesh.segmentedAutoSelect(dihedral:ransac:)` (Schnabel-style global-inlier RANSAC extraction, OCCTSwiftMesh#27/#32); `ZoneRegistry` for `zoneId` resolution (the same rungs `zone_continuity_sweep` uses).
