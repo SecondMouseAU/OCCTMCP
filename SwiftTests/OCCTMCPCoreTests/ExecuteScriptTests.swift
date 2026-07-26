@@ -63,4 +63,24 @@ struct ExecuteScriptTests {
         let written = try String(contentsOf: mainURL, encoding: .utf8)
         #expect(written == code)
     }
+
+    @Test(
+        "runProcess drains stdout and stderr concurrently so a full pipe buffer can't deadlock it",
+        .timeLimit(.minutes(1))
+    )
+    func drainsLargeOutputWithoutDeadlock() async throws {
+        // Regression for #129: runProcess() used to call waitUntilExit()
+        // before ever reading either pipe. A typical OS pipe buffer is
+        // 64KB, so a synthetic child that writes more than that on BOTH
+        // stdout and stderr reproduces the deadlock deterministically,
+        // without needing a real swift build/occtkit subprocess.
+        let script = "yes | head -c 200000; yes | head -c 200000 1>&2"
+        let result = try await ExecuteScriptTool.runProcess(
+            executable: "/bin/sh",
+            args: ["-c", script]
+        )
+        #expect(result.exitCode == 0)
+        #expect(result.stdout.utf8.count >= 200_000)
+        #expect(result.stderr.utf8.count >= 200_000)
+    }
 }

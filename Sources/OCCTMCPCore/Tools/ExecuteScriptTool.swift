@@ -136,21 +136,21 @@ public enum ExecuteScriptTool {
     static func runWorkspace() async throws -> RunResult {
         // First build (catch compile errors cleanly), then run with
         // --skip-build so script stdout isn't drowned in build noise.
-        let build = try runProcess(
+        let build = try await runProcess(
             executable: "/usr/bin/swift",
             args: ["build", "-c", "release", "--package-path", cacheDir.path]
         )
         if build.exitCode != 0 {
             return build
         }
-        return try runProcess(
+        return try await runProcess(
             executable: "/usr/bin/swift",
             args: ["run", "-c", "release", "--skip-build",
                    "--package-path", cacheDir.path, "Script"]
         )
     }
 
-    static func runProcess(executable: String, args: [String]) throws -> RunResult {
+    static func runProcess(executable: String, args: [String]) async throws -> RunResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args
@@ -161,17 +161,24 @@ public enum ExecuteScriptTool {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         try process.run()
+
+        // Drain both pipes concurrently with the child still running, each in
+        // its own child task. Reading only after waitUntilExit() (the naive
+        // order) deadlocks as soon as either pipe's OS buffer fills before the
+        // child exits: the child blocks inside its own write() with nothing on
+        // the other end to drain it, and the parent is stuck inside
+        // waitUntilExit() forever since nothing can ever unblock it.
+        async let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        async let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let (stdoutBytes, stderrBytes) = await (stdoutData, stderrData)
+
         process.waitUntilExit()
 
-        let stdout = String(
-            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
-        let stderr = String(
-            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
-        return RunResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
+        return RunResult(
+            stdout: String(data: stdoutBytes, encoding: .utf8) ?? "",
+            stderr: String(data: stderrBytes, encoding: .utf8) ?? "",
+            exitCode: process.terminationStatus
+        )
     }
 
     // MARK: - Output filtering (mirrors src/tools.ts filterBuildOutput)
