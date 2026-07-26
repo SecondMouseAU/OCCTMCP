@@ -34,9 +34,8 @@ public enum RegistryIntrospectionTools {
     public static func clearSelections(
         registry: SelectionRegistry = .shared
     ) async -> ToolText {
-        let count = await registry.count()
-        await registry.clear()
-        return IntrospectionTools.encode(ClearSelectionsResult(cleared: count))
+        let cleared = await registry.clear()
+        return IntrospectionTools.encode(ClearSelectionsResult(cleared: cleared))
     }
 
     // MARK: - list_annotations
