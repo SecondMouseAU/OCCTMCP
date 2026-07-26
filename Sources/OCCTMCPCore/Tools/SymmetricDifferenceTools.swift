@@ -131,11 +131,7 @@ public enum SymmetricDifferenceTools {
             return .init("deflection must be positive.", isError: true)
         }
 
-        var meshParams = MeshParameters.default
-        meshParams.deflection = defl
-        meshParams.internalVertices = true
-        meshParams.inParallel = true
-        meshParams.allowQualityDecrease = true
+        let meshParams = DeviationTools.standardMeshParameters(deflection: defl)
 
         guard let fromMesh = fromShape.mesh(parameters: meshParams), fromMesh.triangleCount > 0 else {
             return .init("Failed to tessellate '\(fromBodyId)' for symmetric-difference volume.", isError: true)

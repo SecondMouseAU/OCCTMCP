@@ -110,13 +110,9 @@ public enum AlignTools {
         let defl = deflection ?? DeviationTools.defaultDeflection(for: sourceShape)
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
 
-        // The standard mesh recipe shared with DeviationTools/MeshZoneTools/MeshDiagnoseTools: both
+        // The standard mesh recipe (DeviationTools.standardMeshParameters): both
         // bodies meshed at the SAME (source-derived, unless overridden) deflection.
-        var meshParams = MeshParameters.default
-        meshParams.deflection = defl
-        meshParams.internalVertices = true
-        meshParams.inParallel = true
-        meshParams.allowQualityDecrease = true
+        let meshParams = DeviationTools.standardMeshParameters(deflection: defl)
         guard let sourceMesh = sourceShape.mesh(parameters: meshParams), sourceMesh.triangleCount > 0 else {
             return .init("Failed to tessellate '\(bodyId)' for alignment.", isError: true)
         }

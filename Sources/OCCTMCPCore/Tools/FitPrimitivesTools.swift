@@ -156,11 +156,7 @@ public enum FitPrimitivesTools {
         }
         guard meshDeflection > 0 else { return .init("deflection must be positive.", isError: true) }
 
-        var meshParams = MeshParameters.default
-        meshParams.deflection = meshDeflection
-        meshParams.internalVertices = true
-        meshParams.inParallel = true
-        meshParams.allowQualityDecrease = true
+        let meshParams = DeviationTools.standardMeshParameters(deflection: meshDeflection)
         guard let fullMesh = shape.mesh(parameters: meshParams), fullMesh.triangleCount > 0 else {
             return .init("Failed to tessellate '\(bodyId)'.", isError: true)
         }

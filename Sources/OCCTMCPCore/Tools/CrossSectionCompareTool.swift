@@ -282,11 +282,7 @@ public enum CrossSectionCompareTool {
     // MARK: - Mesh helpers
 
     static func mesh(_ shape: Shape, deflection: Double) -> Mesh? {
-        var params = MeshParameters.default
-        params.deflection = deflection
-        params.internalVertices = true
-        params.inParallel = true
-        params.allowQualityDecrease = true
+        let params = DeviationTools.standardMeshParameters(deflection: deflection)
         return shape.mesh(parameters: params)
     }
 

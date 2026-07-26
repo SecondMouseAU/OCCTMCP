@@ -89,11 +89,7 @@ public enum MeshDiagnoseTools {
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
         guard weldToleranceMm >= 0 else { return .init("weldToleranceMm must be >= 0.", isError: true) }
 
-        var meshParams = MeshParameters.default
-        meshParams.deflection = defl
-        meshParams.internalVertices = true
-        meshParams.inParallel = true
-        meshParams.allowQualityDecrease = true
+        let meshParams = DeviationTools.standardMeshParameters(deflection: defl)
         guard let mesh = shape.mesh(parameters: meshParams), mesh.triangleCount > 0 else {
             return .init("Failed to tessellate '\(bodyId)'.", isError: true)
         }
