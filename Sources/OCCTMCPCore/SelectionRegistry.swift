@@ -228,13 +228,22 @@ public actor SelectionRegistry {
     /// `anchors.keys` and `snapshots.keys` (#150), not `anchors.count` alone:
     /// `recordPointSnapshot` only ever populates `snapshots`, so an
     /// anchors-only count would silently under-report every point pick
-    /// `clear()` actually discards. `graphUIDs` never needs its own term
-    /// here — every key it holds was minted via `recordGraphUID(selectionId:)`
-    /// against an id that already went through `record(anchor:snapshot:)`, so
-    /// `graphUIDs.keys` is always a subset of `anchors.keys`. Shared by
+    /// `clear()` actually discards. `graphUIDs` gets its own term in the
+    /// union too (#163), defensively: every key it holds today WAS minted via
+    /// `recordGraphUID(selectionId:)` against an id that already went through
+    /// `record(anchor:snapshot:)` (true across every current call site —
+    /// `SelectionTools`, `AutoDimensionTool`, `GapFillerTools`, `RemapTools`,
+    /// `CorrespondenceTools` — so `graphUIDs.keys` is a subset of
+    /// `anchors.keys` in practice), but `recordGraphUID` takes an arbitrary
+    /// `selectionId: String` with nothing in this actor enforcing that
+    /// pairing. Including the term here means `totalEntryCount` is correct
+    /// regardless of whether that subset invariant keeps holding, rather than
+    /// silently under-counting again (the exact failure #150 fixed for
+    /// `snapshots`, just via a different dictionary) the moment some future
+    /// call site mints a GraphUID without a matching `record()`. Shared by
     /// `count()` and `clear()` so the two can never drift apart.
     private var totalEntryCount: Int {
-        Set(anchors.keys).union(snapshots.keys).count
+        Set(anchors.keys).union(snapshots.keys).union(graphUIDs.keys).count
     }
 
     /// Drop every selection. Returns the count cleared, atomically with the
