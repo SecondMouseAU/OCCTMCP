@@ -64,6 +64,27 @@ struct SceneToolsTests {
         #expect(result.text.contains("Body not found: nope"))
     }
 
+    @Test("remove_body also drops the body's provenance record (#132)")
+    func removesBodyDropsProvenance() async throws {
+        let store = try freshScene()
+        let history = SceneHistory()
+        defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
+
+        let provenance = ProvenanceStore(outputDir: dirOf(store))
+        provenance.upsert(
+            bodyId: "alpha",
+            record: ProvenanceRecord(
+                sourceBodyId: "beta",
+                transform: .mirror(planeOrigin: .zero, planeNormal: [0, 0, 1])
+            )
+        )
+        #expect(provenance.read()["alpha"] != nil)
+
+        _ = await SceneTools.removeBody(bodyId: "alpha", store: store, history: history)
+
+        #expect(provenance.read()["alpha"] == nil)
+    }
+
     // ── clear_scene ─────────────────────────────────────────────────────────
 
     @Test("clear_scene removes every body and its BREP")
@@ -79,6 +100,27 @@ struct SceneToolsTests {
         #expect(updated?.bodies.isEmpty == true)
         #expect(!FileManager.default.fileExists(atPath: "\(dirOf(store))/alpha.brep"))
         #expect(!FileManager.default.fileExists(atPath: "\(dirOf(store))/beta.brep"))
+    }
+
+    @Test("clear_scene wipes every provenance record (#132)")
+    func clearSceneWipesProvenance() async throws {
+        let store = try freshScene()
+        let history = SceneHistory()
+        defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
+
+        let provenance = ProvenanceStore(outputDir: dirOf(store))
+        provenance.upsert(
+            bodyId: "alpha",
+            record: ProvenanceRecord(
+                sourceBodyId: "beta",
+                transform: .mirror(planeOrigin: .zero, planeNormal: [0, 0, 1])
+            )
+        )
+        #expect(provenance.read()["alpha"] != nil)
+
+        _ = await SceneTools.clearScene(keepHistory: false, store: store, history: history)
+
+        #expect(provenance.read().isEmpty)
     }
 
     // ── rename_body ─────────────────────────────────────────────────────────
