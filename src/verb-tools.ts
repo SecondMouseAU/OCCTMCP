@@ -447,54 +447,58 @@ export async function mirrorOrPattern(
   const stagingDir = join(tmpdir(), `occtmcp-pattern-${randomUUID()}`);
   mkdirSync(stagingDir, { recursive: true });
 
-  const req: Record<string, unknown> = {
-    inputBrep: bodyPath(body),
-    outputDir: stagingDir,
-    kind,
-    ...params,
-  };
-
-  await snapshotScene();
-  const r = await runVerbJSON("pattern", req);
-  if (!r.ok) return text(`occtkit pattern failed.\n\n${r.error}\n${r.stderr}`);
-
-  let parsed: { outputPaths?: string[]; totalCount?: number };
   try {
-    parsed = JSON.parse(r.stdout);
-  } catch {
-    return text(`Could not parse pattern output:\n\n${r.stdout}`);
-  }
-  const outputs = parsed.outputPaths ?? [];
+    const req: Record<string, unknown> = {
+      inputBrep: bodyPath(body),
+      outputDir: stagingDir,
+      kind,
+      ...params,
+    };
 
-  const prefix = outputBodyIdPrefix ?? `${kind}-${bodyId}`;
-  const sceneDir = outputDir();
-  const newIds: string[] = [];
-  for (let i = 0; i < outputs.length; i++) {
-    const stagedPath = outputs[i]!;
-    const finalName = `${prefix}-${i}-${randomUUID().slice(0, 4)}.brep`;
-    const finalPath = join(sceneDir, finalName);
-    await rename(stagedPath, finalPath).catch(async () => {
-      const data = await readFile(stagedPath);
-      await writeFile(finalPath, data);
-      await unlink(stagedPath).catch(() => {});
-    });
-    const newId = `${prefix}-${i}`;
-    newIds.push(newId);
-    m.bodies.push({
-      id: newId,
-      file: finalName,
-      format: "brep",
-      color: body.color,
-      name: body.name ? `${body.name} (${kind} ${i})` : undefined,
-    });
-  }
-  await writeManifest(m);
-  // stagingDir is a directory, not a file: unlink() can't remove it (EPERM/EISDIR).
-  await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+    await snapshotScene();
+    const r = await runVerbJSON("pattern", req);
+    if (!r.ok) return text(`occtkit pattern failed.\n\n${r.error}\n${r.stderr}`);
 
-  return text(
-    `Pattern ${kind} on "${bodyId}" → ${newIds.length} bodies: ${newIds.join(", ")}\n\n${r.stdout}`
-  );
+    let parsed: { outputPaths?: string[]; totalCount?: number };
+    try {
+      parsed = JSON.parse(r.stdout);
+    } catch {
+      return text(`Could not parse pattern output:\n\n${r.stdout}`);
+    }
+    const outputs = parsed.outputPaths ?? [];
+
+    const prefix = outputBodyIdPrefix ?? `${kind}-${bodyId}`;
+    const sceneDir = outputDir();
+    const newIds: string[] = [];
+    for (let i = 0; i < outputs.length; i++) {
+      const stagedPath = outputs[i]!;
+      const finalName = `${prefix}-${i}-${randomUUID().slice(0, 4)}.brep`;
+      const finalPath = join(sceneDir, finalName);
+      await rename(stagedPath, finalPath).catch(async () => {
+        const data = await readFile(stagedPath);
+        await writeFile(finalPath, data);
+        await unlink(stagedPath).catch(() => {});
+      });
+      const newId = `${prefix}-${i}`;
+      newIds.push(newId);
+      m.bodies.push({
+        id: newId,
+        file: finalName,
+        format: "brep",
+        color: body.color,
+        name: body.name ? `${body.name} (${kind} ${i})` : undefined,
+      });
+    }
+    await writeManifest(m);
+
+    return text(
+      `Pattern ${kind} on "${bodyId}" → ${newIds.length} bodies: ${newIds.join(", ")}\n\n${r.stdout}`
+    );
+  } finally {
+    // finally, not a tail call: an occtkit failure or malformed-JSON return above must
+    // still remove stagingDir. rm (not unlink) since it's a directory (EPERM/EISDIR).
+    await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 // ── heal_shape ─────────────────────────────────────────────────────────────
@@ -565,60 +569,63 @@ async function mergeStagedImport(
   mkdirSync(staging, { recursive: true });
   req.emitManifest = staging;
 
-  const r = await runVerbJSON(verb, req, timeoutMs);
-  if (!r.ok) return text(`occtkit ${verb} failed.\n\n${r.error}\n${r.stderr}`);
+  try {
+    const r = await runVerbJSON(verb, req, timeoutMs);
+    if (!r.ok) return text(`occtkit ${verb} failed.\n\n${r.error}\n${r.stderr}`);
 
-  const stagedManifestPath = join(staging, "manifest.json");
-  if (!existsSync(stagedManifestPath)) {
-    return text(`${verb} did not emit a manifest at ${stagedManifestPath}.\n\n${r.stdout}`);
-  }
-  const staged = JSON.parse(await readFile(stagedManifestPath, "utf-8")) as Manifest;
-
-  const live = (await readManifest()) ?? {
-    version: 1,
-    timestamp: new Date().toISOString(),
-    description: undefined,
-    bodies: [],
-  };
-
-  const sceneDir = outputDir();
-  const importedIds: string[] = [];
-  const conflicts: string[] = [];
-
-  for (const sb of staged.bodies) {
-    if (sb.id && live.bodies.some((x) => x.id === sb.id)) {
-      conflicts.push(sb.id);
-      continue;
+    const stagedManifestPath = join(staging, "manifest.json");
+    if (!existsSync(stagedManifestPath)) {
+      return text(`${verb} did not emit a manifest at ${stagedManifestPath}.\n\n${r.stdout}`);
     }
-    const stagedBrep = join(staging, sb.file);
-    const liveBrep = join(sceneDir, sb.file);
-    if (existsSync(liveBrep)) {
-      // collision on filename — pick a fresh one
-      const stem = basename(sb.file, extname(sb.file));
-      const fresh = `${stem}-${randomUUID().slice(0, 8)}${extname(sb.file)}`;
-      sb.file = fresh;
+    const staged = JSON.parse(await readFile(stagedManifestPath, "utf-8")) as Manifest;
+
+    const live = (await readManifest()) ?? {
+      version: 1,
+      timestamp: new Date().toISOString(),
+      description: undefined,
+      bodies: [],
+    };
+
+    const sceneDir = outputDir();
+    const importedIds: string[] = [];
+    const conflicts: string[] = [];
+
+    for (const sb of staged.bodies) {
+      if (sb.id && live.bodies.some((x) => x.id === sb.id)) {
+        conflicts.push(sb.id);
+        continue;
+      }
+      const stagedBrep = join(staging, sb.file);
+      const liveBrep = join(sceneDir, sb.file);
+      if (existsSync(liveBrep)) {
+        // collision on filename — pick a fresh one
+        const stem = basename(sb.file, extname(sb.file));
+        const fresh = `${stem}-${randomUUID().slice(0, 8)}${extname(sb.file)}`;
+        sb.file = fresh;
+      }
+      await rename(stagedBrep, join(sceneDir, sb.file)).catch(async () => {
+        const data = await readFile(stagedBrep);
+        await writeFile(join(sceneDir, sb.file), data);
+        await unlink(stagedBrep).catch(() => {});
+      });
+      live.bodies.push(sb);
+      if (sb.id) importedIds.push(sb.id);
     }
-    await rename(stagedBrep, join(sceneDir, sb.file)).catch(async () => {
-      const data = await readFile(stagedBrep);
-      await writeFile(join(sceneDir, sb.file), data);
-      await unlink(stagedBrep).catch(() => {});
-    });
-    live.bodies.push(sb);
-    if (sb.id) importedIds.push(sb.id);
-  }
 
-  await writeManifest(live);
-  // Removes the whole staging dir, not just the manifest file inside it, so
-  // no empty occtmcp-<verb>-<uuid> directory is left behind in $TMPDIR.
-  await rm(staging, { recursive: true, force: true }).catch(() => {});
+    await writeManifest(live);
 
-  const summary = [
-    `Imported ${importedIds.length} bodies via ${verb}: ${importedIds.join(", ")}.`,
-  ];
-  if (conflicts.length > 0) {
-    summary.push(`Skipped (id conflict): ${conflicts.join(", ")}.`);
+    const summary = [
+      `Imported ${importedIds.length} bodies via ${verb}: ${importedIds.join(", ")}.`,
+    ];
+    if (conflicts.length > 0) {
+      summary.push(`Skipped (id conflict): ${conflicts.join(", ")}.`);
+    }
+    return text(`${summary.join(" ")}\n\n${r.stdout}`);
+  } finally {
+    // finally, not a tail call: an occtkit failure or missing-manifest return above
+    // must still remove the whole staging dir, not just the manifest file inside it.
+    await rm(staging, { recursive: true, force: true }).catch(() => {});
   }
-  return text(`${summary.join(" ")}\n\n${r.stdout}`);
 }
 
 // ── read_brep ──────────────────────────────────────────────────────────────
