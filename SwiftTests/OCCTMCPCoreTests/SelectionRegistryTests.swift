@@ -13,6 +13,7 @@
 
 import Foundation
 import Testing
+import OCCTSwift
 @testable import OCCTMCPCore
 
 @Suite("SelectionRegistry")
@@ -126,5 +127,37 @@ struct SelectionRegistryTests {
         for entry in survivors {
             #expect(entry.snapshot != nil, "\(entry.selectionId) survived without a matching snapshot")
         }
+    }
+
+    /// #163: `totalEntryCount`'s comment documents that `graphUIDs.keys` is
+    /// (today) always a subset of `anchors.keys`, since every real call site
+    /// pairs `recordGraphUID` with a prior `record(anchor:snapshot:)` on the
+    /// same id. That invariant isn't enforced anywhere in this actor —
+    /// `recordGraphUID` takes an arbitrary `selectionId: String` — so this
+    /// test simulates a hypothetical future call site that violates it: a
+    /// GraphUID minted for a selectionId that was NEVER `record()`-ed (or
+    /// `recordPointSnapshot()`-ed). `totalEntryCount`'s defensive
+    /// `.union(graphUIDs.keys)` must still count it once, on top of a
+    /// normal anchor-based selection recorded through the real pattern.
+    @Test("count() and clear() include a selectionId present only in graphUIDs (invariant-violation case)")
+    func countAndClearIncludeGraphUIDOnlyEntries() async throws {
+        let registry = SelectionRegistry()
+
+        await registry.record(anchor: .face(bodyId: "box", index: 0), snapshot: snapshot())
+
+        // Mint a real GraphUID the same way SelectionTools.swift does
+        // (graph.uid(ofNodeKind:index:)), but record it under a
+        // selectionId that never went through `record`/`recordPointSnapshot`
+        // — the violation this test exists to guard against.
+        let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
+        let graph = try #require(BRepGraph(shape: box))
+        let uid = try #require(graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: 0))
+        await registry.recordGraphUID(selectionId: "sel:orphan#face[0]", uid: uid)
+
+        #expect(await registry.count() == 2)
+
+        let cleared = await registry.clear()
+        #expect(cleared == 2)
+        #expect(await registry.count() == 0)
     }
 }
