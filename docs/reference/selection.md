@@ -155,6 +155,12 @@ When `transform` is omitted, resolution falls back to provenance metadata record
 finally to an identity fallback. The response includes a `transformSource` field indicating which
 path resolved (`"explicit"` \| `"provenance"` \| `"bbox-inference"` \| `"identity-fallback"`).
 
+The response also includes a `warnings` array. It is populated whenever `transform` is omitted and
+`sourceSelectionIds` cannot be correlated to a single source body for the provenance/bbox-inference
+fallbacks to run against: the ids span more than one body, the array is empty, or every id fails to
+parse as a `selectionId`. In each of those cases both fallbacks are skipped and `transformSource`
+reports `"identity-fallback"`.
+
 **Example**
 
 ```json

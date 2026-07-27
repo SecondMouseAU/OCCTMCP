@@ -150,9 +150,14 @@ public enum CorrespondenceTools {
         public let transformSource: String
         /// Non-empty when a fallback was skipped or rejected rather than
         /// silently applied against the wrong body (#131): a stale
-        /// provenance record recorded for a different source body, or
+        /// provenance record recorded for a different source body,
         /// `sourceSelectionIds` spanning more than one body (which neither
-        /// fallback can honestly correlate against a single target).
+        /// fallback can correlate against a single target), or
+        /// (#155) `sourceSelectionIds` resolving to NO body at all (either
+        /// a genuinely empty array, or one where every entry failed to
+        /// parse as a selectionId), which is just as unable to correlate a
+        /// fallback transform as the ambiguous case, and previously fell
+        /// silently to `identity-fallback` with nothing here explaining why.
         public let warnings: [String]
     }
 
@@ -217,17 +222,34 @@ public enum CorrespondenceTools {
         // registry round-trip needed): that's the ground truth, since
         // `sourceSelectionIds`, not a `sourceBodyId` argument, is what the
         // caller actually passes. When they span more than one body,
-        // neither fallback can honestly pick a single source to correlate
-        // against, so both are skipped in favor of the honest
-        // identity-fallback.
+        // neither fallback can pick a single source to correlate against,
+        // so both are skipped in favor of the identity-fallback.
         let sourceBodyIds = Set(sourceSelectionIds.compactMap { TopologyAnchor.parse($0)?.bodyId })
         let resolvedSourceBodyId = sourceBodyIds.count == 1 ? sourceBodyIds.first : nil
 
+        // #155: `sourceBodyIds.count == 0` is just as fallback-blocking as
+        // `> 1` (there's no single source to correlate provenance/bbox
+        // against either way), but used to warn about NOTHING, leaving a
+        // caller no way to tell "fallbacks were attempted and failed" apart
+        // from "fallbacks never had a source body to try in the first
+        // place." The latter almost always means a malformed or empty
+        // `sourceSelectionIds` argument, worth flagging back distinctly
+        // from an unparseable-vs-genuinely-empty array.
         var warnings: [String] = []
         if transform == nil, sourceBodyIds.count > 1 {
             warnings.append(
                 "sourceSelectionIds resolve to \(sourceBodyIds.count) different bodies (\(sourceBodyIds.sorted().joined(separator: ", "))); provenance and bbox-inference fallbacks need a single source body to correlate against, so both were skipped in favor of an identity transform."
             )
+        } else if transform == nil, sourceBodyIds.isEmpty {
+            if sourceSelectionIds.isEmpty {
+                warnings.append(
+                    "sourceSelectionIds is empty; nothing to correlate a fallback transform against, so provenance and bbox-inference were skipped in favor of an identity transform."
+                )
+            } else {
+                warnings.append(
+                    "sourceSelectionIds contains no parseable selectionId; provenance and bbox-inference fallbacks need at least one to correlate against, so both were skipped in favor of an identity transform."
+                )
+            }
         }
 
         func validatedProvenance(sourceBodyId: String) -> TransformHint? {
