@@ -465,8 +465,7 @@ public enum ConstructionTools {
         // until find_correspondences grows a multi-target return type.
         if kind == .mirror,
            let normal = params.planeNormal {
-            let provenance = ProvenanceStore(outputDir: outputDir)
-            provenance.upsert(
+            await ProvenanceStore.shared.upsert(
                 bodyId: outId,
                 record: ProvenanceRecord(
                     sourceBodyId: bodyId,
@@ -474,7 +473,8 @@ public enum ConstructionTools {
                         planeOrigin: params.planeOrigin ?? .zero,
                         planeNormal: normal
                     )
-                )
+                ),
+                outputDir: outputDir
             )
         }
 

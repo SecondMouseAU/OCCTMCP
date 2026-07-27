@@ -57,7 +57,7 @@ public enum SceneTools {
             return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
         }
         try? FileManager.default.removeItem(atPath: bodyFile)
-        ProvenanceStore(outputDir: outputDir).remove(bodyId: bodyId)
+        await ProvenanceStore.shared.remove(bodyId: bodyId, outputDir: outputDir)
         return .init(
             "Removed body \"\(bodyId)\" (file: \(target.file)). Remaining: \(updated.bodies.count)."
         )
@@ -95,7 +95,7 @@ public enum SceneTools {
         for path in filesToRemove {
             try? FileManager.default.removeItem(atPath: path)
         }
-        ProvenanceStore(outputDir: outputDir).clear()
+        await ProvenanceStore.shared.clear(outputDir: outputDir)
         if !keepHistory {
             await history.clear()
         }

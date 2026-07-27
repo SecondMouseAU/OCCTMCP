@@ -252,8 +252,8 @@ public enum CorrespondenceTools {
             }
         }
 
-        func validatedProvenance(sourceBodyId: String) -> TransformHint? {
-            guard let prov = ProvenanceStore(outputDir: outputDir).read()[targetBodyId] else { return nil }
+        func validatedProvenance(sourceBodyId: String) async -> TransformHint? {
+            guard let prov = await ProvenanceStore.shared.read(outputDir: outputDir)[targetBodyId] else { return nil }
             guard prov.sourceBodyId == sourceBodyId else {
                 warnings.append(
                     "Ignored provenance for \"\(targetBodyId)\": recorded against source body \"\(prov.sourceBodyId)\", but sourceSelectionIds resolve to \"\(sourceBodyId)\"."
@@ -268,7 +268,7 @@ public enum CorrespondenceTools {
         if let hint = transform {
             resolvedTransform = hint
             transformSource = "explicit"
-        } else if let srcId = resolvedSourceBodyId, let prov = validatedProvenance(sourceBodyId: srcId) {
+        } else if let srcId = resolvedSourceBodyId, let prov = await validatedProvenance(sourceBodyId: srcId) {
             resolvedTransform = prov
             transformSource = "provenance"
         } else if let srcId = resolvedSourceBodyId,

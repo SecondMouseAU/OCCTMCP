@@ -70,19 +70,20 @@ struct SceneToolsTests {
         let history = SceneHistory()
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
 
-        let provenance = ProvenanceStore(outputDir: dirOf(store))
-        provenance.upsert(
+        let provenance = ProvenanceStore()
+        await provenance.upsert(
             bodyId: "alpha",
             record: ProvenanceRecord(
                 sourceBodyId: "beta",
                 transform: .mirror(planeOrigin: .zero, planeNormal: [0, 0, 1])
-            )
+            ),
+            outputDir: dirOf(store)
         )
-        #expect(provenance.read()["alpha"] != nil)
+        #expect(await provenance.read(outputDir: dirOf(store))["alpha"] != nil)
 
         _ = await SceneTools.removeBody(bodyId: "alpha", store: store, history: history)
 
-        #expect(provenance.read()["alpha"] == nil)
+        #expect(await provenance.read(outputDir: dirOf(store))["alpha"] == nil)
     }
 
     // ── clear_scene ─────────────────────────────────────────────────────────
@@ -108,19 +109,20 @@ struct SceneToolsTests {
         let history = SceneHistory()
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
 
-        let provenance = ProvenanceStore(outputDir: dirOf(store))
-        provenance.upsert(
+        let provenance = ProvenanceStore()
+        await provenance.upsert(
             bodyId: "alpha",
             record: ProvenanceRecord(
                 sourceBodyId: "beta",
                 transform: .mirror(planeOrigin: .zero, planeNormal: [0, 0, 1])
-            )
+            ),
+            outputDir: dirOf(store)
         )
-        #expect(provenance.read()["alpha"] != nil)
+        #expect(await provenance.read(outputDir: dirOf(store))["alpha"] != nil)
 
         _ = await SceneTools.clearScene(keepHistory: false, store: store, history: history)
 
-        #expect(provenance.read().isEmpty)
+        #expect(await provenance.read(outputDir: dirOf(store)).isEmpty)
     }
 
     // ── rename_body ─────────────────────────────────────────────────────────
