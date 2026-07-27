@@ -67,4 +67,11 @@ public struct ProvenanceStore: Sendable {
         guard let data = try? encoder.encode(current) else { return }
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
+
+    /// Wipe every record. Used by `clear_scene`, which removes every
+    /// body in the scene at once — cheaper than removing each id
+    /// individually, and correct since none of them survive.
+    public func clear() {
+        try? FileManager.default.removeItem(atPath: path)
+    }
 }
