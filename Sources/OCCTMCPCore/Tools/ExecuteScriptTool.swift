@@ -1,4 +1,4 @@
-// ExecuteScriptTool — runs an arbitrary Swift CAD script via a cached
+// ExecuteScriptTool: runs an arbitrary Swift CAD script via a cached
 // SPM workspace. Mirrors `occtkit run` (Sources/occtkit/Commands/Run.swift)
 // from OCCTSwiftScripts but lives in-process here so the MCP server
 // doesn't need to fork a separate occtkit binary.
@@ -21,7 +21,7 @@ public enum ExecuteScriptTool {
     public static let buildTimeoutSeconds: TimeInterval = 300
 
     /// Pin floor for OCCTSwiftScripts (provides ScriptHarness). MUST track
-    /// `Package.swift`'s OCCTSwiftScripts pin — they share the OCCTSwift
+    /// `Package.swift`'s OCCTSwiftScripts pin: they share the OCCTSwift
     /// cohort transitively, so divergence makes execute_script compile
     /// against a different (older) kernel than the server's own tools.
     /// A `from: "0.x"` floor caps below 1.0.0 (SPM "up to next major"),
@@ -173,7 +173,7 @@ public enum ExecuteScriptTool {
         // `readDataToEndOfFile()` (#147): the latter is a blocking syscall
         // that, even inside `async let`, parks a real Swift concurrency
         // cooperative-pool thread for the whole subprocess lifetime (up to
-        // 60+s for a cold `swift build`) — two such threads per
+        // 60+s for a cold `swift build`), two such threads per
         // `execute_script` call, enough to starve the pool's other
         // concurrently-running async work on a small-core machine.
         // `readabilityHandler`'s callback fires on a libdispatch queue only

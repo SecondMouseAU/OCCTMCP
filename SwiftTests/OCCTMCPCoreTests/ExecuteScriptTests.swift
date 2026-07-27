@@ -1,4 +1,4 @@
-// Unit tests for ExecuteScriptTool's pure logic — output filtering and
+// Unit tests for ExecuteScriptTool's pure logic: output filtering and
 // workspace scaffolding. The SPM-build-and-run path is exercised by
 // the (slow, opt-in) integration suite once Phase 5.4's stdio harness
 // lands.
