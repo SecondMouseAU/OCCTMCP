@@ -196,6 +196,8 @@ When `transform` is omitted, the tool falls back to provenance metadata written 
 
 > **Linear / circular patterns** produce N copies and do not write provenance. For those, either supply an explicit `transform` or rely on `"bbox-inference"`.
 
+> **`warnings`** is populated whenever `transform` is omitted and `sourceSelectionIds` cannot be correlated to a single source body: the ids span more than one body, the array is empty, or every id fails to parse as a `selectionId`. All three skip the provenance/bbox-inference fallbacks in favor of `transformSource: "identity-fallback"`.
+
 ---
 
 ## 6. Audit the registry with `list_selections`
