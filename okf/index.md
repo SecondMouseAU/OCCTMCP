@@ -12,11 +12,11 @@ timestamp: 2026-06-22
 An **MCP (Model Context Protocol) server** that gives LLMs the ability to author, inspect, and
 iterate on 3D CAD models with [OpenCASCADE](https://www.opencascade.com/) via the
 [OCCTSwift](https://github.com/SecondMouseAU/OCCTSwift) family. The primary Swift implementation
-calls OCCT directly in-process (no subprocess, no JSONL marshalling) and exposes **59 typed MCP
+calls OCCT directly in-process (no subprocess, no JSONL marshalling) and exposes **77 typed MCP
 tools** spanning authoring, scene reads/mutation, introspection, construction, analysis, I/O,
 mesh, drawing, selection/remap, dimension overlays, and an attributed reconstruction graph.
 
-The repo ships two implementations side-by-side: the **Swift** server (primary, 59 tools,
+The repo ships two implementations side-by-side: the **Swift** server (primary, 77 tools,
 macOS 15+) and the original **Node / TypeScript** server (37 tools, shells out to `occtkit`).
 
 ## Role in the ecosystem

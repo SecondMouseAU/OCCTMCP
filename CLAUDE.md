@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family. Two implementations live side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`): the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 75 typed tools. macOS 15+.
+- **Swift** (`Sources/`, `Package.swift`): the **primary**, in-process server. Uses the official Swift MCP SDK, calls OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer directly. 77 typed tools. macOS 15+.
 - **Node / TypeScript** (`src/`, `dist/`): the original implementation. Shells out to the `occtkit` CLI via `OCCTSwiftScripts`. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only).
 
 Both speak stdio MCP and read/write the same `manifest.json` + `annotations.json` files in the output directory. Pick whichever fits the host: the Swift binary eliminates JSONL marshalling and per-call subprocess spawn; the Node server runs anywhere a Node 18+ runtime exists, but needs `occtkit` on `$PATH`.
@@ -20,7 +20,7 @@ The Swift port reached **v1.0.0** on 2026-05-09 and is published on the [Swift P
 ```bash
 swift build -c release         # debug build is `swift build`
 swift run occtmcp-server       # stdio transport
-swift test                     # 181 swift-testing cases under SwiftTests/OCCTMCPCoreTests
+swift test                     # 209 swift-testing cases under SwiftTests/OCCTMCPCoreTests
 ```
 
 `swift test` runs unit + integration tests against a tempdir. Integration tests spawn the built `occtmcp-server` binary and drive it over stdio (so a `swift build` must precede them; the harness itself does this).

@@ -14,11 +14,11 @@ OCCTMCP is an MCP server that lets an LLM author, inspect, and iterate on 3D CAD
 | | Swift (`occtmcp-server`) | Node (`dist/index.js`) |
 |---|---|---|
 | **Runtime** | macOS 15+, Swift in-process | Node 18+, any OS |
-| **Tools** | 59 | 37 |
-| **OCCTSwift access** | Direct — no subprocess per call | Via `occtkit` CLI (shells out) |
+| **Tools** | 77 | 37 |
+| **OCCTSwift access** | Direct, no subprocess per call | Via `occtkit` CLI (shells out) |
 | **Build** | `swift build -c release` | `npm run build` |
 
-The Swift server is the primary implementation. Because it calls OCCTSwift, OCCTSwiftTools, OCCTSwiftAIS, OCCTSwiftMesh, and DrawingComposer in-process, it can expose higher-level operations — selection, remap, annotations, reconstruction, history wiring — without serialising through a JSONL subprocess boundary. The Node server wraps `occtkit` verbs, so it only covers the 37 tools that map directly onto CLI commands. The 22 Swift-only tools are: the entire `select_*` / `remap_selection` / `find_correspondences` group, all annotation tools, `graph_select`, `pick_surface_point`, `ping`, and the `reconstruct_*` group.
+The Swift server is the primary implementation. Because it calls OCCTSwift, OCCTSwiftTools, OCCTSwiftAIS, OCCTSwiftMesh, and DrawingComposer in-process, it can expose higher-level operations (selection, remap, annotations, reconstruction, history wiring) without serialising through a JSONL subprocess boundary. The Node server wraps `occtkit` verbs, so it only covers the 37 tools that map directly onto CLI commands. The 40 Swift-only tools are: the entire `select_*` / `remap_selection` / `find_correspondences` group, all annotation tools, `graph_select`, `pick_surface_point`, `ping`, the `reconstruct_*` group, and the mesh-zone analysis, mesh inspection, alignment, curvature, and mesh-feature tool groups (`segment_mesh_zones`, `zone_continuity_sweep`, `fit_primitives`, `mesh_diagnose`, `mesh_thickness`, `detect_symmetry`, `align_bodies`, `mesh_curvature`, `detect_mesh_features`, `fit_edge_chain`, `symmetric_difference_volume`, `measure_vertex_fit`, and their registry tools `list_zones`/`clear_zones`).
 
 See the [Tool Reference](../reference/) for the full per-tool listing; each entry notes which server(s) expose it.
 

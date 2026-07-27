@@ -17,7 +17,7 @@ PNG + a `manifest.json` scene the viewer auto-reloads.
 
 Two interchangeable servers read/write the same scene:
 
-- **Swift** (`occtmcp-server`) — the **primary**, in-process server. **59 typed tools.** macOS 15+.
+- **Swift** (`occtmcp-server`) — the **primary**, in-process server. **77 typed tools.** macOS 15+.
 - **Node** (`dist/index.js`) — shells out to the `occtkit` CLI. **37-tool subset** (selection / remap /
   annotations / reconstruction are Swift-only). Runs anywhere Node 18+ does.
 
