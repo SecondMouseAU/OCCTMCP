@@ -167,9 +167,21 @@ public enum ExecuteScriptTool {
         // order) deadlocks as soon as either pipe's OS buffer fills before the
         // child exits: the child blocks inside its own write() with nothing on
         // the other end to drain it, and the parent is stuck inside
-        // waitUntilExit() forever since nothing can ever unblock it.
-        async let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        async let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        // waitUntilExit() forever since nothing can ever unblock it (#129).
+        //
+        // `drain(_:)` uses `readabilityHandler` rather than
+        // `readDataToEndOfFile()` (#147): the latter is a blocking syscall
+        // that, even inside `async let`, parks a real Swift concurrency
+        // cooperative-pool thread for the whole subprocess lifetime (up to
+        // 60+s for a cold `swift build`) — two such threads per
+        // `execute_script` call, enough to starve the pool's other
+        // concurrently-running async work on a small-core machine.
+        // `readabilityHandler`'s callback fires on a libdispatch queue only
+        // when the fd is already known-readable (kqueue-driven), so no pool
+        // thread ever blocks waiting on the child; the awaiting task just
+        // suspends until the continuation resumes.
+        async let stdoutData = drain(stdoutPipe.fileHandleForReading)
+        async let stderrData = drain(stderrPipe.fileHandleForReading)
         let (stdoutBytes, stderrBytes) = await (stdoutData, stderrData)
 
         process.waitUntilExit()
@@ -179,6 +191,38 @@ public enum ExecuteScriptTool {
             stderr: String(data: stderrBytes, encoding: .utf8) ?? "",
             exitCode: process.terminationStatus
         )
+    }
+
+    /// Reference-type accumulator for `drain(_:)`. `readabilityHandler`'s
+    /// dispatch source guarantees its event handler is never re-entered
+    /// concurrently with itself, so mutating `data` across invocations is
+    /// safe; it's boxed in a class (rather than a captured `var`) purely so
+    /// the compiler's closure-Sendable check, which can't see that GCD
+    /// guarantee, doesn't reject it.
+    private final class DataBox: @unchecked Sendable {
+        var data = Data()
+    }
+
+    /// Reads a pipe's read end to EOF without blocking a Swift concurrency
+    /// cooperative-pool thread for the wait (#147, see the call site comment
+    /// in `runProcess`). `readabilityHandler`'s dispatch source only invokes
+    /// the closure once the fd is actually readable, so `availableData` here
+    /// never blocks waiting on the child; it either returns already-buffered
+    /// bytes or (at EOF) empty data, at which point the handler is torn down
+    /// and the continuation resumes exactly once.
+    static func drain(_ handle: FileHandle) async -> Data {
+        let box = DataBox()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Data, Never>) in
+            handle.readabilityHandler = { fh in
+                let chunk = fh.availableData
+                if chunk.isEmpty {
+                    fh.readabilityHandler = nil
+                    continuation.resume(returning: box.data)
+                } else {
+                    box.data.append(chunk)
+                }
+            }
+        }
     }
 
     // MARK: - Output filtering (mirrors src/tools.ts filterBuildOutput)
