@@ -222,6 +222,21 @@ public actor SelectionRegistry {
         return graphUIDs[selectionId]
     }
 
+    /// Total distinct registry entries: anchor-based selections (from
+    /// `select_topology` et al.) plus point-snapshot-only picks (from
+    /// `pick_surface_point`), which have no `TopologyAnchor`. Union of
+    /// `anchors.keys` and `snapshots.keys` (#150), not `anchors.count` alone:
+    /// `recordPointSnapshot` only ever populates `snapshots`, so an
+    /// anchors-only count would silently under-report every point pick
+    /// `clear()` actually discards. `graphUIDs` never needs its own term
+    /// here — every key it holds was minted via `recordGraphUID(selectionId:)`
+    /// against an id that already went through `record(anchor:snapshot:)`, so
+    /// `graphUIDs.keys` is always a subset of `anchors.keys`. Shared by
+    /// `count()` and `clear()` so the two can never drift apart.
+    private var totalEntryCount: Int {
+        Set(anchors.keys).union(snapshots.keys).count
+    }
+
     /// Drop every selection. Returns the count cleared, atomically with the
     /// clear itself (mirrors `ZoneRegistry.clear`): a caller that needs to
     /// report how many were removed must read the count in the SAME actor
@@ -230,7 +245,7 @@ public actor SelectionRegistry {
     /// the two awaits.
     @discardableResult
     public func clear() -> Int {
-        let cleared = anchors.count
+        let cleared = totalEntryCount
         snapshots.removeAll()
         anchors.removeAll()
         graphUIDs.removeAll()
@@ -238,7 +253,7 @@ public actor SelectionRegistry {
     }
 
     public func count() -> Int {
-        return anchors.count
+        return totalEntryCount
     }
 
     /// Snapshot of the registry — used by `list_selections` to surface

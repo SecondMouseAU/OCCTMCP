@@ -234,6 +234,11 @@ Return every active `selectionId` held in the `SelectionRegistry` together with 
 metadata. A cheap introspection call, useful when the session context no longer holds the
 original pick results.
 
+Scoped to anchor-based selections (`select_topology`, `select_by_feature`, `remap_selection`,
+`find_correspondences`) — `pick_surface_point` results have no `TopologyAnchor` (a free surface
+point isn't a face/edge/vertex pick) and don't appear here, even though they're live in the
+registry. See `clear_selections` below: its `cleared` count does include them.
+
 **Server:** Swift only
 
 No parameters.
@@ -273,7 +278,9 @@ become invalid after this call.
 
 No parameters.
 
-**Returns:** `{ "cleared": <count> }`: the number of entries removed.
+**Returns:** `{ "cleared": <count> }`: the number of entries removed, counting both anchor-based
+selections and point-snapshot-only picks (`pick_surface_point`) — everything `clear()` actually
+discards, not just the anchor-scoped subset `list_selections` enumerates ([#150](https://github.com/SecondMouseAU/OCCTMCP/issues/150)).
 
 **Example**
 
