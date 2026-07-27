@@ -228,17 +228,32 @@ public actor SelectionRegistry {
     /// call as the mutation, since a separate `count()` call beforehand can
     /// race against another task recording or clearing on this actor between
     /// the two awaits.
+    ///
+    /// The returned count is the union of `anchors.keys` and `snapshots.keys`
+    /// (#150), not `anchors.count` alone: `recordPointSnapshot` (used by
+    /// `pick_surface_point`, which has no `TopologyAnchor` for a free surface
+    /// point) only ever populates `snapshots`, so an anchors-only count would
+    /// silently under-report every point pick this clear actually discards.
+    /// `graphUIDs` never needs its own term here — every key it holds was
+    /// minted via `recordGraphUID(selectionId:)` against an id that already
+    /// went through `record(anchor:snapshot:)`, so `graphUIDs.keys` is always
+    /// a subset of `anchors.keys`.
     @discardableResult
     public func clear() -> Int {
-        let cleared = anchors.count
+        let cleared = Set(anchors.keys).union(snapshots.keys).count
         snapshots.removeAll()
         anchors.removeAll()
         graphUIDs.removeAll()
         return cleared
     }
 
+    /// Total distinct registry entries: anchor-based selections (from
+    /// `select_topology` et al.) plus point-snapshot-only picks (from
+    /// `pick_surface_point`), which have no `TopologyAnchor`. See `clear()`'s
+    /// doc comment (#150) — this is the same union basis, so `count()` before
+    /// a `clear()` call always matches what that `clear()` reports removing.
     public func count() -> Int {
-        return anchors.count
+        return Set(anchors.keys).union(snapshots.keys).count
     }
 
     /// Snapshot of the registry — used by `list_selections` to surface
