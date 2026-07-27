@@ -1786,6 +1786,164 @@ struct IntegrationTests {
                 "expected a warning about the ignored mismatched provenance, got warnings=\(warnings)")
     }
 
+    @Test("find_correspondences does not resolve stale provenance after remove_body deletes it and the freed id is reused by an unrelated body (#132/#158)")
+    func findCorrespondencesIgnoresProvenanceAfterBodyIdReuse() async throws {
+        guard let binary = Self.binaryURL else {
+            Issue.record("Binary not built; run `swift build` first.")
+            return
+        }
+        let scene = NSTemporaryDirectory() + "occtmcp-it-corrprovreuse-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+
+        guard let box = Shape.box(width: 20, height: 20, depth: 20),
+              let src = box.translated(by: SIMD3(20, 0, 0)) else {
+            Issue.record("Failed to synthesise box")
+            return
+        }
+        try Exporter.writeBREP(shape: src, to: URL(fileURLWithPath: "\(scene)/src.brep"))
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: "provenance reuse-after-delete test (#158)",
+            bodies: [BodyDescriptor(id: "src", file: "src.brep", color: [1, 0, 0, 1])]
+        ))
+
+        let harness = try Harness(binary: binary, extraEnv: ["OCCTMCP_OUTPUT_DIR": scene])
+        defer { harness.terminate() }
+        try harness.handshake()
+
+        // Step 1 (#132 setup): mirror "src". This is what writes
+        // provenance.json["mirror-src"] = { sourceBodyId: "src", transform: mirror }.
+        try harness.send(.init(
+            id: 150, method: "tools/call",
+            params: .object([
+                "name": .string("mirror_or_pattern"),
+                "arguments": .object([
+                    "bodyId": .string("src"),
+                    "kind": .string("mirror"),
+                    "params": .object([
+                        "planeOrigin": .array([.double(0), .double(0), .double(0)]),
+                        "planeNormal": .array([.double(1), .double(0), .double(0)]),
+                    ]),
+                ]),
+            ])
+        ))
+        let mirrorResp = try harness.recv(timeout: 30)
+        #expect(mirrorResp["error"] == nil, "mirror_or_pattern errored: \(mirrorResp)")
+
+        // Step 2 (#132 fix under test): remove "mirror-src" via the real
+        // tool. Pre-#156 this only dropped the manifest entry + BREP file
+        // and left provenance.json's "mirror-src" record dangling.
+        try harness.send(.init(
+            id: 151, method: "tools/call",
+            params: .object([
+                "name": .string("remove_body"),
+                "arguments": .object([
+                    "bodyId": .string("mirror-src"),
+                ]),
+            ])
+        ))
+        let removeResp = try harness.recv(timeout: 10)
+        #expect(removeResp["error"] == nil, "remove_body errored: \(removeResp)")
+
+        // Step 3: reuse the SAME id "mirror-src" for a brand-new, totally
+        // unrelated body. Done out-of-band (direct BREP write + manifest
+        // append) to mimic what `execute_script` would do without needing
+        // to shell out to occtkit; `staleFingerprintForcesFreshReload`
+        // above establishes this is a legitimate way to simulate an
+        // out-of-process scene edit against a live harness. A tiny 2mm
+        // cube, deliberately nothing like "src"'s 20mm box: bbox-inference
+        // (CorrespondenceTools.inferTranslation) requires source/target
+        // bbox sizes to match within 0.1%, so this mismatch forces the
+        // fallback chain past bbox-inference too, landing unambiguously on
+        // identity-fallback rather than leaving the expected outcome a
+        // coin flip between the two non-provenance paths.
+        guard let reusedShape = Shape.box(width: 2, height: 2, depth: 2) else {
+            Issue.record("Failed to synthesise reused-id fixture box")
+            return
+        }
+        try Exporter.writeBREP(shape: reusedShape, to: URL(fileURLWithPath: "\(scene)/reused-mirror-src.brep"))
+        guard let preReuse = try ManifestStore(path: "\(scene)/manifest.json").read() else {
+            Issue.record("manifest missing after remove_body")
+            return
+        }
+        try ManifestStore(path: "\(scene)/manifest.json").write(ScriptManifest(
+            description: preReuse.description,
+            bodies: preReuse.bodies + [
+                BodyDescriptor(id: "mirror-src", file: "reused-mirror-src.brep", color: [0, 0, 1, 1]),
+            ],
+            graphs: preReuse.graphs,
+            metadata: preReuse.metadata
+        ))
+
+        // Step 4: pick a face on "src" — the ORIGINAL source body, the
+        // same one the deleted mirror's provenance record was keyed
+        // against — and ask find_correspondences for a match onto the
+        // reused "mirror-src" id, with no explicit transform hint.
+        try harness.send(.init(
+            id: 152, method: "tools/call",
+            params: .object([
+                "name": .string("select_topology"),
+                "arguments": .object([
+                    "bodyId": .string("src"),
+                    "kind": .string("face"),
+                    "limit": .int(1),
+                ]),
+            ])
+        ))
+        let selResp = try harness.recv(timeout: 10)
+        guard case .object(let r1)? = selResp["result"],
+              case .array(let c1)? = r1["content"],
+              case .object(let f1)? = c1.first,
+              let t1 = f1["text"]?.stringValue,
+              let d1 = t1.data(using: .utf8),
+              let p1 = (try? JSONSerialization.jsonObject(with: d1)) as? [String: Any],
+              let sels = p1["selections"] as? [[String: Any]],
+              let firstSel = sels.first,
+              let selectionId = firstSel["selectionId"] as? String else {
+            Issue.record("select_topology response shape unexpected")
+            return
+        }
+
+        try harness.send(.init(
+            id: 153, method: "tools/call",
+            params: .object([
+                "name": .string("find_correspondences"),
+                "arguments": .object([
+                    "sourceSelectionIds": .array([.string(selectionId)]),
+                    "targetBodyId": .string("mirror-src"),
+                ]),
+            ])
+        ))
+        let resp = try harness.recv(timeout: 10)
+        guard case .object(let r2)? = resp["result"],
+              case .array(let c2)? = r2["content"],
+              case .object(let f2)? = c2.first,
+              let t2 = f2["text"]?.stringValue,
+              let d2 = t2.data(using: .utf8),
+              let parsed = (try? JSONSerialization.jsonObject(with: d2)) as? [String: Any] else {
+            Issue.record("find_correspondences response unexpected: \(resp)")
+            return
+        }
+        // Pre-#156, "mirror-src"'s provenance record would have survived
+        // remove_body untouched, so this call would blindly re-apply the
+        // OLD "src" -> "mirror-src" mirror transform to the reused id's
+        // unrelated 2mm cube and report transformSource == "provenance".
+        // This is a STRONGER check than #131's rejection path
+        // (findCorrespondencesRejectsMismatchedProvenance above), which
+        // detects and warns about a MISMATCHED but still-present record
+        // for a DIFFERENT source body; here sourceBodyId ("src") is
+        // exactly what the stale record was keyed against, so the only
+        // thing standing between this call and the bug is remove_body
+        // actually having deleted the record — there's nothing left to
+        // read at all, so no provenance-related warning should appear
+        // either (contrast with #131's test, which DOES expect one).
+        #expect(parsed["transformSource"] as? String == "identity-fallback",
+                "expected identity-fallback (reused-id body's size doesn't match 'src'), got transformSource=\(parsed["transformSource"] ?? "nil")")
+        let warnings = parsed["warnings"] as? [String] ?? []
+        #expect(!warnings.contains { $0.contains("provenance") },
+                "no provenance record should exist for the reused id at all, so there's nothing to warn about; got warnings=\(warnings)")
+    }
+
     @Test("annotation tools round-trip via the sidecar")
     func annotationsRoundTrip() async throws {
         guard let binary = Self.binaryURL else {
