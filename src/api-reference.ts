@@ -52,6 +52,9 @@ Shape.pipeShellWithTransition(spine: Wire, profile: Wire, mode: PipeSweepMode = 
 
 ## Variable-Section Sweep
 Shape.pipeShellWithLaw(spine: Wire, profile: Wire, law: LawFunction, solid: Bool = true) -> Shape?
+Shape.pipeShellMultiSection(spine: Wire, profiles: [Wire], mode: PipeSweepMode = .frenet, withContact: Bool = false, withCorrection: Bool = false, solid: Bool = true) -> Shape?
+Shape.helicalSweep(profiles: [Wire], axisOrigin: SIMD3<Double>, axisDirection: SIMD3<Double>, radius: Double, pitch: Double, turns: Double, clockwise: Bool = false, solid: Bool = true) -> Shape?
+Shape.helicalSweep(profile: Wire, axisOrigin: SIMD3<Double>, axisDirection: SIMD3<Double>, radius: Double, pitch: Double, turns: Double, clockwise: Bool = false, solid: Bool = true) -> Shape?
 
 ## Pipe Feature
 Shape.pipeFeature(profile: Shape, sketchFaceIndex: Int, spine: Wire, fuse: Bool = true) -> Shape?
@@ -67,9 +70,9 @@ Profile is a Wire (2D cross-section), path/spine is a Wire (3D path).`,
   booleans: `# Boolean Operations
 
 ## Boolean Operations
-Shape.union(_ other: Shape) -> Shape?
-Shape.subtracting(_ other: Shape) -> Shape?
-Shape.intersection(_ other: Shape) -> Shape?
+Shape.union(_ other: Shape, fuzzyValue: Double = 0, glue: BooleanGlue = .off, timeout: Double = Shape.defaultBooleanTimeout) -> Shape?
+Shape.subtracting(_ other: Shape, fuzzyValue: Double = 0, glue: BooleanGlue = .off, timeout: Double = Shape.defaultBooleanTimeout) -> Shape?
+Shape.intersection(_ other: Shape, fuzzyValue: Double = 0, glue: BooleanGlue = .off, timeout: Double = Shape.defaultBooleanTimeout) -> Shape?
 
 ## Operators
 Shape.+ (lhs: Shape, rhs: Shape) -> Shape?
@@ -82,6 +85,12 @@ Shape.isValidForBoolean -> Bool
 
 ## Boolean with History
 Shape.fuseWithHistory(_ other: Shape) -> BooleanResult?
+
+## Boolean with Full Per-Input History (issue #165)
+Shape.unionWithFullHistory(_ other: Shape) -> (result: Shape, history: ShapeHistoryRef)?
+Shape.subtractedWithFullHistory(_ tool: Shape) -> (result: Shape, history: ShapeHistoryRef)?
+Shape.intersectionWithFullHistory(_ other: Shape) -> (result: Shape, history: ShapeHistoryRef)?
+Shape.splitWithFullHistory(by tool: Shape) -> (pieces: [Shape], history: ShapeHistoryRef)?
 
 Operators: + (union), - (subtract), & (intersect).`,
 
@@ -119,14 +128,16 @@ Shape.blendedEdges(_ edgeRadii: [(edgeIndex: Int, radius: Double)]) -> Shape?
 
 ## Surface Filling
 Shape.fill(boundaries: [Wire], parameters: FillingParameters = FillingParameters()) -> Shape?
+Shape.fill(boundaries: [Wire], supportedBy support: Shape, parameters: FillingParameters = FillingParameters()) -> Shape?
+Shape.fill(constraints: [FillConstraint], parameters: FillingParameters = FillingParameters()) -> Shape?
 
 ## Plate Surfaces
 Shape.plateSurface(through points: [SIMD3<Double>], tolerance: Double = 0.01) -> Shape?
 Shape.plateSurface(constrainedBy curves: [Wire], continuity: SurfaceContinuity = .g1, tolerance: Double = 0.01) -> Shape?
 
 ## Advanced Plate Surfaces
-Shape.plateSurface(through points: [SIMD3<Double>], orders: [PlateConstraintOrder], degree: Int = 3, pointsOnCurves: Int = 15, iterations: Int = 2, tolerance: Double = 0.01) -> Shape?
-Shape.plateSurface(pointConstraints points: [(point: SIMD3<Double>, order: PlateConstraintOrder)], curveConstraints curves: [(wire: Wire, order: PlateConstraintOrder)], degree: Int = 3, tolerance: Double = 0.01) -> Shape?
+Shape.plateSurface(through points: [SIMD3<Double>], orders: [SurfaceContinuity], degree: Int = 3, pointsOnCurves: Int = 15, iterations: Int = 2, tolerance: Double = 0.01) -> Shape?
+Shape.plateSurface(pointConstraints points: [(point: SIMD3<Double>, order: SurfaceContinuity)], curveConstraints curves: [(wire: Wire, order: SurfaceContinuity)], degree: Int = 3, tolerance: Double = 0.01) -> Shape?
 
 Edge/face indices: use shape.edges().count / shape.faces().count to find counts.`,
 
@@ -140,6 +151,12 @@ Shape.mirrored(planeNormal: SIMD3<Double>, planeOrigin: SIMD3<Double> = .zero) -
 
 ## Advanced Healing
 Shape.scaledGeometry(factor: Double) -> Shape?
+
+## Transforms / patterns with full history (issue #331)
+Shape.translatedWithFullHistory(by offset: SIMD3<Double>) -> (result: Shape, history: ShapeHistoryRef)?
+Shape.rotatedWithFullHistory(axis: SIMD3<Double>, angle: Double) -> (result: Shape, history: ShapeHistoryRef)?
+Shape.scaledWithFullHistory(by factor: Double) -> (result: Shape, history: ShapeHistoryRef)?
+Shape.mirroredWithFullHistory(planeNormal: SIMD3<Double>, planeOrigin: SIMD3<Double> = .zero) -> (result: Shape, history: ShapeHistoryRef)?
 
 ## v0.51.0: BRepLib_MakeSolid, GC transforms, ChFi2d_AnaFilletAlgo
 Shape.mirroredAboutPoint(_ point: SIMD3<Double>) -> Shape?
@@ -307,7 +324,7 @@ Curve2D.lineParallel(point: SIMD2<Double>, direction: SIMD2<Double>, distance: D
 Curve2D.isLinear(tolerance: Double = 1e-6) -> (isLinear: Bool, deviation: Double)?
 Curve2D.convertToLine(first: Double, last: Double, tolerance: Double = 1e-3) -> (line: Curve2D, newFirst: Double, newLast: Double, deviation: Double)?
 Curve2D.simplifyBSpline(tolerance: Double = 1e-6) -> Bool
-Curve2D.approximated(first: Double, last: Double, toleranceU: Double = 1e-6, toleranceV: Double = 1e-6, maxDegree: Int = 8, maxSegments: Int = 100) -> Curve2D?
+Curve2D.approximatedInRange(first: Double, last: Double, toleranceU: Double = 1e-6, toleranceV: Double = 1e-6, maxDegree: Int = 8, maxSegments: Int = 100) -> Curve2D?
 
 ## Geom2dLProp: Curvature Inflection/Extrema
 Curve2D.curvatureExtremaDetailed() -> [CurInfPoint]
@@ -381,8 +398,8 @@ Curve2D.basisCurve -> Curve2D?
 Curve2D.offsetProperties -> OffsetProperties
 
 ## v0.115.0: Interpolation expansion, trim, length
-Curve2D.interpolate(points: [SIMD2<Double>], startTangent: SIMD2<Double>, endTangent: SIMD2<Double>) -> Curve2D?
-Curve2D.interpolatePeriodic(points: [SIMD2<Double>]) -> Curve2D?
+Curve2D.interpolate(points: [SIMD2<Double>], startTangent: SIMD2<Double>, endTangent: SIMD2<Double>, tolerance: Double = 1e-6) -> Curve2D?
+Curve2D.interpolatePeriodic(points: [SIMD2<Double>], tolerance: Double = 1e-6) -> Curve2D?
 Curve2D.approximate(points: [SIMD2<Double>], degMin: Int = 3, degMax: Int = 8, continuity: Int = 2, tolerance: Double = 1e-3) -> Curve2D?
 Curve2D.arcLength(from u1: Double, to u2: Double) -> Double
 Curve2D.splitAtContinuity(continuity: Int = 1, tolerance: Double = 1e-6, maxSegments: Int = 32) -> [Curve2D]
@@ -658,7 +675,7 @@ Curve3D.quasiUniformParameters(count: Int) -> [Double]
 Curve3D.quasiUniformDeflectionPoints(deflection: Double, maxPoints: Int = 500) -> [SIMD3<Double>]
 
 ## BSpline Knot Splitting
-Curve3D.continuityBreaks(minContinuity: ContinuityOrder = .c1) -> [Double]?
+Curve3D.continuityBreaks(minContinuity: ParametricContinuity = .c1) -> [Double]?
 
 ## Ellipse Arcs
 Curve3D.arcOfEllipse(center: SIMD3<Double>, normal: SIMD3<Double>, majorRadius: Double, minorRadius: Double, startAngle: Double, endAngle: Double, counterclockwise: Bool = true) -> Curve3D?
@@ -760,7 +777,6 @@ Curve3D.lin -> (location: SIMD3<Double>, direction: SIMD3<Double>)
 Curve3D.lineProperties -> LineProperties
 
 ## v0.115.0: Interpolation expansion, length, closest point
-Curve3D.interpolate(points: [SIMD3<Double>], startTangent: SIMD3<Double>, endTangent: SIMD3<Double>) -> Curve3D?
 Curve3D.interpolate(points: [SIMD3<Double>], tangents: [SIMD3<Double>], tangentFlags: [Bool]) -> Curve3D?
 Curve3D.interpolate(points: [SIMD3<Double>], parameters: [Double]) -> Curve3D?
 Curve3D.interpolatePeriodic(points: [SIMD3<Double>]) -> Curve3D?
@@ -915,7 +931,7 @@ Curve3D.locateNearestPoint(_ point: SIMD3<Double>, initParam: Double, tolerance:
 Curve3D.projectPointAll(_ point: SIMD3<Double>, maxResults: Int = 10) -> [(parameter: Double, distance: Double)]
 Curve3D.curveType -> Int
 
-## MakeEdge completions, ProjOnCurve/Surf, DistShapeShape, ShapeFix_Wire/Face,
+## Per-pass control (#266 follow-up)
 Curve3D.bsplineSetKnot(index: Int, value: Double) -> Bool
 Curve3D.bsplineKnotSequence() -> [Double]
 Curve3D.bsplineWeights() -> [Double]
@@ -966,7 +982,7 @@ Curve3D.firstParameter -> Double
 Curve3D.lastParameter -> Double
 
 ## GeomConvert_ApproxCurve/Surface
-Curve3D.approxWithDetails(tolerance: Double, continuity: ApproxContinuity = .c2, maxSegments: Int = 100, maxDegree: Int = 8) -> ApproxCurveResult
+Curve3D.approxWithDetails(tolerance: Double, continuity: ParametricContinuity = .c2, maxSegments: Int = 100, maxDegree: Int = 8) -> ApproxCurveResult
 
 ## ShapeConstruct_ProjectCurveOnSurface
 Curve3D.projectOnSurface(_ surface: Surface, firstParam: Double? = nil, lastParam: Double? = nil, precision: Double = 1e-6) -> Curve2D?
@@ -1087,7 +1103,7 @@ Surface.locateNearestPoint(_ point: SIMD3<Double>, initU: Double, initV: Double,
 Surface.projectPointAll(_ point: SIMD3<Double>, maxResults: Int = 10) -> [(u: Double, v: Double, distance: Double)]
 Surface.surfaceType -> Int
 
-## MakeEdge completions, ProjOnCurve/Surf, DistShapeShape, ShapeFix_Wire/Face,
+## Per-pass control (#266 follow-up)
 Surface.bsplineSetUKnot(index: Int, value: Double) -> Bool
 Surface.bsplineSetVKnot(index: Int, value: Double) -> Bool
 Surface.bsplineUKnots() -> [Double]
@@ -1164,7 +1180,7 @@ Surface.convertToPeriodic() -> Surface?
 Surface.conversionGap -> Double
 
 ## GeomConvert_ApproxCurve/Surface
-Surface.approxWithDetails(tolerance: Double, uContinuity: ApproxContinuity = .c1, vContinuity: ApproxContinuity = .c1, maxDegree: Int = 8, maxSegments: Int = 100) -> ApproxSurfaceResult
+Surface.approxWithDetails(tolerance: Double, uContinuity: ParametricContinuity = .c1, vContinuity: ParametricContinuity = .c1, maxDegree: Int = 8, maxSegments: Int = 100) -> ApproxSurfaceResult
 
 ## GeomLib_Tool (Parameter Finding)
 Surface.parametersOf(point: SIMD3<Double>, maxDistance: Double = 1.0) -> (u: Double, v: Double)?
@@ -1221,10 +1237,12 @@ Surface.translated(by delta: SIMD3<Double>) -> Surface?
 Surface.rotated(axisOrigin: SIMD3<Double>, axisDirection: SIMD3<Double>, angle: Double) -> Surface?
 Surface.scaled(center: SIMD3<Double>, factor: Double) -> Surface?
 Surface.mirrored(planeOrigin: SIMD3<Double>, planeNormal: SIMD3<Double>) -> Surface?
+Surface.mirrored(acrossPoint point: SIMD3<Double>) -> Surface?
+Surface.mirrored(acrossAxis point: SIMD3<Double>, direction: SIMD3<Double>) -> Surface?
 
 ## Conversion
 Surface.toBSpline() -> Surface?
-Surface.approximated(tolerance: Double = 0.01, continuity: Int = 2, maxSegments: Int = 100, maxDegree: Int = 10) -> Surface?
+Surface.approximated(tolerance: Double = 1e-3, continuity: Int = 2, maxSegments: Int = 100, maxDegree: Int = 8) -> Surface?
 
 ## Iso Curves
 Surface.uIso(at u: Double) -> Curve3D?
@@ -1236,7 +1254,7 @@ Surface.pipe(path: Curve3D, section: Curve3D) -> Surface?
 
 ## Draw Methods
 Surface.drawGrid(uLineCount: Int = 10, vLineCount: Int = 10, pointsPerLine: Int = 50) -> [[SIMD3<Double>]]
-Surface.drawMesh(uCount: Int = 20, vCount: Int = 20) -> [[SIMD3<Double>]]
+Surface.drawMesh(uCount: Int = 20, vCount: Int = 20) -> SurfaceGrid
 
 ## Local Properties
 Surface.gaussianCurvature(atU u: Double, v: Double) -> Double
@@ -1255,7 +1273,7 @@ Surface.nlPlateDeformed(constraints: [(uv: SIMD2<Double>, target: SIMD3<Double>)
 Surface.nlPlateDeformedG1(constraints: [(uv: SIMD2<Double>, target: SIMD3<Double>, tangentU: SIMD3<Double>, tangentV: SIMD3<Double>)], maxIterations: Int = 4, tolerance: Double = 1e-3) -> Surface?
 
 ## Batch Evaluation
-Surface.evaluateGrid(uParameters: [Double], vParameters: [Double]) -> [[SIMD3<Double>]]
+Surface.evaluateGrid(uParameters: [Double], vParameters: [Double]) -> SurfaceGrid
 
 ## Surface Intersection & Conversion
 Surface.intersections(with other: Surface, tolerance: Double = 1e-6, maxCurves: Int = 50) -> [Curve3D]
@@ -1268,6 +1286,7 @@ Surface.bezierFill(_ c1: Curve3D, _ c2: Curve3D, style: BezierFillStyle = .stret
 ## Face from Surface
 Surface.toFace(tolerance: Double = 1e-6) -> Shape?
 Surface.toFace(uRange: ClosedRange<Double>, vRange: ClosedRange<Double>, tolerance: Double = 1e-6) -> Shape?
+Surface.toFace(uvBoundary: [SIMD2<Double>]) -> Shape?
 
 ## Surface-Surface Intersection
 Surface.intersectionCurves(with other: Surface, tolerance: Double = 1e-6) -> [Curve3D]
@@ -1276,6 +1295,12 @@ Surface.intersectionCurves(with other: Surface, tolerance: Double = 1e-6) -> [Cu
 Surface.singularityCount(tolerance: Double = 1e-6) -> Int
 Surface.isDegenerated(at point: SIMD3<Double>, tolerance: Double = 1e-6) -> Bool
 Surface.hasSingularities(tolerance: Double = 1e-6) -> Bool
+
+## ShapeAnalysis_Surface extras (#266 follow-up)
+Surface.uvFromIso(_ point: SIMD3<Double>, precision: Double = 1e-6) -> (u: Double, v: Double, gap: Double)?
+Surface.singularity(_ index: Int, precision: Double = 1e-6) -> Singularity?
+Surface.projectDegenerated(_ point: SIMD3<Double>, neighbour: SIMD2<Double>, precision: Double = 1e-6) -> SIMD2<Double>?
+Surface.projectPoint(_ point: SIMD3<Double>, uDomain: ClosedRange<Double>, vDomain: ClosedRange<Double>, precision: Double = 1e-6) -> (uv: SIMD2<Double>, gap: Double)?
 Surface.toBezierPatches() -> [Surface]
 
 ## BSpline Bezier Patch Grid
@@ -1464,6 +1489,8 @@ Surface.paraboloid(focal: Double) -> Surface?
 Surface.circularHelicoid(pitch: Double) -> Surface?
 Surface.hyperbolicParaboloid(a: Double, b: Double) -> Surface?
 Surface.gordon(profiles: [Curve3D], guides: [Curve3D], tolerance: Double = 1e-3) -> Surface?
+Surface.gordonReport(profiles: [Curve3D], guides: [Curve3D], tolerance: Double = 1e-3, allowApproximateFallback: Bool = false) -> GordonResult
+Surface.networkSurface(profiles: [Curve3D], guides: [Curve3D], tolerance: Double = 1e-3) -> (surface: Surface?, status: NetworkSurfaceStatus)
 
 ## GeomEval TBezier / AHTBezier Surfaces
 Surface.tBezier(poles: [SIMD3<Double>], uCount: Int, vCount: Int, alphaU: Double, alphaV: Double) -> Surface?
@@ -1601,6 +1628,12 @@ Face.revolutionProperties -> RevolutionProperties?
 Shape.healed() -> Shape?
 Shape.isValid -> Bool
 
+## Shape Type
+Shape.isSelfIntersecting(timeout: Double = 30) -> Bool?
+Shape.isSelfIntersecting(hardTimeout: Double) -> Bool?
+Shape.shapeType -> ShapeType
+Shape.isValidSolid -> Bool
+
 ## Sub-Shape Extraction
 Shape.subShapeCount(ofType type: ShapeType) -> Int
 Shape.subShape(type: ShapeType, index: Int) -> Shape?
@@ -1608,16 +1641,21 @@ Shape.subShapes(ofType type: ShapeType) -> [Shape]
 Shape.solidCount -> Int
 Shape.solids -> [Shape]
 Shape.shellCount -> Int
+Shape.outerShell -> Shape?
+Shape.outerShells -> [Shape]
+Shape.innerShells -> [Shape]
 Shape.shells -> [Shape]
 Shape.wireCount -> Int
 Shape.wires -> [Shape]
 
 ## Shape Measurement Extensions
 Shape.properties(density: Double = 1.0) -> ShapeProperties?
+Shape.orientedForward() -> Shape?
 Shape.distance(to other: Shape, deflection: Double = 1e-6) -> DistanceResult?
 Shape.minDistance(to other: Shape) -> Double?
 Shape.intersects(_ other: Shape, tolerance: Double = 1e-6) -> Bool
 Shape.volume -> Double?
+Shape.signedVolume -> Double
 Shape.surfaceArea -> Double?
 Shape.centerOfMass -> SIMD3<Double>?
 
@@ -1666,10 +1704,6 @@ Face.surfaceInertia -> FaceSurfaceInertia
 Face.volumeInertia(planeNormal: SIMD3<Double>, planeDistance: Double = 0) -> FaceVolumeInertia
 Face.volumeInertia -> FaceVolumeInertia
 
-## Shape Type
-Shape.shapeType -> ShapeType
-Shape.isValidSolid -> Bool
-
 ## Bounds
 Shape.bounds -> (min: SIMD3<Double>, max: SIMD3<Double>)
 Shape.size -> SIMD3<Double>
@@ -1702,6 +1736,8 @@ Exporter.errorDescription -> String?
 
 ## STEP Export
 Exporter.writeSTEP(shape: Shape, to url: URL, name: String? = nil) throws
+Exporter.writeSTEP(shape: Shape, to url: URL, progress: ImportProgress?) throws
+Exporter.writeIGES(shape: Shape, to url: URL, progress: ImportProgress?) throws
 Exporter.stepData(shape: Shape, name: String? = nil) throws -> Data
 
 ## IGES Export
@@ -1721,7 +1757,7 @@ Shape.writeIGESBRep(to url: URL) throws
 Exporter.writePLY(shape: Shape, to url: URL, deflection: Double, normals: Bool = true, colors: Bool = false, texCoords: Bool = false) throws
 
 ## BREP Export
-Exporter.writeBREP(shape: Shape, to url: URL, withTriangles: Bool = true, withNormals: Bool = false) throws
+Exporter.writeBREP(shape: Shape, to url: URL, withTriangles: Bool = true, withNormals: Bool = false, allowInvalid: Bool = false) throws
 Exporter.brepData(shape: Shape, withTriangles: Bool = true, withNormals: Bool = false) throws -> Data
 
 ## OBJ Export
@@ -1740,6 +1776,9 @@ Shape.writeSTEPCleanDuplicates(to url: URL, modelType: StepModelType = .asIs) th
 Shape.stlData(deflection: Double = 0.1) throws -> Data
 Shape.stepData(name: String? = nil) throws -> Data
 
+## Instanced Assembly STEP Export (#173)
+Exporter.writeSTEPAssembly(_ document: Document, to url: URL) throws
+
 ## STEP Optimization
 Exporter.optimizeSTEP(input: URL, output: URL) throws
 
@@ -1752,28 +1791,31 @@ Exporter.writeSVG(drawing: Drawing, to url: URL, deflection: Double = 0.1) throw
 Exporter.writeSVG(sheet: Sheet, body: (SVGWriter) -> Void, to url: URL, deflection: Double = 0.1) throws
 
 ## Import
-Shape.load(from url: URL) throws -> Shape
-Shape.load(fromPath path: String) throws -> Shape
+Shape.load(from url: URL, progress: ImportProgress? = nil) throws -> Shape
+Shape.load(fromPath path: String, progress: ImportProgress? = nil) throws -> Shape
+Shape.loadSTEP(from url: URL, progress: ImportProgress? = nil) throws -> Shape
+Shape.loadSTEP(fromPath path: String, progress: ImportProgress? = nil) throws -> Shape
 
 ## STEP Reader Control
 Shape.stepRootCount(url: URL) -> Int
 Shape.stepRootCount(path: String) -> Int
 Shape.loadSTEPRoot(from url: URL, rootIndex: Int) throws -> Shape
 Shape.loadSTEPRoot(fromPath path: String, rootIndex: Int) throws -> Shape
-Shape.loadSTEP(from url: URL, unitInMeters: Double) throws -> Shape
-Shape.loadSTEP(fromPath path: String, unitInMeters: Double) throws -> Shape
+Shape.loadSTEP(from url: URL, unitInMeters: Double, progress: ImportProgress? = nil) throws -> Shape
+Shape.loadSTEP(fromPath path: String, unitInMeters: Double, progress: ImportProgress? = nil) throws -> Shape
 Shape.stepShapeCount(url: URL) -> Int
 Shape.stepShapeCount(path: String) -> Int
 
 ## Robust STEP Import
-Shape.loadRobust(from url: URL) throws -> Shape
-Shape.loadRobust(fromPath path: String) throws -> Shape
+Shape.loadRobust(from url: URL, progress: ImportProgress? = nil) throws -> Shape
+Shape.loadRobust(fromPath path: String, progress: ImportProgress? = nil) throws -> Shape
 Shape.loadWithDiagnostics(from url: URL) throws -> ImportResult
 
 ## IGES Import
-Shape.loadIGES(from url: URL) throws -> Shape
-Shape.loadIGES(fromPath path: String) throws -> Shape
-Shape.loadIGESRobust(from url: URL) throws -> Shape
+Shape.loadIGES(from url: URL, progress: ImportProgress? = nil) throws -> Shape
+Shape.loadIGES(fromPath path: String, progress: ImportProgress? = nil) throws -> Shape
+Shape.loadIGESRobust(from url: URL, progress: ImportProgress? = nil) throws -> Shape
+Shape.loadIGESRobust(fromPath path: String, progress: ImportProgress? = nil) throws -> Shape
 
 ## IGES Reader Control
 Shape.igesRootCount(url: URL) -> Int
@@ -1801,248 +1843,252 @@ Shape.loadOBJ(fromPath path: String) throws -> Shape
 
 ScriptContext handles BREP + STEP export automatically. Just add shapes and call ctx.emit().`,
 
-  topology_graph: `# TopologyGraph (BREPGraph) — Queries
+  topology_graph: `# BRepGraph Queries
 
 ## Face Queries
-TopologyGraph.adjacentFaces(of faceIndex: Int) -> [Int]
-TopologyGraph.sharedEdges(between faceA: Int, and faceB: Int) -> [Int]
-TopologyGraph.outerWire(of faceIndex: Int) -> Int
+BRepGraph.adjacentFaces(of faceIndex: Int) -> [Int]
+BRepGraph.sharedEdges(between faceA: Int, and faceB: Int) -> [Int]
+BRepGraph.outerWire(of faceIndex: Int) -> Int
 
 ## Edge Queries
-TopologyGraph.faceCount(of edgeIndex: Int) -> Int
-TopologyGraph.faces(of edgeIndex: Int) -> [Int]
-TopologyGraph.isBoundaryEdge(_ edgeIndex: Int) -> Bool
-TopologyGraph.isManifoldEdge(_ edgeIndex: Int) -> Bool
-TopologyGraph.adjacentEdges(of edgeIndex: Int) -> [Int]
+BRepGraph.faceCount(of edgeIndex: Int) -> Int
+BRepGraph.faces(of edgeIndex: Int) -> [Int]
+BRepGraph.isBoundaryEdge(_ edgeIndex: Int) -> Bool
+BRepGraph.isManifoldEdge(_ edgeIndex: Int) -> Bool
+BRepGraph.adjacentEdges(of edgeIndex: Int) -> [Int]
 
 ## Vertex Queries
-TopologyGraph.edges(of vertexIndex: Int) -> [Int]
+BRepGraph.edges(of vertexIndex: Int) -> [Int]
 
 ## Explorers
-TopologyGraph.childCount(rootKind: NodeKind, rootIndex: Int, targetKind: NodeKind) -> Int
-TopologyGraph.parentCount(nodeKind: NodeKind, nodeIndex: Int) -> Int
+BRepGraph.childCount(rootKind: NodeKind, rootIndex: Int, targetKind: NodeKind) -> Int
+BRepGraph.parentCount(nodeKind: NodeKind, nodeIndex: Int) -> Int
 
 ## Node Status
-TopologyGraph.isRemoved(nodeKind: NodeKind, nodeIndex: Int) -> Bool
+BRepGraph.isRemoved(nodeKind: NodeKind, nodeIndex: Int) -> Bool
 
 ## Validate
-TopologyGraph.validate() -> ValidationResult
-TopologyGraph.isValid -> Bool
+BRepGraph.validate() -> ValidationResult
+BRepGraph.isValid -> Bool
 
 ## Compact
-TopologyGraph.compact() -> CompactResult
+BRepGraph.compact() -> CompactResult
 
 ## Deduplicate
-TopologyGraph.deduplicate() -> DeduplicateResult
+BRepGraph.deduplicate() -> DeduplicateResult
 
 ## Shape Reconstruction
-TopologyGraph.shape(nodeKind: NodeKind, nodeIndex: Int) -> Shape?
-TopologyGraph.findNode(for shape: Shape) -> (kind: NodeKind, index: Int)?
-TopologyGraph.hasNode(for shape: Shape) -> Bool
+BRepGraph.shape(nodeKind: NodeKind, nodeIndex: Int) -> Shape?
+BRepGraph.findNode(for shape: Shape) -> (kind: NodeKind, index: Int)?
+BRepGraph.hasNode(for shape: Shape) -> Bool
 
 ## Vertex Geometry
-TopologyGraph.vertexPoint(_ vertexIndex: Int) -> (x: Double, y: Double, z: Double)
-TopologyGraph.vertexTolerance(_ vertexIndex: Int) -> Double
+BRepGraph.vertexPoint(_ vertexIndex: Int) -> (x: Double, y: Double, z: Double)
+BRepGraph.vertexTolerance(_ vertexIndex: Int) -> Double
 
 ## Edge Geometry
-TopologyGraph.edgeTolerance(_ edgeIndex: Int) -> Double
-TopologyGraph.isEdgeDegenerated(_ edgeIndex: Int) -> Bool
-TopologyGraph.isEdgeSameParameter(_ edgeIndex: Int) -> Bool
-TopologyGraph.isEdgeSameRange(_ edgeIndex: Int) -> Bool
-TopologyGraph.edgeRange(_ edgeIndex: Int) -> (first: Double, last: Double)
-TopologyGraph.edgeHasCurve(_ edgeIndex: Int) -> Bool
-TopologyGraph.isEdgeClosedOnFace(edgeIndex: Int, faceIndex: Int) -> Bool
-TopologyGraph.edgeHasPolygon3D(_ edgeIndex: Int) -> Bool
-TopologyGraph.edgeMaxContinuity(_ edgeIndex: Int) -> Int
+BRepGraph.edgeTolerance(_ edgeIndex: Int) -> Double
+BRepGraph.isEdgeDegenerated(_ edgeIndex: Int) -> Bool
+BRepGraph.isEdgeSameParameter(_ edgeIndex: Int) -> Bool
+BRepGraph.isEdgeSameRange(_ edgeIndex: Int) -> Bool
+BRepGraph.edgeRange(_ edgeIndex: Int) -> (first: Double, last: Double)
+BRepGraph.edgeHasCurve(_ edgeIndex: Int) -> Bool
+BRepGraph.isEdgeClosedOnFace(edgeIndex: Int, faceIndex: Int) -> Bool
+BRepGraph.edgeHasPolygon3D(_ edgeIndex: Int) -> Bool
+BRepGraph.edgeMaxContinuity(_ edgeIndex: Int) -> Int
 
 ## Face Geometry
-TopologyGraph.faceTolerance(_ faceIndex: Int) -> Double
-TopologyGraph.isFaceNaturalRestriction(_ faceIndex: Int) -> Bool
-TopologyGraph.faceHasSurface(_ faceIndex: Int) -> Bool
-TopologyGraph.faceHasTriangulation(_ faceIndex: Int) -> Bool
+BRepGraph.faceTolerance(_ faceIndex: Int) -> Double
+BRepGraph.isFaceNaturalRestriction(_ faceIndex: Int) -> Bool
+BRepGraph.faceHasSurface(_ faceIndex: Int) -> Bool
+BRepGraph.faceHasTriangulation(_ faceIndex: Int) -> Bool
 
 ## Wire Queries
-TopologyGraph.isWireClosed(_ wireIndex: Int) -> Bool
-TopologyGraph.wireCoEdgeCount(_ wireIndex: Int) -> Int
-TopologyGraph.wireFaceCount(_ wireIndex: Int) -> Int
-TopologyGraph.wireFaces(_ wireIndex: Int) -> [Int]
+BRepGraph.isWireClosed(_ wireIndex: Int) -> Bool
+BRepGraph.wireCoEdgeCount(_ wireIndex: Int) -> Int
+BRepGraph.wireFaceCount(_ wireIndex: Int) -> Int
+BRepGraph.wireFaces(_ wireIndex: Int) -> [Int]
 
 ## CoEdge Queries
-TopologyGraph.coedgeEdge(_ coedgeIndex: Int) -> Int
-TopologyGraph.coedgeFace(_ coedgeIndex: Int) -> Int
-TopologyGraph.coedgeSeamPair(_ coedgeIndex: Int) -> Int?
-TopologyGraph.coedgeHasPCurve(_ coedgeIndex: Int) -> Bool
-TopologyGraph.coedgeRange(_ coedgeIndex: Int) -> (first: Double, last: Double)
+BRepGraph.coedgeEdge(_ coedgeIndex: Int) -> Int
+BRepGraph.coedgeFace(_ coedgeIndex: Int) -> Int
+BRepGraph.coedgeSeamPair(_ coedgeIndex: Int) -> Int?
+BRepGraph.coedgeHasPCurve(_ coedgeIndex: Int) -> Bool
+BRepGraph.coedgeRange(_ coedgeIndex: Int) -> (first: Double, last: Double)
 
 ## Shell Queries
-TopologyGraph.shellSolidCount(_ shellIndex: Int) -> Int
-TopologyGraph.shellSolids(_ shellIndex: Int) -> [Int]
+BRepGraph.shellSolidCount(_ shellIndex: Int) -> Int
+BRepGraph.shellSolids(_ shellIndex: Int) -> [Int]
 
 ## Solid Queries
-TopologyGraph.solidCompSolidCount(_ solidIndex: Int) -> Int
+BRepGraph.solidCompSolidCount(_ solidIndex: Int) -> Int
 
 ## History
-TopologyGraph.clearHistory()
-TopologyGraph.historyRecordCount -> Int
-TopologyGraph.isHistoryEnabled -> Bool
+BRepGraph.clearHistory()
+BRepGraph.historyRecordCount -> Int
+BRepGraph.isHistoryEnabled -> Bool
 
 ## History Record Readback (v0.141, #72 Phase 0)
-TopologyGraph.historyRecord(at index: Int) -> HistoryRecord?
-TopologyGraph.findOriginal(of derived: NodeRef) -> NodeRef
-TopologyGraph.findDerived(of original: NodeRef) -> [NodeRef]
-TopologyGraph.recordHistory(operationName: String, original: NodeRef, replacements: [NodeRef])
-TopologyGraph.isValid -> Bool
-TopologyGraph.historyRecords -> [HistoryRecord]
+BRepGraph.historyRecord(at index: Int) -> HistoryRecord?
+BRepGraph.findOriginal(of derived: NodeRef) -> NodeRef
+BRepGraph.hasHistoryRecord(for original: NodeRef) -> Bool
+BRepGraph.findDerivedOrSelf(of original: NodeRef) -> [NodeRef]
+BRepGraph.findDerived(of original: NodeRef) -> [NodeRef]
+BRepGraph.recordHistory(operationName: String, original: NodeRef, replacements: [NodeRef])
+BRepGraph.historyIsDeleted(_ node: NodeRef) -> Bool
+BRepGraph.add(_ result: Shape, absorbing history: ShapeHistoryRef, inputRoots: [NodeRef], operationName: String) -> NodeRef?
+BRepGraph.isValid -> Bool
+BRepGraph.historyRecords -> [HistoryRecord]
+BRepGraph.historyDeletedNodes -> [NodeRef]
 
 ## SameDomain
-TopologyGraph.sameDomainFaces(of faceIndex: Int) -> [Int]
+BRepGraph.sameDomainFaces(of faceIndex: Int) -> [Int]
 
 ## Product (Assembly) Queries
-TopologyGraph.productIsAssembly(_ productIndex: Int) -> Bool
-TopologyGraph.productIsPart(_ productIndex: Int) -> Bool
-TopologyGraph.productComponentCount(_ productIndex: Int) -> Int
-TopologyGraph.productShapeRoot(_ productIndex: Int) -> (kind: NodeKind, index: Int)?
-TopologyGraph.occurrenceProduct(_ occIndex: Int) -> Int
-TopologyGraph.occurrenceParentProduct(_ occIndex: Int) -> Int
-TopologyGraph.occurrenceParentOccurrence(_ occIndex: Int) -> Int?
-TopologyGraph.productCount -> Int
-TopologyGraph.occurrenceCount -> Int
-TopologyGraph.rootProductCount -> Int
-TopologyGraph.rootProductIndices -> [Int]
+BRepGraph.productIsAssembly(_ productIndex: Int) -> Bool
+BRepGraph.productIsPart(_ productIndex: Int) -> Bool
+BRepGraph.productComponentCount(_ productIndex: Int) -> Int
+BRepGraph.productShapeRoot(_ productIndex: Int) -> (kind: NodeKind, index: Int)?
+BRepGraph.occurrenceProduct(_ occIndex: Int) -> Int
+BRepGraph.occurrenceParentProduct(_ occIndex: Int) -> Int
+BRepGraph.productCount -> Int
+BRepGraph.occurrenceCount -> Int
+BRepGraph.rootProductCount -> Int
+BRepGraph.rootProductIndices -> [Int]
 
 ## Reference Entry Queries
-TopologyGraph.refChildNodeKind(_ refKind: RefKind, refIndex: Int) -> NodeKind?
-TopologyGraph.refChildNodeIndex(_ refKind: RefKind, refIndex: Int) -> Int
-TopologyGraph.isRefRemoved(_ refKind: RefKind, refIndex: Int) -> Bool
-TopologyGraph.refOrientation(_ refKind: RefKind, refIndex: Int) -> Int
+BRepGraph.refChildNodeKind(_ refKind: RefKind, refIndex: Int) -> NodeKind?
+BRepGraph.refChildNodeIndex(_ refKind: RefKind, refIndex: Int) -> Int
+BRepGraph.isRefRemoved(_ refKind: RefKind, refIndex: Int) -> Bool
+BRepGraph.refOrientation(_ refKind: RefKind, refIndex: Int) -> Int
 
 ## Face Definition Details
-TopologyGraph.faceWireCount(_ faceIndex: Int) -> Int
-TopologyGraph.faceVertexRefCount(_ faceIndex: Int) -> Int
+BRepGraph.faceWireCount(_ faceIndex: Int) -> Int
+BRepGraph.faceVertexRefCount(_ faceIndex: Int) -> Int
 
 ## Edge Definition Details
-TopologyGraph.edgeStartVertex(_ edgeIndex: Int) -> Int?
-TopologyGraph.edgeEndVertex(_ edgeIndex: Int) -> Int?
-TopologyGraph.isEdgeClosed(_ edgeIndex: Int) -> Bool
+BRepGraph.edgeStartVertex(_ edgeIndex: Int) -> Int?
+BRepGraph.edgeEndVertex(_ edgeIndex: Int) -> Int?
+BRepGraph.isEdgeClosed(_ edgeIndex: Int) -> Bool
 
 ## Compound/CompSolid Queries
-TopologyGraph.compoundParentCount(_ compoundIndex: Int) -> Int
-TopologyGraph.compoundChildCount(_ compoundIndex: Int) -> Int
-TopologyGraph.compSolidSolidCount(_ compSolidIndex: Int) -> Int
-TopologyGraph.compSolidCompoundCount(_ compSolidIndex: Int) -> Int
+BRepGraph.compoundParentCount(_ compoundIndex: Int) -> Int
+BRepGraph.compoundChildCount(_ compoundIndex: Int) -> Int
+BRepGraph.compSolidSolidCount(_ compSolidIndex: Int) -> Int
+BRepGraph.compSolidCompoundCount(_ compSolidIndex: Int) -> Int
 
 ## Edge Additional Queries
-TopologyGraph.edgeWires(_ edgeIndex: Int) -> [Int]
-TopologyGraph.edgeCoEdges(_ edgeIndex: Int) -> [Int]
-TopologyGraph.edgeFindCoEdge(edgeIndex: Int, faceIndex: Int) -> Int?
+BRepGraph.edgeWires(_ edgeIndex: Int) -> [Int]
+BRepGraph.edgeCoEdges(_ edgeIndex: Int) -> [Int]
+BRepGraph.edgeFindCoEdge(edgeIndex: Int, faceIndex: Int) -> Int?
 
 ## Face Additional Queries
-TopologyGraph.faceShellCount(_ faceIndex: Int) -> Int
-TopologyGraph.faceShells(_ faceIndex: Int) -> [Int]
-TopologyGraph.faceCompoundCount(_ faceIndex: Int) -> Int
+BRepGraph.faceShellCount(_ faceIndex: Int) -> Int
+BRepGraph.faceShells(_ faceIndex: Int) -> [Int]
+BRepGraph.faceCompoundCount(_ faceIndex: Int) -> Int
 
 ## Shell Additional Queries
-TopologyGraph.shellCompoundCount(_ shellIndex: Int) -> Int
-TopologyGraph.isShellClosed(_ shellIndex: Int) -> Bool
+BRepGraph.shellCompoundCount(_ shellIndex: Int) -> Int
+BRepGraph.isShellClosed(_ shellIndex: Int) -> Bool
 
 ## Solid Additional Queries
-TopologyGraph.solidCompoundCount(_ solidIndex: Int) -> Int
+BRepGraph.solidCompoundCount(_ solidIndex: Int) -> Int
 
 ## Topology Counts
-TopologyGraph.nodeCount -> Int
-TopologyGraph.faceCount -> Int
-TopologyGraph.activeFaceCount -> Int
-TopologyGraph.edgeCount -> Int
-TopologyGraph.activeEdgeCount -> Int
-TopologyGraph.vertexCount -> Int
-TopologyGraph.activeVertexCount -> Int
-TopologyGraph.wireCount -> Int
-TopologyGraph.shellCount -> Int
-TopologyGraph.solidCount -> Int
-TopologyGraph.coedgeCount -> Int
-TopologyGraph.compoundCount -> Int
+BRepGraph.nodeCount -> Int
+BRepGraph.faceCount -> Int
+BRepGraph.activeFaceCount -> Int
+BRepGraph.edgeCount -> Int
+BRepGraph.activeEdgeCount -> Int
+BRepGraph.vertexCount -> Int
+BRepGraph.activeVertexCount -> Int
+BRepGraph.wireCount -> Int
+BRepGraph.shellCount -> Int
+BRepGraph.solidCount -> Int
+BRepGraph.coedgeCount -> Int
+BRepGraph.compoundCount -> Int
 
 ## Geometry Counts
-TopologyGraph.surfaceCount -> Int
-TopologyGraph.curve3DCount -> Int
-TopologyGraph.curve2DCount -> Int
+BRepGraph.surfaceCount -> Int
+BRepGraph.curve3DCount -> Int
+BRepGraph.curve2DCount -> Int
 
 ## Root Nodes
-TopologyGraph.rootNodes -> [RootNode]
+BRepGraph.rootNodes -> [RootNode]
 
 ## Statistics
-TopologyGraph.description -> String
-TopologyGraph.stats -> Stats
+BRepGraph.description -> String
+BRepGraph.stats -> Stats
 
 ## Poly Counts
-TopologyGraph.triangulationCount -> Int
-TopologyGraph.polygon3DCount -> Int
+BRepGraph.triangulationCount -> Int
+BRepGraph.polygon3DCount -> Int
 
 ## Active Geometry Counts
-TopologyGraph.activeSurfaceCount -> Int
-TopologyGraph.activeCurve3DCount -> Int
-TopologyGraph.activeCurve2DCount -> Int
+BRepGraph.activeSurfaceCount -> Int
+BRepGraph.activeCurve3DCount -> Int
+BRepGraph.activeCurve2DCount -> Int
 
 ## Reference Counts
-TopologyGraph.shellRefCount -> Int
-TopologyGraph.faceRefCount -> Int
-TopologyGraph.wireRefCount -> Int
-TopologyGraph.coedgeRefCount -> Int
-TopologyGraph.vertexRefCount -> Int
-TopologyGraph.solidRefCount -> Int
-TopologyGraph.childRefCount -> Int
-TopologyGraph.occurrenceRefCount -> Int
+BRepGraph.shellRefCount -> Int
+BRepGraph.faceRefCount -> Int
+BRepGraph.wireRefCount -> Int
+BRepGraph.coedgeRefCount -> Int
+BRepGraph.vertexRefCount -> Int
+BRepGraph.solidRefCount -> Int
+BRepGraph.childRefCount -> Int
+BRepGraph.occurrenceRefCount -> Int
 
 ## CompSolid Count
-TopologyGraph.compSolidCount -> Int
+BRepGraph.compSolidCount -> Int
 
-Build a graph-based B-Rep topology from any Shape for fast adjacency queries, analysis, ML export, and geometry sampling. Construct with TopologyGraph(shape:parallel:).`,
+Build a graph-based B-Rep topology from any Shape for fast adjacency queries, analysis, ML export, and geometry sampling. Construct with BRepGraph(shape:parallel:).`,
 
-  topology_graph_builder: `# TopologyGraph Builder (Mutations)
+  topology_graph_builder: `# BRepGraph Builder (Mutations)
 
 ## Copy and Transform
-TopologyGraph.copy(copyGeometry: Bool = true) -> TopologyGraph?
-TopologyGraph.copyFace(_ faceIndex: Int, copyGeometry: Bool = true) -> TopologyGraph?
-TopologyGraph.translated(dx: Double, dy: Double, dz: Double, copyGeometry: Bool = true) -> TopologyGraph?
+BRepGraph.copy(copyGeometry: Bool = true) -> BRepGraph?
+BRepGraph.copyFace(_ faceIndex: Int, copyGeometry: Bool = true) -> BRepGraph?
+BRepGraph.translated(dx: Double, dy: Double, dz: Double, copyGeometry: Bool = true) -> BRepGraph?
 
 ## Builder: Add Topology Nodes
-TopologyGraph.addVertex(x: Double, y: Double, z: Double, tolerance: Double) -> Int?
-TopologyGraph.addShell() -> Int?
-TopologyGraph.addSolid() -> Int?
-TopologyGraph.addFaceToShell(shellIndex: Int, faceIndex: Int, orientation: Int = 0) -> Int?
-TopologyGraph.addShellToSolid(solidIndex: Int, shellIndex: Int, orientation: Int = 0) -> Int?
-TopologyGraph.addCompound(children: [(kind: NodeKind, index: Int)]) -> Int?
-TopologyGraph.addCompSolid(solidIndices: [Int]) -> Int?
+BRepGraph.addVertex(x: Double, y: Double, z: Double, tolerance: Double) -> Int?
+BRepGraph.addShell() -> Int?
+BRepGraph.addSolid() -> Int?
+BRepGraph.addFaceToShell(shellIndex: Int, faceIndex: Int, orientation: Int = 0) -> Int?
+BRepGraph.addShellToSolid(solidIndex: Int, shellIndex: Int, orientation: Int = 0) -> Int?
+BRepGraph.addCompound(children: [(kind: NodeKind, index: Int)]) -> Int?
+BRepGraph.addCompSolid(solidIndices: [Int]) -> Int?
 
 ## Builder: Remove/Modify Nodes
-TopologyGraph.removeNode(nodeKind: NodeKind, nodeIndex: Int)
-TopologyGraph.removeSubgraph(nodeKind: NodeKind, nodeIndex: Int)
+BRepGraph.removeNode(nodeKind: NodeKind, nodeIndex: Int)
+BRepGraph.removeSubgraph(nodeKind: NodeKind, nodeIndex: Int)
 
 ## Builder: Append Shapes
-TopologyGraph.appendFlattenedShape(_ shape: Shape, parallel: Bool = false)
-TopologyGraph.appendFullShape(_ shape: Shape, parallel: Bool = false)
+BRepGraph.appendFlattenedShape(_ shape: Shape, parallel: Bool = false)
+BRepGraph.appendFullShape(_ shape: Shape, parallel: Bool = false)
 
 ## Builder: Deferred Invalidation
-TopologyGraph.beginDeferredInvalidation()
-TopologyGraph.endDeferredInvalidation()
-TopologyGraph.commitMutation()
-TopologyGraph.isDeferredMode -> Bool
+BRepGraph.beginDeferredInvalidation()
+BRepGraph.endDeferredInvalidation()
+BRepGraph.commitMutation()
+BRepGraph.isDeferredMode -> Bool
 
 ## Builder: Edge Splitting
-TopologyGraph.splitEdge(edgeIndex: Int, vertexIndex: Int, param: Double) -> (subA: Int, subB: Int)?
+BRepGraph.splitEdge(edgeIndex: Int, vertexIndex: Int, param: Double) -> (subA: Int, subB: Int)?
 
 ## Builder: Replace Edge in Wire
-TopologyGraph.replaceEdgeInWire(wireIndex: Int, oldEdgeIndex: Int, newEdgeIndex: Int, reversed: Bool = false)
+BRepGraph.replaceEdgeInWire(wireIndex: Int, oldEdgeIndex: Int, newEdgeIndex: Int, reversed: Bool = false)
 
 ## Builder: Remove Ref
-TopologyGraph.removeRef(refKind: RefKind, refIndex: Int) -> Bool
+BRepGraph.removeRef(refKind: RefKind, refIndex: Int) -> Bool
 
 ## Builder: Clear Mesh
-TopologyGraph.clearFaceMesh(faceIndex: Int)
-TopologyGraph.clearEdgePolygon3D(edgeIndex: Int)
+BRepGraph.clearFaceMesh(faceIndex: Int)
+BRepGraph.clearEdgePolygon3D(edgeIndex: Int)
 
 ## Builder: Validate Mutation
-TopologyGraph.validateMutation() -> Bool
+BRepGraph.validateMutation() -> Bool
 
 Mutate topology programmatically. Use beginDeferredInvalidation/endDeferredInvalidation around batch mutations.`,
 

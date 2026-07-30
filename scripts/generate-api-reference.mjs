@@ -129,23 +129,29 @@ const CATEGORIES = [
   },
   {
     key: "topology_graph",
-    title: "TopologyGraph (BREPGraph) — Queries",
+    // OCCTSwift v1.15.0 (#333) renamed the type to BRepGraph, keeping
+    // TopologyGraph only as a deprecated typealias. A typealias declares no
+    // methods, so matching on the old name silently emptied this whole
+    // category (70+ decls) out of the generated reference; match the real
+    // type name. The `key` stays `topology_graph` because it is the wire
+    // value of get_api_reference's `category` argument.
+    title: "BRepGraph Queries",
     rules: [
       {
-        type: "TopologyGraph",
+        type: "BRepGraph",
         markRx:
           /^Topology Counts|^Geometry Counts|^Face Queries|^Edge Queries|^Vertex Queries|^Wire Queries|^CoEdge Queries|^Shell Queries|^Solid Queries|^Active Geometry|^Statistics|^Root Nodes|^Explorers|^Node Status|^Validate$|^Compact$|^Deduplicate$|^Shape Reconstruction|^Vertex Geometry|^Edge Geometry|^Face Geometry|^SameDomain|^Reference|^Product|^Edge Definition|^Face Definition|^Edge Additional|^Face Additional|^Shell Additional|^Solid Additional|^Compound\/CompSolid|^CompSolid Count|^Poly Counts|^History/,
       },
     ],
     notes:
-      "Build a graph-based B-Rep topology from any Shape for fast adjacency queries, analysis, ML export, and geometry sampling. Construct with TopologyGraph(shape:parallel:).",
+      "Build a graph-based B-Rep topology from any Shape for fast adjacency queries, analysis, ML export, and geometry sampling. Construct with BRepGraph(shape:parallel:).",
   },
   {
     key: "topology_graph_builder",
-    title: "TopologyGraph Builder (Mutations)",
+    title: "BRepGraph Builder (Mutations)",
     rules: [
       {
-        type: "TopologyGraph",
+        type: "BRepGraph",
         markRx: /^Builder|Copy and Transform/,
       },
     ],
