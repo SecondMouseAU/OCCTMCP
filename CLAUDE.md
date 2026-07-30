@@ -224,7 +224,39 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 1.15.2: kernel wrapper around OpenCASCADE. **v1.15.0 renamed `TopologyGraph` to
+- **OCCTSwift** ≥ 1.17.0: kernel wrapper around OpenCASCADE. **v1.17.0** is Pass 1a of the
+  OCCTSwift#377 duplication audit (OCCTSwift#380), and carries two documented source breaks plus
+  eleven silent behaviour changes. Neither break reaches this repo (zero call sites, audited at
+  bump time): `Surface.drawMesh`/`evaluateGrid` return a `SurfaceGrid` struct instead of
+  `[[SIMD3<Double>]]` (OCCTSwift#404; no deprecation shim is possible, Swift cannot overload on
+  return type alone, and the two old nestings were OPPOSITE, `[u][v]` vs `[v][u]`, so a mechanical
+  rewrite of an `evaluateGrid` caller transposes its data), and the no-`tolerance`
+  `Curve3D.interpolate(points:startTangent:endTangent:)` overload is removed (OCCTSwift#400: it
+  shadowed its tolerance-aware sibling, so `tolerance:` was unreachable and pinned at `1e-6`).
+  Nine overlapping continuity enums consolidated into `SurfaceContinuity` +
+  `ParametricContinuity` (OCCTSwift#398), every retired name kept as a deprecated alias, so
+  source-compatible. Of the eleven silent behaviour changes the headline is
+  `Curve3D.length`/`arcLength*` integrating per `GeomAbs_CN` span instead of a single Gauss
+  quadrature across the whole domain (OCCTSwift#477: up to 5% wrong on a multi-span BSpline, an
+  accuracy fix on the ORDINARY path, not a failure-path sentinel); the rest are
+  `Surface.approximated()` no-arg defaults (`tolerance` 0.01 to 1e-3, `maxDegree` 10 to 8),
+  `Surface.curvatures(u:v:)` resolution 1e-6 to 1e-7, `Point2D.distance(to: Curve2D)` returning
+  `.infinity` instead of `-1` when there is no projection (which flips the sense of any
+  `distance < tolerance` test), `arcLength` failure sentinels 0.0 to -1.0,
+  `Surface.normal(u:v:)` returning a zero vector at a near-degenerate point (now matching
+  `normal(atU:v:)`, which is the spelling this repo's own two call sites use, so unaffected),
+  zero-radius circle/conic factories returning nil, and `BRepGraph.sampleFaceUVGrid` unpacking
+  the written count. None reach this repo's own code: there are no `arcLength` calls on OCCT
+  curves (`ZoneSweepTool`'s `arcLengthDeltaMm` is polyline-based, via
+  `ProfileMath.polylineLength`/`closedLength` over mesh cross-sections), and no
+  `Curve2D`/`Point2D`/`approximated`/`curvatures`/`sampleFaceUVGrid`/`interpolate` call sites at
+  all. Every sibling package now compiles against 1.17.0 though (all of them floor OCCTSwift with
+  `from:`, so 1.17.0 satisfies the whole cohort), so the test suite is the only net for a change
+  arriving transitively. **Bridge ABI:** v1.17.0 changed `OCCTBridge`'s C ABI, so a build with
+  `OCCTSWIFT_BRIDGE_PREBUILT=1` must take this release's `OCCTBridge.xcframework`; a v1.16.1
+  bridge binary silently mismatches this Swift layer and surfaces as missing bridge symbols.
+  `OCCT.xcframework` is unchanged and stays pinned at its v1.15.18 asset, so this bump carries no
+  kernel patch changes. **v1.15.0 renamed `TopologyGraph` to
   `BRepGraph`** (OCCTSwift#333, filed and shipped same-day; old name kept as a deprecated
   typealias for one or more releases, but OCCTMCP has already migrated every reference). v1.14.0
   adds `*WithFullHistory` for `translated`/`rotated`/`scaled`/`mirrored`/`linearPattern`/
