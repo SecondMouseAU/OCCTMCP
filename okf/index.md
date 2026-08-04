@@ -58,3 +58,4 @@ OpenCASCADE upstream, and the ecosystem map.
 - [Documentation updates are mandatory](policies/docs-current.md)
 - [No em-dashes, banned words in prose](policies/writing-style.md)
 - [Search before building](policies/search-before-building.md)
+- [Code structure](policies/code-structure.md)
