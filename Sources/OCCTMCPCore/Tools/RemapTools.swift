@@ -395,9 +395,12 @@ public enum RemapTools {
         case .vertex:
             // Not shape.vertices(): see the matching note in
             // SelectionTools.selectTopology (#91).
-            let candidates = shape.subShapes(ofType: .vertex).enumerated().map { (i, vShape) -> Candidate in
+            // #168: compactMap, not map — a vertex whose position can't be
+            // resolved is dropped from the candidate pool rather than
+            // fabricated at the origin (see SelectionTools.vertexPoint).
+            let candidates = shape.subShapes(ofType: .vertex).enumerated().compactMap { (i, vShape) -> Candidate? in
+                guard let point = SelectionTools.vertexPoint(vShape) else { return nil }
                 let index = SelectionTools.graphIndex(for: vShape, kind: .vertex, in: graph, fallback: i)
-                let point = vShape.centerOfMass ?? .zero
                 return Candidate(index: index, center: point, area: nil, length: nil, type: "vertex")
             }
             return await pickClosest(
