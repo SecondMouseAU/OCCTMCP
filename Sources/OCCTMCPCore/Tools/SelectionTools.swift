@@ -186,8 +186,8 @@ public enum SelectionTools {
             // to resolve through graphIndex(...).
             for (i, vertexShape) in shape.subShapes(ofType: .vertex).enumerated() {
                 totalScanned += 1
+                guard let point = vertexPoint(vertexShape) else { continue }
                 let index = graphIndex(for: vertexShape, kind: .vertex, in: graph, fallback: i)
-                let point = vertexShape.centerOfMass ?? .zero
                 let anchor = TopologyAnchor.vertex(bodyId: bodyId, index: index)
                 let snapshot = AnchorSnapshot(
                     center: [point.x, point.y, point.z]
@@ -238,6 +238,19 @@ public enum SelectionTools {
         guard let bounds = edge.parameterBounds else { return nil }
         let mid = (bounds.first + bounds.last) * 0.5
         return edge.point(at: mid)
+    }
+
+    /// A single-vertex Shape's real position (#168). `Shape.centerOfMass`
+    /// used to return the bounding-box centre for ANY shape, which happened
+    /// to be right for a vertex (a point's own bbox is itself) — but as of
+    /// OCCTSwift 2.0.0 (#605) it's the real BRepGProp centre of mass and
+    /// returns nil for anything enclosing no volume, a vertex included.
+    /// `Shape.vertices()` is the vertex's actual coordinate and always
+    /// resolves for a genuine vertex sub-shape; every vertex-anchor site
+    /// should go through this one helper rather than `centerOfMass`, so a
+    /// future upstream mass-property change has one place to audit.
+    static func vertexPoint(_ vertexShape: Shape) -> SIMD3<Double>? {
+        return vertexShape.vertices().first
     }
 
     static func edgeLength(edge: Edge) -> Double {

@@ -224,7 +224,21 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 1.17.0: kernel wrapper around OpenCASCADE. **v1.17.0** is Pass 1a of the
+- **OCCTSwift** ≥ 2.0.0: kernel wrapper around OpenCASCADE. **v2.0.0 (#171) is a correctness major**
+  (Pass 1a/1b duplication+bug-fix audit, OCCTSwift#377/#669; OCCT absorbed to 8.0.1), 17 breaking
+  API changes — full table in OCCTSwift `docs/SEMVER.md#v200`. Two needed a source fix here: #605
+  (`Shape.centerOfMass` returns `nil` instead of the bounding-box centre for anything enclosing no
+  volume — every vertex-anchor site now reads `Shape.vertices()` via the new
+  `SelectionTools.vertexPoint(_:)` helper instead) and #642/#699 (`AAG.detectPockets()`/
+  `detectHoles()`'s `floorFaceIndex`/`wallFaceIndices`/`faceIndex` are occurrence indices into
+  `orientedFaces()` now, not `faces()` — `AnalysisTools.buildFeatureReport` converts to the stable
+  `distinctFaceIndex` before reporting to the LLM, `GapFillerTools.mintFaceSelection` indexes
+  `orientedFaces()` directly, `AutoDimensionTool` converts before calling `edgesInFace(at:)`; all
+  three only diverge on a body with a face shared between two solids, e.g. a boolean/pattern
+  result — see `AAGFaceIndexTests`). Also #541 changed `Shape.faces()` itself to the deduplicated
+  convention `BRepGraph` already used, so `TopologyIdentityTests`' shared-face divergence fixture
+  moved to the still-occurrence-based `orientedFaces()`. The remaining breaks had zero call sites
+  in this repo. **v1.17.0** is Pass 1a of the
   OCCTSwift#377 duplication audit (OCCTSwift#380), and carries two documented source breaks plus
   eleven silent behaviour changes. Neither break reaches this repo (zero call sites, audited at
   bump time): `Surface.drawMesh`/`evaluateGrid` return a `SurfaceGrid` struct instead of

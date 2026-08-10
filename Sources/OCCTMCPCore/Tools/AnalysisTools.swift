@@ -106,28 +106,52 @@ public enum AnalysisTools {
         } catch {
             return .init("\(error)")
         }
-        let aag = AAG(shape: loaded.shape)
+        return IntrospectionTools.encode(
+            buildFeatureReport(shape: loaded.shape, bodyId: bodyId, kinds: kinds)
+        )
+    }
+
+    /// Shared by `recognizeFeatures` (bodyId/scene) and `featureRecognize`
+    /// (raw brepPath) — both scan the same AAG pocket/hole surface, so a
+    /// single conversion point keeps them from drifting (they were two
+    /// independently-copy-pasted blocks before this).
+    ///
+    /// `AAG.detectPockets()`/`.detectHoles()` return **occurrence** indices
+    /// into `shape.orientedFaces()`, not `shape.faces()` (OCCTSwift 2.0.0,
+    /// #642) — a raw pass-through would hand the LLM caller an index that's
+    /// silently wrong (or out of range) on any body with a face shared
+    /// between two solids, e.g. a boolean or pattern result, AND wouldn't
+    /// mean the same thing as every other face index this MCP's surface
+    /// hands out (`query_topology`/`select_topology`, `faces()`-space).
+    /// `AAGNode.distinctFaceIndex` recovers that stable, `faces()`-space
+    /// identity, so every reported index is converted here rather than left
+    /// as a raw, compound-order-dependent occurrence index.
+    private static func buildFeatureReport(
+        shape: Shape, bodyId: String, kinds: [String]?
+    ) -> FeatureReport {
+        let aag = AAG(shape: shape)
         let wantPockets = kinds.map { $0.contains("pocket") } ?? true
         let wantHoles = kinds.map { $0.contains("hole") } ?? true
 
+        func distinct(_ occurrenceIndex: Int) -> Int {
+            guard occurrenceIndex >= 0, occurrenceIndex < aag.nodes.count else { return occurrenceIndex }
+            return aag.nodes[occurrenceIndex].distinctFaceIndex
+        }
+
         let pockets = wantPockets ? aag.detectPockets().map {
             FeatureReport.Pocket(
-                floorFaceIndex: $0.floorFaceIndex,
-                wallFaceIndices: $0.wallFaceIndices,
+                floorFaceIndex: distinct($0.floorFaceIndex),
+                wallFaceIndices: $0.wallFaceIndices.map(distinct),
                 zLevel: $0.zLevel,
                 depth: $0.depth,
                 isOpen: $0.isOpen
             )
         } : []
         let holes = wantHoles ? aag.detectHoles().map {
-            FeatureReport.Hole(faceIndex: $0.faceIndex, radius: $0.radius, depth: $0.depth)
+            FeatureReport.Hole(faceIndex: distinct($0.faceIndex), radius: $0.radius, depth: $0.depth)
         } : []
 
-        return IntrospectionTools.encode(FeatureReport(
-            bodyId: bodyId,
-            pockets: pockets,
-            holes: holes
-        ))
+        return FeatureReport(bodyId: bodyId, pockets: pockets, holes: holes)
     }
 
     // ── analyze_clearance ──────────────────────────────────────────────
@@ -473,22 +497,9 @@ public enum AnalysisTools {
         }
         do {
             let shape = try Shape.loadBREP(fromPath: brepPath)
-            let aag = AAG(shape: shape)
-            return IntrospectionTools.encode(FeatureReport(
-                bodyId: brepPath,
-                pockets: aag.detectPockets().map {
-                    .init(
-                        floorFaceIndex: $0.floorFaceIndex,
-                        wallFaceIndices: $0.wallFaceIndices,
-                        zLevel: $0.zLevel,
-                        depth: $0.depth,
-                        isOpen: $0.isOpen
-                    )
-                },
-                holes: aag.detectHoles().map {
-                    .init(faceIndex: $0.faceIndex, radius: $0.radius, depth: $0.depth)
-                }
-            ))
+            return IntrospectionTools.encode(
+                buildFeatureReport(shape: shape, bodyId: brepPath, kinds: nil)
+            )
         } catch {
             return .init("feature_recognize failed: \(error.localizedDescription)", isError: true)
         }

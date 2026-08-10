@@ -307,7 +307,7 @@ public enum CorrespondenceTools {
             return SelectionTools.edgeMidpoint(edge: edge)
         }
         let targetVertexCentres: [SIMD3<Double>?] = (0..<targetGraph.vertexCount).map { i in
-            targetGraph.shape(nodeKind: .vertex, nodeIndex: i)?.centerOfMass
+            targetGraph.shape(nodeKind: .vertex, nodeIndex: i).flatMap(SelectionTools.vertexPoint)
         }
 
         var out: [Correspondence] = []
@@ -499,7 +499,7 @@ public enum CorrespondenceTools {
                   let edge = Edge(edgeShape) else { return nil }
             return SelectionTools.edgeMidpoint(edge: edge)
         case .vertex(_, let idx):
-            return graph.shape(nodeKind: .vertex, nodeIndex: idx)?.centerOfMass
+            return graph.shape(nodeKind: .vertex, nodeIndex: idx).flatMap(SelectionTools.vertexPoint)
         }
     }
 

@@ -193,10 +193,15 @@ public enum GapFillerTools {
             return .init("\(error)")
         }
         // #91/#93: resolve through the retained lineage graph rather than
-        // trusting AAG's floorFaceIndex/faceIndex; those address
-        // shape.faces() enumeration order, which the graph's own node
-        // index doesn't always match (true for faces only by coincidence,
-        // see TopologyIdentityTests).
+        // trusting AAG's floorFaceIndex/faceIndex as a graph index directly;
+        // the graph's own node index doesn't always match ANY Shape
+        // enumeration order (true for faces only by coincidence, see
+        // TopologyIdentityTests). Separately (OCCTSwift 2.0.0, #642):
+        // floorFaceIndex/wallFaceIndices/faceIndex are occurrence indices
+        // into shape.orientedFaces(), not shape.faces() — indexing faces()
+        // with them silently grabs the wrong face (or goes out of range) on
+        // a body with a face shared between two solids, e.g. a boolean or
+        // pattern result.
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
             lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: loaded.path)
@@ -209,7 +214,7 @@ public enum GapFillerTools {
         let wantPockets = kinds.map { $0.contains("pocket") } ?? true
         let wantHoles = kinds.map { $0.contains("hole") } ?? true
 
-        let allFaces = shape.faces()
+        let allFaces = shape.orientedFaces()
         var results: [FeatureSelection] = []
 
         func mintFaceSelection(kind: String, faceIndex: Int) async {

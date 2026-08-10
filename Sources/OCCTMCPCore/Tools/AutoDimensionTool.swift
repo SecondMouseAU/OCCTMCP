@@ -61,7 +61,20 @@ public enum AutoDimensionTool {
         var skipped: [AutoDimensionResult.SkipReason] = []
 
         for hole in aag.detectHoles() {
-            let faceIndex = hole.faceIndex
+            // OCCTSwift 2.0.0 (#642): hole.faceIndex is an occurrence index
+            // into shape.orientedFaces(), but edgesInFace(at:) expects a
+            // 0-based index into the deduplicated shape.faces() enumeration
+            // — the two only diverge on a body with a face shared between
+            // two solids (a boolean or pattern result), but passing the raw
+            // occurrence index there would silently read a different
+            // face's edges on exactly such a body. aag.nodes[...]
+            // .distinctFaceIndex converts between the two spaces, the same
+            // conversion AnalysisTools.buildFeatureReport applies so every
+            // face index this MCP reports stays in one, stable space.
+            let occurrenceIndex = hole.faceIndex
+            let faceIndex = occurrenceIndex < aag.nodes.count
+                ? aag.nodes[occurrenceIndex].distinctFaceIndex
+                : occurrenceIndex
             let faceEdges = shape.edgesInFace(at: faceIndex)
             guard !faceEdges.isEmpty else {
                 skipped.append(.init(faceIndex: faceIndex, reason: "face has no edges"))
