@@ -1,0 +1,69 @@
+name: code-style
+
+# Rollout of the ecosystem's code-style policy here (#173); see
+# docs/code-style-policy-proposal-2026-08.md in the `ecosystem` repo for the
+# full rationale, and okf/policies/code-style.md for this repo's own policy.
+#
+# Unlike the OCCTSwiftScripts pilot (small enough to fully sweep in one PR),
+# this repo is large (90 Swift files, ~27,665 lines, ~5,400 pre-existing
+# swift-format diagnostics measured against Sources/ on rollout day) so this
+# uses gradual adoption: a checked-in exemption manifest
+# (scripts/style-manifest-swift.txt) grandfathers every file that existed at
+# rollout, and scripts/check-style-manifest.py enforces that touching a
+# manifest file means fixing it and removing it from the manifest in the same
+# PR, not leaving it exempt while edited. Same shape as OCCTSwift's rollout
+# (#876), minus the clang-format/bridge-manifest steps: this repo has no
+# first-party C++ bridge code (confirmed: no .cpp/.mm/.h/.hpp/.cc under
+# Sources/), so no .clang-format and nothing for clang-format to check.
+#
+# swift-format and SwiftLint are blocking for everything NOT on the manifest:
+# formatting has no judgment call in it once a file complies.
+# check-style-manifest.py is blocking (its whole job is catching a specific,
+# unambiguous rule violation).
+#
+# Pure text analysis, no OCCT build needed: a macOS runner only because
+# that's where swift-format and swiftlint are both readily available via
+# Homebrew.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  code-style:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      # fetch-depth: 0, not the default shallow clone: check-style-manifest.py
+      # diffs against origin/main's merge-base, which needs real history.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install swift-format, SwiftLint
+        run: brew install swift-format swiftlint
+
+      - name: swift-format lint --strict (files not on the exemption manifest)
+        run: |
+          comm -23 \
+            <(find Sources -name '*.swift' | sort) \
+            <(grep -v '^#' scripts/style-manifest-swift.txt | sort) \
+            | tr '\n' '\0' \
+            | xargs -0 swift-format lint --strict --configuration .swift-format
+
+      - name: swiftlint lint --strict
+        if: '!cancelled()'
+        run: swiftlint lint --strict --config .swiftlint.yml
+
+      - name: check-style-manifest.py --self-test
+        if: '!cancelled()'
+        run: python3 scripts/check-style-manifest.py --self-test
+
+      - name: check-style-manifest.py
+        if: '!cancelled()'
+        run: python3 scripts/check-style-manifest.py --base origin/main
