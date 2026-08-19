@@ -97,8 +97,7 @@ let package = Package(
         // requirement (below) and made the two unresolvable together. Fixed in
         // v1.5.1 (raises the OCCTSwiftIO floor to 1.7.5), closing
         // SecondMouseAU/OCCTSwiftScripts#80.
-        occtDep("OCCTSwiftScripts", from: "1.6.2"),  // >=1.6.2 (#175/#176): repins OCCTSwift floor to 3.0.0; unwraps the six now-Optional bounding-box accessors, throwing a named ScriptError on a nil box instead of a fabricated zero-size one. >=1.6.0 (#171): repin OCCTSwift floor to 2.0.0; fixes the confirmed selfIntersectionCount break (OCCTSwift#763, Heal/GraphValidate now use opt-in isSelfIntersecting(timeout:) via a new --self-intersection-timeout flag) and a second real AAG occurrence-index bug (OCCTSwift#642) in FeatureRecognize/GraphSelect/GraphML. v1.6.1 corrects v1.6.0's own release note: the recipe 02 spring-volume drift flagged there was NOT an OCCTSwift kernel regression (OCCTSwift#830 was reproduced and closed not-a-bug): the real bug was in that recipe's own analytic tangent placement, fixed upstream in OCCTSwiftScripts; unrelated to anything execute_script/export_scene calls here either way.
-        occtDep("OCCTSwiftTools", from: "1.6.4"),  // >=1.6.4 (#175/#176): repins OCCTSwift floor to 3.0.0; no library source change (Sources/ reads none of the six now-Optional accessors), requires OCCTSwiftIO >=1.7.8. >=1.6.3 (#171): repin OCCTSwift floor to 2.0.0. Mesh.Triangle.faceIndex (backing FaceIdentityTable) moved onto the same deduplicated enumeration Shape.faces() already uses (OCCTSwift#541/#613/#642), no production logic change (makeFaceIdentityTable() already computes dynamically), but fixed stale docs and a test's hardcoded pre-dedup face count. >=1.6.1: TopologyGraph renamed to BRepGraph (OCCTSwift#333), and re-pins OCCTSwift to >=1.15.0; >=1.3.1: linear extractEdgePolylines (OCCTSwift#275 Tools half)
+        occtDep("OCCTSwiftScripts", from: "1.6.3"),  // >=1.6.3 (#182): repins occtkit's own OCCTSwiftTools/OCCTSwiftAIS deps onto OCCTSwiftInteraction (below), closing OCCTSwiftScripts#122. Load-bearing, not cosmetic: SwiftPM enforces target-name uniqueness across the WHOLE transitive package graph before any per-consumer product pruning, so resolving this repo at 1.6.2 (still declaring the old standalone OCCTSwiftTools/OCCTSwiftAIS packages) alongside OCCTMCP's own OCCTSwiftInteraction pin below produces a hard "multiple packages declare targets with a conflicting name" resolution error, not a version-range conflict, even though OCCTMCP only ever reaches this package's ScriptHarness/DrawingComposer targets, never occtkit's Tools/AIS dependency edge. >=1.6.2 (#175/#176): repins OCCTSwift floor to 3.0.0; unwraps the six now-Optional bounding-box accessors, throwing a named ScriptError on a nil box instead of a fabricated zero-size one. >=1.6.0 (#171): repin OCCTSwift floor to 2.0.0; fixes the confirmed selfIntersectionCount break (OCCTSwift#763, Heal/GraphValidate now use opt-in isSelfIntersecting(timeout:) via a new --self-intersection-timeout flag) and a second real AAG occurrence-index bug (OCCTSwift#642) in FeatureRecognize/GraphSelect/GraphML. v1.6.1 corrects v1.6.0's own release note: the recipe 02 spring-volume drift flagged there was NOT an OCCTSwift kernel regression (OCCTSwift#830 was reproduced and closed not-a-bug): the real bug was in that recipe's own analytic tangent placement, fixed upstream in OCCTSwiftScripts; unrelated to anything execute_script/export_scene calls here either way.
         // Viewport floored at 1.1.20: 1.0.3 fixes an uncatchable quantize()
         // crash on body load (Viewport #30) that would trap the MCP server
         // during render-preview; 1.0.4 makes the package dependency-free;
@@ -106,7 +105,20 @@ let package = Package(
         // ViewportBody.worldHitPoint(ray:triangleIndex:) ray to world
         // surface-point reconstruction that respects the body transform.
         occtDep("OCCTSwiftViewport", from: "1.1.23"),   // >=1.1.23: ViewportBody.directMesh (#76)
-        occtDep("OCCTSwiftAIS", from: "1.3.2"),  // >=1.3.2 (#175/#176): repins OCCTSwift to 3.0.0 transitively via OCCTSwiftTools 1.6.4; AreaSelection and DimensionAnchor's bbox-center resolvers now propagate Optional bounds instead of assuming non-Optional, which is a REAL compile break against OCCTSwift 3.0.0 (caught by OCCTMCP_FORCE_REMOTE_DEPS=1 swift build, not by grep or the local-sibling build: this repo's own Package.swift floor was the only thing keeping the resolver on 1.3.1). >=1.3.1: TopologyGraph renamed to BRepGraph (OCCTSwift#333), requires OCCTSwiftTools >=1.6.1
+        // OCCTSwiftTools and OCCTSwiftAIS are now vended by this ONE package (ecosystem#42/#43):
+        // OCCTSwiftTools, OCCTSwiftAIS and OCCTSwiftCADKit merged into OCCTSwiftInteraction v0.1.0.
+        // Module names are unchanged (`import OCCTSwiftTools` / `import OCCTSwiftAIS` still work;
+        // each stayed its own SwiftPM target inside the merged package), so no source change was
+        // needed anywhere else in this repo, only the `package:` label on each product below. This
+        // repin closes out #182 (re-keying SelectionRegistry on GraphUID, phase 5 of the picking
+        // consolidation): the re-key itself didn't strictly need it (BRepGraph.GraphUID is already
+        // reachable through the direct OCCTSwift dependency above), but was blocked from landing
+        // here until OCCTSwiftScripts#122 released (see the OCCTSwiftScripts pin comment above) so
+        // the two old standalone packages could actually be dropped from the graph. The old
+        // OCCTSwiftTools/OCCTSwiftAIS repos are archived, not deleted, so their tags stay
+        // resolvable, but this repo has no reason to keep depending on the archived line once the
+        // one blocker is gone.
+        occtDep("OCCTSwiftInteraction", from: "0.1.0"),
         // OCCTSwiftIO is a transitive dependency of OCCTSwiftScripts / OCCTSwiftTools,
         // declared open-endedly (`from: 1.0.x`-ish) in their manifests. Was capped to
         // the 1.0.x line here to dodge a heavy mesh-IO stack (SwiftPMX / SwiftGLTF /
@@ -128,9 +140,9 @@ let package = Package(
                 .product(name: "OCCTSwiftMesh", package: "OCCTSwiftMesh"),
                 .product(name: "ScriptHarness", package: "OCCTSwiftScripts"),
                 .product(name: "DrawingComposer", package: "OCCTSwiftScripts"),
-                .product(name: "OCCTSwiftTools", package: "OCCTSwiftTools"),
+                .product(name: "OCCTSwiftTools", package: "OCCTSwiftInteraction"),
                 .product(name: "OCCTSwiftViewport", package: "OCCTSwiftViewport"),
-                .product(name: "OCCTSwiftAIS", package: "OCCTSwiftAIS"),
+                .product(name: "OCCTSwiftAIS", package: "OCCTSwiftInteraction"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
