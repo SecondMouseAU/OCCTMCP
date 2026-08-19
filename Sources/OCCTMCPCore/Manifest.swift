@@ -1,4 +1,4 @@
-// Manifest helpers — read / write `manifest.json` under the resolved
+// Manifest helpers: read / write `manifest.json` under the resolved
 // output directory. Re-uses `ScriptManifest` and `BodyDescriptor` from
 // ScriptHarness so the on-disk format is identical to whatever
 // occtkit / ScriptContext write.
@@ -14,6 +14,7 @@ public struct ManifestStore: Sendable {
     }
 
     /// Load the manifest from disk, or nil if the file does not exist.
+    ///
     /// Throws if the file exists but cannot be parsed.
     public func read() throws -> ScriptManifest? {
         let url = URL(fileURLWithPath: path)
@@ -43,8 +44,9 @@ public struct ManifestStore: Sendable {
 }
 
 extension ScriptManifest {
-    /// Return a copy with `timestamp` reset to now. The struct is value-
-    /// type and immutable so this is the natural mutation primitive.
+    /// Return a copy with `timestamp` reset to now.
+    ///
+    /// The struct is value-type and immutable so this is the natural mutation primitive.
     public func withRefreshedTimestamp() -> ScriptManifest {
         return ScriptManifest(
             version: self.version,
@@ -56,7 +58,9 @@ extension ScriptManifest {
         )
     }
 
-    /// Locate a body by its `id`. Returns nil when not found.
+    /// Locate a body by its `id`.
+    ///
+    /// Returns nil when not found.
     public func body(withId id: String) -> BodyDescriptor? {
         return bodies.first { $0.id == id }
     }

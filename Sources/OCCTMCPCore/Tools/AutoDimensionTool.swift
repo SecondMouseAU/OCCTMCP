@@ -1,22 +1,22 @@
-// AutoDimensionTool — composes recognize_features + select_topology +
+// AutoDimensionTool: composes recognize_features + select_topology +
 // add_dimension. Walks the AAG-detected holes on a body, picks each
 // hole's circular rim edge, captures a selection on it, and adds a
 // radial dimension. One call instead of N round-trips.
 //
 // v0.8 covers radial dims on holes. Linear dims on slots / pockets
 // (anchor pairs) and angular dims on chamfered features are open
-// directions — they each need a default-anchor heuristic that's worth
+// directions: they each need a default-anchor heuristic that's worth
 // its own conversation.
 
 import Foundation
-import simd
 import OCCTSwift
 import ScriptHarness
+import simd
 
 public enum AutoDimensionTool {
 
     public struct AutoDimensionEntry: Encodable {
-        public let kind: String              // "hole_radius" | "hole_diameter"
+        public let kind: String  // "hole_radius" | "hole_diameter"
         public let dimensionId: String
         public let selectionId: String
         public let value: Double
@@ -49,7 +49,8 @@ public enum AutoDimensionTool {
         // #91/#93: resolve through the retained lineage graph.
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: loaded.path)
+            lineage = try await HistoryRegistry.shared.currentInput(
+                bodyId: bodyId, path: loaded.path)
         } catch {
             return .init("\(error)")
         }
@@ -63,8 +64,8 @@ public enum AutoDimensionTool {
         for hole in aag.detectHoles() {
             // OCCTSwift 2.0.0 (#642): hole.faceIndex is an occurrence index
             // into shape.orientedFaces(), but edgesInFace(at:) expects a
-            // 0-based index into the deduplicated shape.faces() enumeration
-            // — the two only diverge on a body with a face shared between
+            // 0-based index into the deduplicated shape.faces() enumeration;
+            // the two only diverge on a body with a face shared between
             // two solids (a boolean or pattern result), but passing the raw
             // occurrence index there would silently read a different
             // face's edges on exactly such a body. aag.nodes[...]
@@ -72,7 +73,8 @@ public enum AutoDimensionTool {
             // conversion AnalysisTools.buildFeatureReport applies so every
             // face index this MCP reports stays in one, stable space.
             let occurrenceIndex = hole.faceIndex
-            let faceIndex = occurrenceIndex < aag.nodes.count
+            let faceIndex =
+                occurrenceIndex < aag.nodes.count
                 ? aag.nodes[occurrenceIndex].distinctFaceIndex
                 : occurrenceIndex
             let faceEdges = shape.edgesInFace(at: faceIndex)
@@ -80,9 +82,10 @@ public enum AutoDimensionTool {
                 skipped.append(.init(faceIndex: faceIndex, reason: "face has no edges"))
                 continue
             }
-            // Find the first circular edge — that's the rim.
+            // Find the first circular edge: that's the rim.
             guard let rimEdge = faceEdges.first(where: { $0.isCircle }) else {
-                skipped.append(.init(faceIndex: faceIndex, reason: "no circular rim edge on hole face"))
+                skipped.append(
+                    .init(faceIndex: faceIndex, reason: "no circular rim edge on hole face"))
                 continue
             }
             // Resolve the rim edge's GRAPH index (matches the `edge[N]`
@@ -91,8 +94,10 @@ public enum AutoDimensionTool {
             // enumeration order there doesn't always match the graph's
             // own edge-kind index (#91).
             guard let rimEdgeShape = Shape.fromEdge(rimEdge),
-                  let node = graph.findNode(for: rimEdgeShape), node.kind == .edge else {
-                skipped.append(.init(faceIndex: faceIndex, reason: "rim edge not found in the graph"))
+                let node = graph.findNode(for: rimEdgeShape), node.kind == .edge
+            else {
+                skipped.append(
+                    .init(faceIndex: faceIndex, reason: "rim edge not found in the graph"))
                 continue
             }
             let edgeIndex = node.index
@@ -110,7 +115,9 @@ public enum AutoDimensionTool {
             )
             let anchor = TopologyAnchor.edge(bodyId: bodyId, index: edgeIndex)
             await registry.record(anchor: anchor, snapshot: snapshot)
-            if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: edgeIndex) {
+            if let uid = graph.uid(
+                ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: edgeIndex)
+            {
                 await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
             }
 
@@ -123,29 +130,33 @@ public enum AutoDimensionTool {
                 store: store,
                 registry: registry
             )
-            // dimResp.text is JSON for the DimensionResult — pull
+            // dimResp.text is JSON for the DimensionResult: pull
             // dimensionId + value out by re-parsing. Cheap and avoids
             // duplicating the logic.
             guard let data = dimResp.text.data(using: .utf8),
-                  let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dimId = parsed["dimensionId"] as? String,
-                  let value = parsed["value"] as? Double else {
-                skipped.append(.init(faceIndex: faceIndex, reason: "add_dimension failed: \(dimResp.text)"))
+                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let dimId = parsed["dimensionId"] as? String,
+                let value = parsed["value"] as? Double
+            else {
+                skipped.append(
+                    .init(faceIndex: faceIndex, reason: "add_dimension failed: \(dimResp.text)"))
                 continue
             }
-            added.append(.init(
-                kind: showDiameter ? "hole_diameter" : "hole_radius",
-                dimensionId: dimId,
-                selectionId: anchor.selectionId,
-                value: value,
-                edgeIndex: edgeIndex
-            ))
+            added.append(
+                .init(
+                    kind: showDiameter ? "hole_diameter" : "hole_radius",
+                    dimensionId: dimId,
+                    selectionId: anchor.selectionId,
+                    value: value,
+                    edgeIndex: edgeIndex
+                ))
         }
 
-        return IntrospectionTools.encode(AutoDimensionResult(
-            bodyId: bodyId,
-            added: added,
-            skipped: skipped
-        ))
+        return IntrospectionTools.encode(
+            AutoDimensionResult(
+                bodyId: bodyId,
+                added: added,
+                skipped: skipped
+            ))
     }
 }

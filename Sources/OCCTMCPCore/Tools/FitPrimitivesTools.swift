@@ -61,11 +61,11 @@
 // byte-identical primitive tables.
 
 import Foundation
-import simd
 import OCCTSwift
 import OCCTSwiftMesh
 import OCCTSwiftViewport
 import ScriptHarness
+import simd
 
 public enum FitPrimitivesTools {
 
@@ -82,11 +82,13 @@ public enum FitPrimitivesTools {
         public let zoneId: String?
         public let strategy: String
         public let strategyScores: StrategyScores?
-        /// Largest-support-first, matching `SegmentedMesh.regions`' own order.
+        /// Largest-support-first, matching the order `SegmentedMesh.regions` returns.
         public let primitives: [PrimitiveEntry]
         /// Fraction of the fitted mesh's triangles that NO primitive ever claimed as an inlier,
         /// computed BEFORE any `maxPrimitives` cap, see the file header's "uncovered vs.
-        /// capped" note. Never moves when `maxPrimitives` shrinks the report.
+        /// capped" note.
+        ///
+        /// Never moves when `maxPrimitives` shrinks the report.
         public let uncoveredFraction: Double
         public let renderPath: String?
         public let warnings: [String]
@@ -147,7 +149,9 @@ public enum FitPrimitivesTools {
             return .init("\(error)", isError: true)
         }
         let fitMesh = resolution.mesh
-        guard fitMesh.triangleCount > 0 else { return .init("Zone/body has no triangles to fit.", isError: true) }
+        guard fitMesh.triangleCount > 0 else {
+            return .init("Zone/body has no triangles to fit.", isError: true)
+        }
 
         let totalTriangles = fitMesh.triangleCount
 
@@ -169,15 +173,21 @@ public enum FitPrimitivesTools {
             strategyLabel = Strategy.ransac.rawValue
         case .auto:
             var dihedralOptions = Mesh.SegmentOptions()
-            if let minSupport = minSupportTriangles { dihedralOptions.minRegionTriangles = minSupport }
+            if let minSupport = minSupportTriangles {
+                dihedralOptions.minRegionTriangles = minSupport
+            }
             dihedralOptions.maxRegions = nil
             let auto = fitMesh.segmentedAutoSelect(dihedral: dihedralOptions, ransac: ransacOptions)
             segResult = auto.result
-            strategyScores = .init(dihedral: auto.dihedralScore, ransac: auto.ransacScore, chosen: auto.strategy.rawValue)
+            strategyScores = .init(
+                dihedral: auto.dihedralScore, ransac: auto.ransacScore,
+                chosen: auto.strategy.rawValue)
             strategyLabel = Strategy.auto.rawValue
         }
 
-        let uncoveredFraction = totalTriangles > 0 ? Double(segResult.truncatedTriangleCount) / Double(totalTriangles) : 0
+        let uncoveredFraction =
+            totalTriangles > 0
+            ? Double(segResult.truncatedTriangleCount) / Double(totalTriangles) : 0
         if segResult.truncatedTriangleCount > 0 {
             let pct = String(format: "%.1f", uncoveredFraction * 100)
             warnings.append(
@@ -209,26 +219,32 @@ public enum FitPrimitivesTools {
         }
 
         guard !regions.isEmpty else {
-            return IntrospectionTools.encode(FitReport(
-                bodyId: bodyId, zoneId: zoneId, strategy: strategyLabel, strategyScores: strategyScores,
-                primitives: [], uncoveredFraction: uncoveredFraction, renderPath: nil,
-                warnings: warnings + ["No primitives to report: none met minSupportTriangles, or maxPrimitives removed them all (see any cap warning above)."]
-            ))
+            return IntrospectionTools.encode(
+                FitReport(
+                    bodyId: bodyId, zoneId: zoneId, strategy: strategyLabel,
+                    strategyScores: strategyScores,
+                    primitives: [], uncoveredFraction: uncoveredFraction, renderPath: nil,
+                    warnings: warnings + [
+                        "No primitives to report: none met minSupportTriangles, or maxPrimitives removed them all (see any cap warning above)."
+                    ]
+                ))
         }
 
         var entries: [FitReport.PrimitiveEntry] = []
         entries.reserveCapacity(regions.count)
         for (region, fit) in zip(regions, fits) {
-            entries.append(FitReport.PrimitiveEntry(
-                kind: fit.kind.rawValue,
-                params: fit.params,
-                residualRmsMm: fit.residualRMS,
-                residualMaxMm: fit.residualMax,
-                inlierRatio: fit.inlierRatio,
-                supportTriangles: region.triangleIndices.count,
-                supportFraction: totalTriangles > 0 ? Double(region.triangleIndices.count) / Double(totalTriangles) : 0,
-                areaMm2: region.area
-            ))
+            entries.append(
+                FitReport.PrimitiveEntry(
+                    kind: fit.kind.rawValue,
+                    params: fit.params,
+                    residualRmsMm: fit.residualRMS,
+                    residualMaxMm: fit.residualMax,
+                    inlierRatio: fit.inlierRatio,
+                    supportTriangles: region.triangleIndices.count,
+                    supportFraction: totalTriangles > 0
+                        ? Double(region.triangleIndices.count) / Double(totalTriangles) : 0,
+                    areaMm2: region.area
+                ))
         }
 
         // ── optional render (band-group trick, mirrors MeshZoneTools/ZoneSweepTool) ──
@@ -250,18 +266,22 @@ public enum FitPrimitivesTools {
             }
         }
 
-        return IntrospectionTools.encode(FitReport(
-            bodyId: bodyId, zoneId: zoneId, strategy: strategyLabel, strategyScores: strategyScores,
-            primitives: entries, uncoveredFraction: uncoveredFraction, renderPath: writtenRenderPath,
-            warnings: warnings
-        ))
+        return IntrospectionTools.encode(
+            FitReport(
+                bodyId: bodyId, zoneId: zoneId, strategy: strategyLabel,
+                strategyScores: strategyScores,
+                primitives: entries, uncoveredFraction: uncoveredFraction,
+                renderPath: writtenRenderPath,
+                warnings: warnings
+            ))
     }
 
     // MARK: - Rendering (band-group trick, mirrors MeshZoneTools/ZoneSweepTool)
 
     @MainActor
     private static func renderPrimitives(
-        mesh: Mesh, regions: [MeshRegion], fits: [FittedPrimitive], bodyId: String, outputPath: String,
+        mesh: Mesh, regions: [MeshRegion], fits: [FittedPrimitive], bodyId: String,
+        outputPath: String,
         options: RenderPreviewTool.Options
     ) -> String? {
         let verts = mesh.vertices
@@ -278,27 +298,44 @@ public enum FitPrimitivesTools {
             bnormals.reserveCapacity(tris.count * 9)
             indices.reserveCapacity(tris.count * 3)
             for t in tris {
-                let ia = Int(idx[t * 3]), ib = Int(idx[t * 3 + 1]), ic = Int(idx[t * 3 + 2])
-                let pa = verts[ia], pb = verts[ib], pc = verts[ic]
+                let ia = Int(idx[t * 3])
+                let ib = Int(idx[t * 3 + 1])
+                let ic = Int(idx[t * 3 + 2])
+                let pa = verts[ia]
+                let pb = verts[ib]
+                let pc = verts[ic]
                 let fn = faceNormals[t]
                 for (vi, p) in [(ia, pa), (ib, pb), (ic, pc)] {
-                    positions.append(p.x); positions.append(p.y); positions.append(p.z)
+                    positions.append(p.x)
+                    positions.append(p.y)
+                    positions.append(p.z)
                     let nrm = hasNormals ? normals[vi] : fn
-                    bnormals.append(nrm.x); bnormals.append(nrm.y); bnormals.append(nrm.z)
+                    bnormals.append(nrm.x)
+                    bnormals.append(nrm.y)
+                    bnormals.append(nrm.z)
                 }
                 let base = UInt32(indices.count)
-                indices.append(base); indices.append(base + 1); indices.append(base + 2)
+                indices.append(base)
+                indices.append(base + 1)
+                indices.append(base + 2)
             }
-            return ViewportBody.directMesh(id: id, positions: positions, normals: bnormals, indices: indices, color: color)
+            return ViewportBody.directMesh(
+                id: id, positions: positions, normals: bnormals, indices: indices, color: color)
         }
 
         var bodies: [ViewportBody] = []
         var legend: [(label: String, color: SIMD4<Float>)] = []
         for (pi, region) in regions.enumerated() where !region.triangleIndices.isEmpty {
             let color = ChartRenderer.categoricalColor(pi)
-            bodies.append(buildBody(id: "\(bodyId)#primitive\(pi)", tris: region.triangleIndices, color: color))
+            bodies.append(
+                buildBody(
+                    id: "\(bodyId)#primitive\(pi)", tris: region.triangleIndices, color: color))
             let kind = pi < fits.count ? fits[pi].kind.rawValue : "?"
-            legend.append((label: "primitive#\(pi) \(kind) (\(region.triangleIndices.count) tri)", color: color))
+            legend.append(
+                (
+                    label: "primitive#\(pi) \(kind) (\(region.triangleIndices.count) tri)",
+                    color: color
+                ))
         }
         guard !bodies.isEmpty else { return "no primitive triangles to render" }
 

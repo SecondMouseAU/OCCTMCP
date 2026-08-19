@@ -1,4 +1,4 @@
-// ConstructionTools — scene-mutating tools that build new shapes from
+// ConstructionTools: scene-mutating tools that build new shapes from
 // existing ones via direct OCCTSwift calls. Each tool snapshots the
 // scene before mutating so compare_versions has prior state.
 //
@@ -57,7 +57,8 @@ public enum ConstructionTools {
 
         let isInPlace = options.inPlace ?? (options.outputBodyId == nil)
         if !isInPlace, let newId = options.outputBodyId,
-           manifest.bodies.contains(where: { $0.id == newId }) {
+            manifest.bodies.contains(where: { $0.id == newId })
+        {
             return .init("Output body id \"\(newId)\" already exists.")
         }
 
@@ -134,15 +135,18 @@ public enum ConstructionTools {
 
         if !isInPlace, let newId = options.outputBodyId {
             let newFile = (outputPath as NSString).lastPathComponent
-            let newBodies = manifest.bodies + [BodyDescriptor(
-                id: newId,
-                file: newFile,
-                format: body.format,
-                name: body.name,
-                color: body.color,
-                roughness: body.roughness,
-                metallic: body.metallic
-            )]
+            let newBodies =
+                manifest.bodies + [
+                    BodyDescriptor(
+                        id: newId,
+                        file: newFile,
+                        format: body.format,
+                        name: body.name,
+                        color: body.color,
+                        roughness: body.roughness,
+                        metallic: body.metallic
+                    )
+                ]
             let updated = ScriptManifest(
                 version: manifest.version,
                 timestamp: Date(),
@@ -157,7 +161,8 @@ public enum ConstructionTools {
             try? store.write(manifest)
         }
 
-        let summary = isInPlace
+        let summary =
+            isInPlace
             ? "Transformed \"\(bodyId)\" in place (\(body.file))."
             : "Transformed \"\(bodyId)\" → new body \"\(options.outputBodyId!)\" → \((outputPath as NSString).lastPathComponent)"
         return .init(summary)
@@ -188,8 +193,11 @@ public enum ConstructionTools {
             return .init("Body not found: \(bBodyId)")
         }
         let outId = outputBodyId ?? "\(op.rawValue)-\(aBodyId)-\(bBodyId)"
-        if manifest.bodies.contains(where: { $0.id == outId && $0.id != aBodyId && $0.id != bBodyId }) {
-            return .init("Output body id \"\(outId)\" already exists. Pass a different outputBodyId.")
+        if manifest.bodies.contains(where: {
+            $0.id == outId && $0.id != aBodyId && $0.id != bBodyId
+        }) {
+            return .init(
+                "Output body id \"\(outId)\" already exists. Pass a different outputBodyId.")
         }
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
@@ -209,32 +217,38 @@ public enum ConstructionTools {
         // v0.10: prefer the per-input-history variants (gsdali/OCCTSwift#165
         // Tier 1) so remap_selection can resolve via BRepGraph.findDerived
         // instead of the centroid heuristic. Fall back to the no-history calls
-        // only if the WithFullHistory variant returned nil — same observable
+        // only if the WithFullHistory variant returned nil: same observable
         // behaviour as v0.9 for the failure path.
         let output: Shape
         let historyRef: ShapeHistoryRef?
         switch op {
         case .union:
             if let r = aShape.unionWithFullHistory(bShape) {
-                output = r.result; historyRef = r.history
+                output = r.result
+                historyRef = r.history
             } else if let r = aShape.union(bShape) {
-                output = r; historyRef = nil
+                output = r
+                historyRef = nil
             } else {
                 return .init("Boolean union failed.", isError: true)
             }
         case .subtract:
             if let r = aShape.subtractedWithFullHistory(bShape) {
-                output = r.result; historyRef = r.history
+                output = r.result
+                historyRef = r.history
             } else if let r = aShape.subtracting(bShape) {
-                output = r; historyRef = nil
+                output = r
+                historyRef = nil
             } else {
                 return .init("Boolean subtract failed.", isError: true)
             }
         case .intersect:
             if let r = aShape.intersectionWithFullHistory(bShape) {
-                output = r.result; historyRef = r.history
+                output = r.result
+                historyRef = r.history
             } else if let r = aShape.intersection(bShape) {
-                output = r; historyRef = nil
+                output = r
+                historyRef = nil
             } else {
                 return .init("Boolean intersect failed.", isError: true)
             }
@@ -243,12 +257,14 @@ public enum ConstructionTools {
             // wrap multi-piece into a Compound so the manifest holds
             // a single body, the same shape v0.9 produced.
             if let r = aShape.splitWithFullHistory(by: bShape), let first = r.pieces.first {
-                output = (r.pieces.count > 1)
+                output =
+                    (r.pieces.count > 1)
                     ? (Shape.compound(r.pieces) ?? first)
                     : first
                 historyRef = r.history
             } else if let pieces = aShape.split(by: bShape), let first = pieces.first {
-                output = (pieces.count > 1)
+                output =
+                    (pieces.count > 1)
                     ? (Shape.compound(pieces) ?? first)
                     : first
                 historyRef = nil
@@ -296,15 +312,16 @@ public enum ConstructionTools {
         }
 
         var bodies = manifest.bodies
-        bodies.append(BodyDescriptor(
-            id: outId,
-            file: outFile,
-            format: aBody.format,
-            name: aBody.name.map { "\(op.rawValue) \($0)" },
-            color: aBody.color,
-            roughness: aBody.roughness,
-            metallic: aBody.metallic
-        ))
+        bodies.append(
+            BodyDescriptor(
+                id: outId,
+                file: outFile,
+                format: aBody.format,
+                name: aBody.name.map { "\(op.rawValue) \($0)" },
+                color: aBody.color,
+                roughness: aBody.roughness,
+                metallic: aBody.metallic
+            ))
         if removeInputs {
             for id in [aBodyId, bBodyId] {
                 if let idx = bodies.firstIndex(where: { $0.id == id }) {
@@ -324,7 +341,8 @@ public enum ConstructionTools {
         try? store.write(updated)
 
         let extra = removeInputs ? "; inputs removed" : ""
-        return .init("Boolean \(op.rawValue)(\(aBodyId), \(bBodyId)) → \"\(outId)\" (\(outFile))\(extra).")
+        return .init(
+            "Boolean \(op.rawValue)(\(aBodyId), \(bBodyId)) → \"\(outId)\" (\(outFile))\(extra).")
     }
 
     // ── mirror_or_pattern ──────────────────────────────────────────────
@@ -350,8 +368,10 @@ public enum ConstructionTools {
     }
 
     /// OCCTSwift's pattern primitives return a single (possibly compound)
-    /// Shape — different from the Node implementation which split the
-    /// compound into N separate BREPs/bodies. Emit one body per call;
+    /// Shape, different from the Node implementation which split the
+    /// compound into N separate BREPs/bodies.
+    ///
+    /// Emit one body per call;
     /// callers wanting individual instances can do scene-graph splits in
     /// a follow-up.
     public static func mirrorOrPattern(
@@ -394,12 +414,15 @@ public enum ConstructionTools {
             }
             result = shape.mirrored(planeNormal: normal, planeOrigin: params.planeOrigin ?? .zero)
         case .linear:
-            guard let dir = params.direction, let spacing = params.spacing, let count = params.count else {
+            guard let dir = params.direction, let spacing = params.spacing, let count = params.count
+            else {
                 return .init("linear requires `direction`, `spacing`, `count`.")
             }
             result = shape.linearPattern(direction: dir, spacing: spacing, count: count)
         case .circular:
-            guard let axisO = params.axisOrigin, let axisD = params.axisDirection, let total = params.totalCount else {
+            guard let axisO = params.axisOrigin, let axisD = params.axisDirection,
+                let total = params.totalCount
+            else {
                 return .init("circular requires `axisOrigin`, `axisDirection`, `totalCount`.")
             }
             result = shape.circularPattern(
@@ -439,15 +462,16 @@ public enum ConstructionTools {
         )
 
         var bodies = manifest.bodies
-        bodies.append(BodyDescriptor(
-            id: outId,
-            file: outFile,
-            format: body.format,
-            name: body.name.map { "\(kind.rawValue) \($0)" },
-            color: body.color,
-            roughness: body.roughness,
-            metallic: body.metallic
-        ))
+        bodies.append(
+            BodyDescriptor(
+                id: outId,
+                file: outFile,
+                format: body.format,
+                name: body.name.map { "\(kind.rawValue) \($0)" },
+                color: body.color,
+                roughness: body.roughness,
+                metallic: body.metallic
+            ))
         let updated = ScriptManifest(
             version: manifest.version,
             timestamp: Date(),
@@ -458,13 +482,14 @@ public enum ConstructionTools {
         )
         try? store.write(updated)
 
-        // Mirror provenance — single-target case fits
+        // Mirror provenance: single-target case fits
         // find_correspondences's "one target id per source id" contract.
         // Linear / circular patterns produce N copies, so a single
         // TransformHint can't describe the full mapping; skip those
         // until find_correspondences grows a multi-target return type.
         if kind == .mirror,
-           let normal = params.planeNormal {
+            let normal = params.planeNormal
+        {
             await ProvenanceStore.shared.upsert(
                 bodyId: outId,
                 record: ProvenanceRecord(

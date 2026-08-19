@@ -1,10 +1,12 @@
-// MeshTools — generate_mesh and simplify_mesh, both backed by direct
+// MeshTools: generate_mesh and simplify_mesh, both backed by direct
 // OCCTSwift / OCCTSwiftMesh calls.
 
 import Foundation
 import OCCTSwift
 import OCCTSwiftMesh
 import ScriptHarness
+// Tiny SIMD helpers so the file doesn't have to import simd.
+import simd
 
 public enum MeshTools {
 
@@ -132,7 +134,7 @@ public enum MeshTools {
             maxHausdorffDistance: maxHausdorffDistance
         )
         guard let simplified = inputMesh.simplified(options) else {
-            return .init("Simplification failed — check options.", isError: true)
+            return .init("Simplification failed: check options.", isError: true)
         }
         let afterMean = meanAspectRatio(of: simplified.mesh)
 
@@ -142,15 +144,16 @@ public enum MeshTools {
             return .init("Failed to write mesh: \(error.localizedDescription)", isError: true)
         }
 
-        return IntrospectionTools.encode(SimplifyReport(
-            beforeTriangleCount: simplified.beforeTriangleCount,
-            afterTriangleCount: simplified.afterTriangleCount,
-            qualityDelta: .init(
-                meanAspectRatioDelta: afterMean - beforeMean,
-                hausdorffDistance: simplified.hausdorffDistance
-            ),
-            outputPath: outputPath
-        ))
+        return IntrospectionTools.encode(
+            SimplifyReport(
+                beforeTriangleCount: simplified.beforeTriangleCount,
+                afterTriangleCount: simplified.afterTriangleCount,
+                qualityDelta: .init(
+                    meanAspectRatioDelta: afterMean - beforeMean,
+                    hausdorffDistance: simplified.hausdorffDistance
+                ),
+                outputPath: outputPath
+            ))
     }
 
     // ── shared mesh quality + writers ──────────────────────────────────
@@ -163,13 +166,22 @@ public enum MeshTools {
         var degenerates = 0
         let triCount = idx.count / 3
         for t in 0..<triCount {
-            let i0 = Int(idx[t * 3]), i1 = Int(idx[t * 3 + 1]), i2 = Int(idx[t * 3 + 2])
+            let i0 = Int(idx[t * 3])
+            let i1 = Int(idx[t * 3 + 1])
+            let i2 = Int(idx[t * 3 + 2])
             guard i0 < verts.count, i1 < verts.count, i2 < verts.count else { continue }
-            let a = verts[i0], b = verts[i1], c = verts[i2]
-            let e0 = simdLength(b - a), e1 = simdLength(c - b), e2 = simdLength(a - c)
+            let a = verts[i0]
+            let b = verts[i1]
+            let c = verts[i2]
+            let e0 = simdLength(b - a)
+            let e1 = simdLength(c - b)
+            let e2 = simdLength(a - c)
             let mn = min(e0, min(e1, e2))
             let mx = max(e0, max(e1, e2))
-            if mn <= 1e-9 { degenerates += 1; continue }
+            if mn <= 1e-9 {
+                degenerates += 1
+                continue
+            }
             let r = Double(mx / mn)
             sum += r
             if r < minR { minR = r }
@@ -203,9 +215,13 @@ public enum MeshTools {
         case "stl":
             var out = "solid generated\n"
             for t in 0..<(idx.count / 3) {
-                let i0 = Int(idx[t * 3]), i1 = Int(idx[t * 3 + 1]), i2 = Int(idx[t * 3 + 2])
+                let i0 = Int(idx[t * 3])
+                let i1 = Int(idx[t * 3 + 1])
+                let i2 = Int(idx[t * 3 + 2])
                 guard i0 < verts.count, i1 < verts.count, i2 < verts.count else { continue }
-                let a = verts[i0], b = verts[i1], c = verts[i2]
+                let a = verts[i0]
+                let b = verts[i1]
+                let c = verts[i2]
                 let n = simdNormalize(simdCross(b - a, c - a))
                 out += "  facet normal \(n.x) \(n.y) \(n.z)\n"
                 out += "    outer loop\n"
@@ -242,8 +258,8 @@ public enum MeshTools {
     }
 }
 
-// Tiny SIMD helpers so the file doesn't have to import simd.
-import simd
 private func simdLength(_ v: SIMD3<Float>) -> Float { simd.simd_length(v) }
-private func simdCross(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> SIMD3<Float> { simd.simd_cross(a, b) }
+private func simdCross(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> SIMD3<Float> {
+    simd.simd_cross(a, b)
+}
 private func simdNormalize(_ v: SIMD3<Float>) -> SIMD3<Float> { simd.simd_normalize(v) }

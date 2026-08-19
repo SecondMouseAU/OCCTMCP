@@ -18,7 +18,9 @@
 import Foundation
 import OCCTSwift
 
-/// Namespaced attribute keys this layer reads/writes. The store is generic;
+/// Namespaced attribute keys this layer reads/writes.
+///
+/// The store is generic;
 /// these are the keys the `reconstruct_*` tools own. Engine-written keys
 /// (e.g. `reconstruct.residualRMS`, `reconstruct.confidence`) round-trip
 /// through `get_graph` / `export_session` untouched.
@@ -31,7 +33,9 @@ public enum ReconstructKeys {
 }
 
 /// A Sendable, Encodable snapshot of a session's state for `get_graph` /
-/// `import_session` responses. Lists topology counts plus every annotated
+/// `import_session` responses.
+///
+/// Lists topology counts plus every annotated
 /// node (nodes carrying no attributes are omitted) and any instance
 /// clusters derived from `reconstruct.instanceCluster`.
 public struct ReconstructGraphState: Encodable, Sendable {
@@ -46,7 +50,7 @@ public struct ReconstructGraphState: Encodable, Sendable {
         public let totalNodes: Int
     }
     public struct NodeAttrs: Encodable, Sendable {
-        public let node: String                       // "<kind>:<index>", e.g. "face:3"
+        public let node: String  // "<kind>:<index>", e.g. "face:3"
         public let attributes: [String: AnyCodable]
     }
     public struct InstanceCluster: Encodable, Sendable {
@@ -81,7 +85,8 @@ public enum ReconstructError: Error, CustomStringConvertible, Sendable {
     public var description: String {
         switch self {
         case .noSession(let id):
-            return "No reconstruction session '\(id)'. Run reconstruct_get_graph or reconstruct_import_session first."
+            return
+                "No reconstruction session '\(id)'. Run reconstruct_get_graph or reconstruct_import_session first."
         }
     }
 }
@@ -134,7 +139,9 @@ public actor ReconstructRegistry {
 
     public func hasSession(id: String) -> Bool { sessions[id] != nil }
 
-    /// Register (or replace) the graph backing a session. A replacement
+    /// Register (or replace) the graph backing a session.
+    ///
+    /// A replacement
     /// graph is always a NEW `BRepGraph` instance, so any UIDs cached
     /// under `id` from the old instance are foreign to it and must be
     /// dropped rather than left to resolve `nil` forever. Any attributes
@@ -162,8 +169,10 @@ public actor ReconstructRegistry {
         attrStore.removeAll()
     }
 
-    /// Resolve `nodeStr` to the `GraphUID` it currently names in `id`'s
-    /// session graph. First resolution of a given string: parse the wire
+    /// Resolve `nodeStr` to the `GraphUID` it currently names in the session
+    /// graph for `id`.
+    ///
+    /// First resolution of a given string: parse the wire
     /// format and mint a UID for future calls. Later resolutions of the
     /// SAME string: re-validate the cached UID against the graph rather
     /// than re-parsing the string's embedded index, returning `nil` if the
@@ -173,7 +182,8 @@ public actor ReconstructRegistry {
             return g.node(forUID: uid) != nil ? uid : nil
         }
         guard let node = Self.parse(nodeStr),
-              let uid = g.uid(ofNodeKind: Int(node.kind.rawValue), index: node.index) else {
+            let uid = g.uid(ofNodeKind: Int(node.kind.rawValue), index: node.index)
+        else {
             return nil
         }
         nodeUIDs[id, default: [:]][nodeStr] = uid
@@ -196,7 +206,9 @@ public actor ReconstructRegistry {
         // skipped rather than reported at a stale or reused index.
         var resolved: [(ref: BRepGraph.NodeRef, attrs: [String: BRepGraph.AttrValue])] = []
         for (uid, attrs) in attrStore[id] ?? [:] {
-            guard let r = g.node(forUID: uid), let kind = BRepGraph.NodeKind(rawValue: Int32(r.kind)) else { continue }
+            guard let r = g.node(forUID: uid),
+                let kind = BRepGraph.NodeKind(rawValue: Int32(r.kind))
+            else { continue }
             resolved.append((BRepGraph.NodeRef(kind: kind, index: r.index), attrs))
         }
         resolved.sort { Self.nodeOrder($0.ref, $1.ref) }
@@ -232,9 +244,15 @@ public actor ReconstructRegistry {
         id: String, nodeStr: String, decidedBy: String?, accepted: Bool?
     ) -> ReconstructWriteOutcome {
         guard let g = sessions[id] else { return .noSession(id) }
-        guard let uid = resolveUID(id: id, nodeStr: nodeStr, in: g) else { return .badNode(nodeStr) }
-        if let d = decidedBy { attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.decidedBy] = .string(d) }
-        if let a = accepted { attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.accepted] = .bool(a) }
+        guard let uid = resolveUID(id: id, nodeStr: nodeStr, in: g) else {
+            return .badNode(nodeStr)
+        }
+        if let d = decidedBy {
+            attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.decidedBy] = .string(d)
+        }
+        if let a = accepted {
+            attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.accepted] = .bool(a)
+        }
         return .ok(node: nodeStr, attributes: Self.anyCodableMap(attrStore[id]?[uid] ?? [:]))
     }
 
@@ -242,8 +260,11 @@ public actor ReconstructRegistry {
         id: String, nodeStr: String, surfaceType: String
     ) -> ReconstructWriteOutcome {
         guard let g = sessions[id] else { return .noSession(id) }
-        guard let uid = resolveUID(id: id, nodeStr: nodeStr, in: g) else { return .badNode(nodeStr) }
-        attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.forcedSurfaceType] = .string(surfaceType)
+        guard let uid = resolveUID(id: id, nodeStr: nodeStr, in: g) else {
+            return .badNode(nodeStr)
+        }
+        attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.forcedSurfaceType] = .string(
+            surfaceType)
         return .ok(node: nodeStr, attributes: Self.anyCodableMap(attrStore[id]?[uid] ?? [:]))
     }
 
@@ -256,8 +277,10 @@ public actor ReconstructRegistry {
         guard bad.isEmpty else { return .badNodes(bad) }
         for entry in parsed {
             guard let uid = entry.uid else { continue }
-            attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.instanceCluster] = .string(clusterId)
-            attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.instanceConfirmed] = .bool(confirmed)
+            attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.instanceCluster] =
+                .string(clusterId)
+            attrStore[id, default: [:]][uid, default: [:]][ReconstructKeys.instanceConfirmed] =
+                .bool(confirmed)
         }
         return .ok(clusterId: clusterId, members: nodeStrs, confirmed: confirmed)
     }
@@ -270,8 +293,8 @@ public actor ReconstructRegistry {
     /// rebuilt from `attrStore`, resolving each UID to its CURRENT node
     /// right before serializing (the wire format `GraphSnapshot` round-trips
     /// is NodeRef-keyed, not UID-keyed: a UID is only durable within the
-    /// `BRepGraph` instance that minted it, per `BRepGraph.GraphUID`'s own
-    /// documented instance-scoping, so it can't be the persisted form).
+    /// `BRepGraph` instance that minted it, per the documented
+    /// instance-scoping of `BRepGraph.GraphUID`, so it can't be the persisted form).
     public func makeSnapshot(id: String) throws -> GraphSnapshot {
         guard let g = sessions[id] else { throw ReconstructError.noSession(id) }
         let base = try g.snapshot()
@@ -284,7 +307,9 @@ public actor ReconstructRegistry {
 
     // MARK: helpers
 
-    private static func anyCodableMap(_ attrs: [String: BRepGraph.AttrValue]) -> [String: AnyCodable] {
+    private static func anyCodableMap(_ attrs: [String: BRepGraph.AttrValue]) -> [String:
+        AnyCodable]
+    {
         var out: [String: AnyCodable] = [:]
         for (k, v) in attrs { out[k] = anyCodable(v) }
         return out
@@ -295,7 +320,9 @@ public actor ReconstructRegistry {
     ) -> NodeAttributeStore {
         var store = NodeAttributeStore()
         for (uid, attrs) in byUID {
-            guard let r = graph.node(forUID: uid), let kind = BRepGraph.NodeKind(rawValue: Int32(r.kind)) else { continue }
+            guard let r = graph.node(forUID: uid),
+                let kind = BRepGraph.NodeKind(rawValue: Int32(r.kind))
+            else { continue }
             let ref = BRepGraph.NodeRef(kind: kind, index: r.index)
             for (k, v) in attrs { store.set(k, v, for: ref) }
         }
@@ -309,11 +336,11 @@ public actor ReconstructRegistry {
 
     static func anyCodable(_ v: BRepGraph.AttrValue) -> AnyCodable {
         switch v {
-        case .bool(let b):    return .bool(b)
-        case .int(let i):     return .number(Double(i))
-        case .double(let d):  return .number(d)
-        case .string(let s):  return .string(s)
-        case .ints(let a):    return .array(a.map { .number(Double($0)) })
+        case .bool(let b): return .bool(b)
+        case .int(let i): return .number(Double(i))
+        case .double(let d): return .number(d)
+        case .string(let s): return .string(s)
+        case .ints(let a): return .array(a.map { .number(Double($0)) })
         case .doubles(let a): return .array(a.map { .number($0) })
         }
     }
@@ -321,34 +348,34 @@ public actor ReconstructRegistry {
     // Self-describing "<kind>:<index>" node addressing (parseable both ways).
     static func kindName(_ k: BRepGraph.NodeKind) -> String {
         switch k {
-        case .solid:      return "solid"
-        case .shell:      return "shell"
-        case .face:       return "face"
-        case .wire:       return "wire"
-        case .edge:       return "edge"
-        case .vertex:     return "vertex"
-        case .compound:   return "compound"
-        case .compSolid:  return "compsolid"
-        case .coedge:     return "coedge"
-        case .product:    return "product"
+        case .solid: return "solid"
+        case .shell: return "shell"
+        case .face: return "face"
+        case .wire: return "wire"
+        case .edge: return "edge"
+        case .vertex: return "vertex"
+        case .compound: return "compound"
+        case .compSolid: return "compsolid"
+        case .coedge: return "coedge"
+        case .product: return "product"
         case .occurrence: return "occurrence"
         }
     }
 
     static func kind(from name: String) -> BRepGraph.NodeKind? {
         switch name.lowercased() {
-        case "solid":      return .solid
-        case "shell":      return .shell
-        case "face":       return .face
-        case "wire":       return .wire
-        case "edge":       return .edge
-        case "vertex":     return .vertex
-        case "compound":   return .compound
-        case "compsolid":  return .compSolid
-        case "coedge":     return .coedge
-        case "product":    return .product
+        case "solid": return .solid
+        case "shell": return .shell
+        case "face": return .face
+        case "wire": return .wire
+        case "edge": return .edge
+        case "vertex": return .vertex
+        case "compound": return .compound
+        case "compsolid": return .compSolid
+        case "coedge": return .coedge
+        case "product": return .product
         case "occurrence": return .occurrence
-        default:           return nil
+        default: return nil
         }
     }
 
@@ -359,8 +386,9 @@ public actor ReconstructRegistry {
     static func parse(_ s: String) -> BRepGraph.NodeRef? {
         let parts = s.split(separator: ":", maxSplits: 1)
         guard parts.count == 2,
-              let k = kind(from: String(parts[0])),
-              let idx = Int(parts[1]) else { return nil }
+            let k = kind(from: String(parts[0])),
+            let idx = Int(parts[1])
+        else { return nil }
         return BRepGraph.NodeRef(kind: k, index: idx)
     }
 }

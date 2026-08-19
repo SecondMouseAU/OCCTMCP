@@ -6,7 +6,7 @@ extension Value {
     /// release of the official SDK.
     ///
     /// JSON has a single `number` type with no integer/float distinction,
-    /// and `Value.init(from:)` tries `Int` first — so `Value.double(0)`
+    /// and `Value.init(from:)` tries `Int` first, so `Value.double(0)`
     /// round-trips through JSON to `Value.int(0)` and `doubleValue` returns
     /// `nil`. This accessor coerces both `.int` and `.double` to `Double`,
     /// which is what tool-argument readers want for coordinates, dimensions,
@@ -16,9 +16,9 @@ extension Value {
     /// code changes are required.
     var numberValue: Double? {
         switch self {
-        case .int(let value):    return Double(value)
+        case .int(let value): return Double(value)
         case .double(let value): return value
-        default:                 return nil
+        default: return nil
         }
     }
 }

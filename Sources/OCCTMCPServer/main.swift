@@ -1,4 +1,4 @@
-// OCCTMCPServer — executable entry point. Builds the MCP server, binds it
+// OCCTMCPServer: executable entry point. Builds the MCP server, binds it
 // to stdio, and parks until the client disconnects.
 
 import Foundation

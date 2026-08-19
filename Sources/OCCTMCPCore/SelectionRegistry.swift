@@ -1,18 +1,20 @@
-// SelectionRegistry — server-side store of named topology picks. The
+// SelectionRegistry: server-side store of named topology picks. The
 // LLM gets back a stable selectionId from `select_topology`, then refers
 // to it from `remap_selection`, `add_dimension`, and any future tool
 // that wants to anchor to a sub-shape.
 //
 // selectionId format: `sel:<bodyId>#<kind>[<index>]`. Self-describing
 // and parseable, so consumers can inspect a selection without
-// dereferencing the registry — but the registry caches the resolved
+// dereferencing the registry, but the registry caches the resolved
 // anchor metadata (centroid, normal, area / length) so subsequent
 // calls don't have to re-load the BREP.
 
 import Foundation
 import OCCTSwift
 
-/// A named pick into the topology of a scene body. Mirrors the AIS
+/// A named pick into the topology of a scene body.
+///
+/// Mirrors the AIS
 /// `SubShape` enum but keyed by `bodyId` so it survives without an
 /// `InteractiveContext`.
 public enum TopologyAnchor: Sendable, Hashable {
@@ -23,28 +25,28 @@ public enum TopologyAnchor: Sendable, Hashable {
 
     public var bodyId: String {
         switch self {
-        case .body(let id):           return id
-        case .face(let id, _):        return id
-        case .edge(let id, _):        return id
-        case .vertex(let id, _):      return id
+        case .body(let id): return id
+        case .face(let id, _): return id
+        case .edge(let id, _): return id
+        case .vertex(let id, _): return id
         }
     }
 
     public var kind: String {
         switch self {
-        case .body:    return "body"
-        case .face:    return "face"
-        case .edge:    return "edge"
-        case .vertex:  return "vertex"
+        case .body: return "body"
+        case .face: return "face"
+        case .edge: return "edge"
+        case .vertex: return "vertex"
         }
     }
 
     public var index: Int? {
         switch self {
-        case .body:                   return nil
-        case .face(_, let idx):       return idx
-        case .edge(_, let idx):       return idx
-        case .vertex(_, let idx):     return idx
+        case .body: return nil
+        case .face(_, let idx): return idx
+        case .edge(_, let idx): return idx
+        case .vertex(_, let idx): return idx
         }
     }
 
@@ -63,7 +65,9 @@ public enum TopologyAnchor: Sendable, Hashable {
         }
     }
 
-    /// Parse a selectionId back into an anchor. Returns nil if the
+    /// Parse a selectionId back into an anchor.
+    ///
+    /// Returns nil if the
     /// string doesn't match the documented format.
     public static func parse(_ selectionId: String) -> TopologyAnchor? {
         guard selectionId.hasPrefix("sel:") else { return nil }
@@ -74,15 +78,16 @@ public enum TopologyAnchor: Sendable, Hashable {
         if rest == "body" { return .body(bodyId: bodyId) }
         // rest is `face[3]` / `edge[7]` / `vertex[2]`
         guard let openBracket = rest.firstIndex(of: "["),
-              rest.last == "]" else { return nil }
+            rest.last == "]"
+        else { return nil }
         let kindStr = String(rest[..<openBracket])
         let inside = rest[rest.index(after: openBracket)..<rest.index(before: rest.endIndex)]
         guard let idx = Int(inside) else { return nil }
         switch kindStr {
-        case "face":    return .face(bodyId: bodyId, index: idx)
-        case "edge":    return .edge(bodyId: bodyId, index: idx)
-        case "vertex":  return .vertex(bodyId: bodyId, index: idx)
-        default:        return nil
+        case "face": return .face(bodyId: bodyId, index: idx)
+        case "edge": return .edge(bodyId: bodyId, index: idx)
+        case "vertex": return .vertex(bodyId: bodyId, index: idx)
+        default: return nil
         }
     }
 }
@@ -106,32 +111,44 @@ public struct AnchorSnapshot: Sendable, Codable {
     public var curveType: String?
     /// Geometric centre of a circular edge, the centre of curvature,
     /// distinct from `center` (which holds the parameter-midpoint *rim*
-    /// point for edges). Lets `add_dimension(radial)` compute an exact
+    /// point for edges).
+    ///
+    /// Lets `add_dimension(radial)` compute an exact
     /// radius from geometry and lets `AnnotationsRenderer.dimension`
     /// draw a leader from circleCenter to the rim. nil for non-edges and
     /// non-circular edges.
     public var circleCenter: [Double]?
     /// Edge start and end points (`[start, end]`, world coordinates), in the
-    /// edge's own topological orientation. Populated for every edge kind,
+    /// edge's own topological orientation.
+    ///
+    /// Populated for every edge kind,
     /// not just lines: a colinearity / endpoint-error check against a source
     /// mesh needs the two endpoints regardless of curve type (#119). nil for
     /// faces/vertices.
     public var endpoints: [[Double]]?
-    /// Unit tangent direction. Populated for LINE edges only, where a single
+    /// Unit tangent direction.
+    ///
+    /// Populated for LINE edges only, where a single
     /// direction fully describes the edge as a vector in space (#119); a
     /// curved edge's tangent varies along its length and has no single
     /// "direction" to report here. nil for faces/vertices/non-line edges.
     public var direction: [Double]?
-    /// Circle radius (mm). Populated for circular edges only, alongside
+    /// Circle radius (mm).
+    ///
+    /// Populated for circular edges only, alongside
     /// `circleCenter` (#119). nil otherwise.
     public var radius: Double?
-    /// Unit normal of the circle's plane (its rotation axis). Populated for
+    /// Unit normal of the circle's plane (its rotation axis).
+    ///
+    /// Populated for
     /// circular edges only (#119). nil otherwise.
     public var axis: [Double]?
     /// Start/end parameter of the edge's curve, in radians, measured from the
     /// circle's own xAxis direction (OCCT's Geom_Circle parametrization:
     /// point(u) = center + radius * (cos(u) * xDir + sin(u) * yDir), so u IS
-    /// the angle). Populated for circular edges only (#119). nil otherwise.
+    /// the angle).
+    ///
+    /// Populated for circular edges only (#119). nil otherwise.
     public var startAngle: Double?
     public var endAngle: Double?
     public init(
@@ -174,15 +191,19 @@ public actor SelectionRegistry {
     /// selectionId → the BRepGraph-durable GraphUID minted for it, when the
     /// registering graph is a HistoryRegistry-retained lineage (not a
     /// disposable per-call graph: an unretained graph's UID is
-    /// permanently unresolvable). Side-table, NOT a field on
+    /// permanently unresolvable).
+    ///
+    /// Side-table, NOT a field on
     /// AnchorSnapshot: that struct is Encodable straight into LLM-facing
     /// responses, and an opaque UID triple there would be pure noise.
     private var graphUIDs: [String: BRepGraph.GraphUID] = [:]
 
     public init() {}
 
-    /// Record a fresh selection. Re-recording the same selectionId
-    /// overwrites the cached snapshot — useful when remapping.
+    /// Record a fresh selection.
+    ///
+    /// Re-recording the same selectionId
+    /// overwrites the cached snapshot, useful when remapping.
     public func record(anchor: TopologyAnchor, snapshot: AnchorSnapshot) {
         let id = anchor.selectionId
         anchors[id] = anchor
@@ -190,8 +211,10 @@ public actor SelectionRegistry {
     }
 
     /// Record a snapshot under an arbitrary selectionId that isn't a
-    /// topology sub-shape — e.g. a `pick:<bodyId>#N` surface point from
-    /// `pick_surface_point`. There's no `TopologyAnchor` for a free point,
+    /// topology sub-shape, e.g. a `pick:<bodyId>#N` surface point from
+    /// `pick_surface_point`.
+    ///
+    /// There's no `TopologyAnchor` for a free point,
     /// so only the snapshot is stored; `add_dimension` resolves anchors via
     /// `snapshot(for:)`, so the picked point composes as a dimension anchor.
     public func recordPointSnapshot(selectionId: String, snapshot: AnchorSnapshot) {
@@ -200,7 +223,7 @@ public actor SelectionRegistry {
 
     public func anchor(for selectionId: String) -> TopologyAnchor? {
         if let cached = anchors[selectionId] { return cached }
-        // Fall back to parsing — selectionId is self-describing so a
+        // Fall back to parsing: selectionId is self-describing so a
         // cache miss doesn't mean "unknown", it means "registry was
         // cold for this id".
         return TopologyAnchor.parse(selectionId)
@@ -210,7 +233,9 @@ public actor SelectionRegistry {
         return snapshots[selectionId]
     }
 
-    /// Record (or overwrite) the GraphUID for a selectionId. Callers must
+    /// Record (or overwrite) the GraphUID for a selectionId.
+    ///
+    /// Callers must
     /// mint `uid` from a HistoryRegistry-retained lineage graph, never a
     /// disposable one, since a UID only ever resolves against the graph
     /// instance that minted it.
@@ -224,16 +249,18 @@ public actor SelectionRegistry {
 
     /// Total distinct registry entries: anchor-based selections (from
     /// `select_topology` et al.) plus point-snapshot-only picks (from
-    /// `pick_surface_point`), which have no `TopologyAnchor`. Union of
+    /// `pick_surface_point`), which have no `TopologyAnchor`.
+    ///
+    /// Union of
     /// `anchors.keys` and `snapshots.keys` (#150), not `anchors.count` alone:
     /// `recordPointSnapshot` only ever populates `snapshots`, so an
     /// anchors-only count would silently under-report every point pick
     /// `clear()` actually discards. `graphUIDs` gets its own term in the
     /// union too (#163), defensively: every key it holds today WAS minted via
     /// `recordGraphUID(selectionId:)` against an id that already went through
-    /// `record(anchor:snapshot:)` (true across every current call site —
+    /// `record(anchor:snapshot:)` (true across every current call site:
     /// `SelectionTools`, `AutoDimensionTool`, `GapFillerTools`, `RemapTools`,
-    /// `CorrespondenceTools` — so `graphUIDs.keys` is a subset of
+    /// `CorrespondenceTools`; so `graphUIDs.keys` is a subset of
     /// `anchors.keys` in practice), but `recordGraphUID` takes an arbitrary
     /// `selectionId: String` with nothing in this actor enforcing that
     /// pairing. Including the term here means `totalEntryCount` is correct
@@ -246,7 +273,9 @@ public actor SelectionRegistry {
         Set(anchors.keys).union(snapshots.keys).union(graphUIDs.keys).count
     }
 
-    /// Drop every selection. Returns the count cleared, atomically with the
+    /// Drop every selection.
+    ///
+    /// Returns the count cleared, atomically with the
     /// clear itself (mirrors `ZoneRegistry.clear`): a caller that needs to
     /// report how many were removed must read the count in the SAME actor
     /// call as the mutation, since a separate `count()` call beforehand can
@@ -265,8 +294,10 @@ public actor SelectionRegistry {
         return totalEntryCount
     }
 
-    /// Snapshot of the registry — used by `list_selections` to surface
-    /// active picks back to the LLM. Sorted by selectionId for stable
+    /// Snapshot of the registry: used by `list_selections` to surface
+    /// active picks back to the LLM.
+    ///
+    /// Sorted by selectionId for stable
     /// output across runs.
     public func listEntries() -> [Entry] {
         return anchors.keys.sorted().map { id in

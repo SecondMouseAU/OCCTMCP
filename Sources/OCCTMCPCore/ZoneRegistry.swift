@@ -1,4 +1,4 @@
-// ZoneRegistry — server-side store of segmented mesh zones, minted by
+// ZoneRegistry: server-side store of segmented mesh zones, minted by
 // `segment_mesh_zones` (#101) and resolved by `zone_continuity_sweep` (#102).
 // Mirrors SelectionRegistry's actor-cache-plus-sidecar shape: the LLM gets
 // back stable `zone:<bodyId>#<n>` ids, then refers to one from a later call
@@ -26,7 +26,7 @@
 // `slippage` (#109, OCCTSwiftMesh#26/#31) is OPTIONAL: a sidecar written
 // before this landed has no such key at all, and Swift's synthesized
 // `Decodable` treats a missing key on an `Optional` property as `nil`, not a
-// decode error — no version bump needed. See `ZoneSlippage`'s doc comment
+// decode error: no version bump needed. See `ZoneSlippage`'s doc comment
 // for the field semantics (axis sign arbitrariness, confidence-as-gap, the
 // per-kind axis meaning). `slippage.erosionSkipped` (#114) is itself
 // backward-compatible one level down: a sidecar written before #114 has
@@ -41,7 +41,10 @@ public struct ZoneFit: Sendable, Codable {
     public let residualRmsMm: Double
     public let residualMaxMm: Double
     public let inlierRatio: Double
-    public init(kind: String, params: [Double], residualRmsMm: Double, residualMaxMm: Double, inlierRatio: Double) {
+    public init(
+        kind: String, params: [Double], residualRmsMm: Double, residualMaxMm: Double,
+        inlierRatio: Double
+    ) {
         self.kind = kind
         self.params = params
         self.residualRmsMm = residualRmsMm
@@ -51,14 +54,16 @@ public struct ZoneFit: Sendable, Codable {
 }
 
 /// A zone's surface-kind classification + characteristic axis, by local
-/// slippage analysis (Gelfand & Guibas, SGP 2004 — OCCTSwiftMesh#26/#31,
-/// `Mesh.slippage(forTriangles:maxSamples:)`, >=1.6.0). Mirrors
+/// slippage analysis (Gelfand & Guibas, SGP 2004, OCCTSwiftMesh#26/#31,
+/// `Mesh.slippage(forTriangles:maxSamples:)`, >=1.6.0).
+///
+/// Mirrors
 /// `SlippageResult` field-for-field, minus `eigenRatios` (an internal
-/// diagnostic array, not bounded LLM-facing output — `confidence` is the
+/// diagnostic array, not bounded LLM-facing output: `confidence` is the
 /// summary that matters).
 ///
 /// `axisDirection`'s SIGN is arbitrary (inherent to the underlying
-/// eigenvector recovery — a flipped axis is still the same axis). Its
+/// eigenvector recovery: a flipped axis is still the same axis). Its
 /// MEANING depends on `kind`: rotation/screw axis for cylinder/revolution/
 /// helix; the extrude direction for extrusion; the surface NORMAL for
 /// plane (never a sweep direction); `nil` for sphere (no preferred axis)
@@ -68,7 +73,7 @@ public struct ZoneFit: Sendable, Codable {
 /// probability: a wide gap between the slippable and non-slippable
 /// eigenvalues means a confident classification, while a gap barely past
 /// the detection floor means the kind boundary itself is close to
-/// arbitrary — this is what makes a near-symmetric body (whose true
+/// arbitrary: this is what makes a near-symmetric body (whose true
 /// eigen-spectrum has no clean separation to begin with) read as
 /// low-confidence rather than confidently wrong.
 ///
@@ -90,10 +95,12 @@ public struct ZoneSlippage: Sendable, Codable {
     public let axisDirection: [Double]?
     public let pitchPerRadianMm: Double?
     public let confidence: Double
-    /// True when `MeshZoneTools`' boundary-vertex erosion guard could not
+    /// True when the boundary-vertex erosion guard in `MeshZoneTools` could not
     /// run for this zone (too small/thin: under 24 interior triangles, or
     /// under 25% of the zone) and the classification was computed against
-    /// the FULL region including boundary-contaminated vertices. Absent (not
+    /// the FULL region including boundary-contaminated vertices.
+    ///
+    /// Absent (not
     /// `false`) on a `zones.json` sidecar written before #114; decodes as
     /// `false` via the same missing-key convention `slippage` itself uses on
     /// pre-#109 sidecars.
@@ -149,8 +156,10 @@ public struct SegmentParamsUsed: Sendable, Codable {
 }
 
 /// Cheap fingerprint of the body's mesh at segmentation time: triangle count
-/// plus bounding box. Not a content hash (too expensive to store/compare at
-/// scan scale) — a body edit that happens to preserve both is the one case
+/// plus bounding box.
+///
+/// Not a content hash (too expensive to store/compare at
+/// scan scale): a body edit that happens to preserve both is the one case
 /// this misses, an accepted trade-off for a fast staleness check. Every
 /// `ZoneRecord.triangleIndices` is only meaningful against a mesh built with
 /// the SAME deflection this signature was captured from (see
@@ -169,7 +178,8 @@ public struct MeshSignature: Sendable, Codable, Equatable {
     public func matches(_ other: MeshSignature, epsilon: Double = 1e-6) -> Bool {
         guard triangleCount == other.triangleCount else { return false }
         guard bboxMin.count == 3, bboxMax.count == 3,
-              other.bboxMin.count == 3, other.bboxMax.count == 3 else { return false }
+            other.bboxMin.count == 3, other.bboxMax.count == 3
+        else { return false }
         for i in 0..<3 {
             if abs(bboxMin[i] - other.bboxMin[i]) > epsilon { return false }
             if abs(bboxMax[i] - other.bboxMax[i]) > epsilon { return false }
@@ -184,7 +194,7 @@ public struct ZoneRecord: Sendable, Codable {
     public let index: Int
     /// Indices into the body's own mesh (built with `params.deflection`)
     /// triangle list, in the SAME order `Mesh.indices` uses (`indices[i*3
-    /// ..< i*3+3]` per `i` here) — the `MeshRegion.triangleIndices`
+    /// ..< i*3+3]` per `i` here), the `MeshRegion.triangleIndices`
     /// convention this is copied from.
     public let triangleIndices: [Int]
     public let areaMm2: Double
@@ -194,14 +204,17 @@ public struct ZoneRecord: Sendable, Codable {
     /// Optional so a `zones.json` sidecar written before #109 (no `slippage`
     /// key at all) still decodes: Swift's synthesized `Decodable` treats a
     /// missing key on an `Optional` stored property as `nil` rather than an
-    /// error. `nil` also covers the same-session case where the mesh's own
-    /// weld guard failed (see `MeshZoneTools`'s `adjacentZones` comment —
+    /// error.
+    ///
+    /// `nil` also covers the same-session case where the mesh's own
+    /// weld guard failed (see the `adjacentZones` comment in `MeshZoneTools`:
     /// slippage needs the identical welded-mesh correspondence).
     public let slippage: ZoneSlippage?
 
     public init(
         zoneId: String, bodyId: String, index: Int, triangleIndices: [Int], areaMm2: Double,
-        fit: ZoneFit, params: SegmentParamsUsed, meshSignature: MeshSignature, slippage: ZoneSlippage? = nil
+        fit: ZoneFit, params: SegmentParamsUsed, meshSignature: MeshSignature,
+        slippage: ZoneSlippage? = nil
     ) {
         self.zoneId = zoneId
         self.bodyId = bodyId
@@ -235,8 +248,9 @@ public struct ZonesStore: Sendable {
 
     public func read() -> ZonesSidecar {
         guard FileManager.default.fileExists(atPath: path),
-              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let decoded = try? JSONDecoder().decode(ZonesSidecar.self, from: data) else {
+            let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+            let decoded = try? JSONDecoder().decode(ZonesSidecar.self, from: data)
+        else {
             return ZonesSidecar()
         }
         return decoded
@@ -258,7 +272,7 @@ public struct ZonesStore: Sendable {
 /// mutation. `records` and the sidecar are kept in sync by every mutating
 /// call, so the ONLY case a fresh actor instance needs to catch up from disk
 /// is its very first touch of a given output dir (a process restart, or the
-/// first call in a session) — `loadSidecarIfNeeded` handles exactly that,
+/// first call in a session): `loadSidecarIfNeeded` handles exactly that,
 /// gated on a one-shot `hasSynced` flag. This mirrors
 /// SelectionRegistry's shape (actor cache + parseable ids) plus Annotations'
 /// disk-sidecar persistence, one level up: SelectionRegistry never persists
@@ -274,7 +288,9 @@ public actor ZoneRegistry {
     public init() {}
 
     /// Pull in whatever the sidecar for `store` already has, once per actor
-    /// instance. Safe to call before every operation; only does work the
+    /// instance.
+    ///
+    /// Safe to call before every operation; only does work the
     /// first time.
     public func loadSidecarIfNeeded(store: ZonesStore) {
         guard !hasSynced else { return }
@@ -306,8 +322,8 @@ public actor ZoneRegistry {
     /// time. Without the supersede, re-running `segment_mesh_zones` on a
     /// body with params that yield FEWER zones than a prior run would leave
     /// the prior run's stale higher-numbered `zone:<body>#<k>` records
-    /// resolvable — the underlying mesh didn't change, only the
-    /// segmentation did, so `MeshSignature` still matches — and `list_zones`
+    /// resolvable: the underlying mesh didn't change, only the
+    /// segmentation did, so `MeshSignature` still matches, and `list_zones`
     /// would show a mix of two different segmentations for that body.
     /// Superseding first (remove every record whose `bodyId` is in the
     /// batch, THEN insert the batch) guarantees a body's zones always come
@@ -321,11 +337,14 @@ public actor ZoneRegistry {
         persist(store: store)
     }
 
-    /// Drop zones for `bodyId`, or every zone when `bodyId` is nil. Returns
+    /// Drop zones for `bodyId`, or every zone when `bodyId` is nil.
+    ///
+    /// Returns
     /// the count cleared.
     @discardableResult
     public func clear(bodyId: String?, store: ZonesStore) -> Int {
-        let toRemove = bodyId == nil
+        let toRemove =
+            bodyId == nil
             ? Array(records.keys)
             : records.values.filter { $0.bodyId == bodyId }.map(\.zoneId)
         for k in toRemove { records.removeValue(forKey: k) }

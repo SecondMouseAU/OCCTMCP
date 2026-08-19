@@ -28,17 +28,19 @@ public enum EdgeChainFitTools {
     /// eating a slow call: matches the "budget, don't surprise" convention
     /// every other sampling-heavy tool in this codebase follows (`maxSamples`,
     /// `maxVertices`, `maxRings`, ...), sized to the same order of magnitude
-    /// as `VertexFitTools`' own default `maxVertices` budget.
+    /// as the default `maxVertices` budget in `VertexFitTools`.
     static let maxPoints = 2000
 
     public struct SegmentEntry: Encodable {
         public let startIndex: Int
         public let endIndex: Int
         public let pointCount: Int
-        public let kind: String   // "line" | "arc"
+        public let kind: String  // "line" | "arc"
         public let startPoint: [Double]
         public let endPoint: [Double]
-        /// Unit direction, oriented start point to end point. Present for
+        /// Unit direction, oriented start point to end point.
+        ///
+        /// Present for
         /// "line" segments only.
         public let direction: [Double]?
         /// Present for "arc" segments only.
@@ -89,7 +91,8 @@ public enum EdgeChainFitTools {
         }
 
         let entries = segs.map { seg -> SegmentEntry in
-            let start = points[seg.startIndex], end = points[seg.endIndex]
+            let start = points[seg.startIndex]
+            let end = points[seg.endIndex]
             switch seg.fit {
             case .line(let l):
                 return SegmentEntry(
@@ -114,17 +117,19 @@ public enum EdgeChainFitTools {
             }
         }
 
-        return IntrospectionTools.encode(EdgeChainFitReport(
-            pointCount: points.count, closed: closed, toleranceMm: tol,
-            segmentCount: entries.count, segments: entries, warnings: warnings
-        ))
+        return IntrospectionTools.encode(
+            EdgeChainFitReport(
+                pointCount: points.count, closed: closed, toleranceMm: tol,
+                segmentCount: entries.count, segments: entries, warnings: warnings
+            ))
     }
 
     /// 0.5% of the chain's own bbox diagonal, the same scaling convention
     /// `DeviationTools.defaultDeflection` uses, with the same 1um floor.
     static func defaultTolerance(_ points: [SIMD3<Double>]) -> Double {
         guard !points.isEmpty else { return 1e-6 }
-        var lo = points[0], hi = points[0]
+        var lo = points[0]
+        var hi = points[0]
         for p in points {
             lo = simd_min(lo, p)
             hi = simd_max(hi, p)

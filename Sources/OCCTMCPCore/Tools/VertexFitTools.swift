@@ -94,7 +94,9 @@ public enum VertexFitTools {
         public let p95: Double
         /// Worst `worstN` sampled vertices by distance, largest-first.
         public let worst: [VertexFitEntry]
-        /// Every sampled vertex, in source order. Present only when
+        /// Every sampled vertex, in source order.
+        ///
+        /// Present only when
         /// `includeAllVertices: true` was requested.
         public let vertices: [VertexFitEntry]?
         public let warnings: [String]
@@ -115,10 +117,13 @@ public enum VertexFitTools {
             return .init("worstN must be non-negative.", isError: true)
         }
         guard fromBodyId != toBodyId else {
-            return .init("fromBodyId and toBodyId must be different bodies (every vertex would trivially measure ~0).", isError: true)
+            return .init(
+                "fromBodyId and toBodyId must be different bodies (every vertex would trivially measure ~0).",
+                isError: true)
         }
 
-        let fromShape: Shape, toShape: Shape
+        let fromShape: Shape
+        let toShape: Shape
         do {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             toShape = try IntrospectionTools.loadShape(bodyId: toBodyId, store: store).shape
@@ -150,14 +155,16 @@ public enum VertexFitTools {
             defer { i += stride }
             let p = allVerts[i]
             guard let vShape = Shape.vertex(at: p),
-                  let distResult = vShape.distance(to: toShape) else {
+                let distResult = vShape.distance(to: toShape)
+            else {
                 failed += 1
                 continue
             }
             raw.append(RawSample(index: i, point: p, distance: distResult.distance))
         }
         if failed > 0 {
-            warnings.append("\(failed) sampled vertex/vertices failed the distance query and were skipped.")
+            warnings.append(
+                "\(failed) sampled vertex/vertices failed the distance query and were skipped.")
         }
         guard !raw.isEmpty else {
             return .init("Distance computation produced no samples.", isError: true)

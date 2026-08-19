@@ -1,4 +1,4 @@
-// RayPickTool — pick_surface_point. Resolves a screen coordinate (in the
+// RayPickTool: pick_surface_point. Resolves a screen coordinate (in the
 // same camera/framing as render_preview) to a world-space point on the
 // nearest body surface, by casting a camera ray into the scene.
 //
@@ -11,11 +11,11 @@
 // dimensioning pipeline.
 
 import Foundation
-import simd
 import OCCTSwift
 import OCCTSwiftTools
 import OCCTSwiftViewport
 import ScriptHarness
+import simd
 
 public enum RayPickTool {
 
@@ -38,9 +38,15 @@ public enum RayPickTool {
     /// return the nearest surface point.
     ///
     /// - Parameters:
-    ///   - screenX/screenY: pixel coordinates, top-left origin, in the
+    ///   - screenX: pixel X coordinate, top-left origin, in the
     ///     `options.width`×`options.height` image space (matching the preview).
+    ///   - screenY: pixel Y coordinate, top-left origin, in the
+    ///     `options.width`×`options.height` image space (matching the preview).
+    ///   - options: camera/framing options, same shape as `render_preview.options`.
     ///   - id: optional explicit selectionId for the picked point.
+    ///   - store: manifest store to read the current scene from.
+    ///   - registry: selection registry the picked point's snapshot is recorded into.
+    /// - Returns: a `PickReport` (hit, bodyId, world point, distance, selectionId) as JSON.
     @MainActor
     public static func pickSurfacePoint(
         screenX: Double,
@@ -94,11 +100,13 @@ public enum RayPickTool {
             bbCache[body.id] = body.boundingBox
         }
 
-        guard let hit = SceneRaycast.cast(ray: ray, bodies: bodies, boundingBoxCache: bbCache) else {
-            return IntrospectionTools.encode(PickReport(
-                hit: false, bodyId: nil, point: nil, distance: nil, selectionId: nil,
-                note: "No surface under (\(Int(screenX)), \(Int(screenY))) in this view."
-            ))
+        guard let hit = SceneRaycast.cast(ray: ray, bodies: bodies, boundingBoxCache: bbCache)
+        else {
+            return IntrospectionTools.encode(
+                PickReport(
+                    hit: false, bodyId: nil, point: nil, distance: nil, selectionId: nil,
+                    note: "No surface under (\(Int(screenX)), \(Int(screenY))) in this view."
+                ))
         }
 
         let p = hit.point
@@ -108,13 +116,14 @@ public enum RayPickTool {
             snapshot: AnchorSnapshot(center: [Double(p.x), Double(p.y), Double(p.z)])
         )
 
-        return IntrospectionTools.encode(PickReport(
-            hit: true,
-            bodyId: hit.bodyID,
-            point: [Double(p.x), Double(p.y), Double(p.z)],
-            distance: Double(hit.distance),
-            selectionId: pickId,
-            note: nil
-        ))
+        return IntrospectionTools.encode(
+            PickReport(
+                hit: true,
+                bodyId: hit.bodyID,
+                point: [Double(p.x), Double(p.y), Double(p.z)],
+                distance: Double(hit.distance),
+                selectionId: pickId,
+                note: nil
+            ))
     }
 }

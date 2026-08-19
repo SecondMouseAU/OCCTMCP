@@ -1,4 +1,4 @@
-// AssemblyTools — inspect_assembly walks an XCAF Document tree.
+// AssemblyTools: inspect_assembly walks an XCAF Document tree.
 // set_assembly_metadata is intentionally deferred to a follow-up: the
 // Document API in OCCTSwift v0.165 has setColor/setMaterial but no
 // comprehensive metadata-write surface yet.
@@ -6,6 +6,7 @@
 import Foundation
 import OCCTSwift
 import ScriptHarness
+import simd
 
 public enum AssemblyTools {
 
@@ -56,29 +57,33 @@ public enum AssemblyTools {
         }
 
         let ext = (path as NSString).pathExtension.lowercased()
-        // BREP files carry no XCAF metadata — return a degenerate
+        // BREP files carry no XCAF metadata; return a degenerate
         // single-node response so callers don't have to special-case.
         if ext == "brep" {
-            return IntrospectionTools.encode(InspectReport(
-                root: .init(
-                    id: "label_0",
-                    name: (path as NSString).lastPathComponent,
-                    isAssembly: false,
-                    transform: identityTransform(),
-                    color: nil,
-                    children: [],
-                    referredTo: nil
-                ),
-                totalComponents: 1,
-                totalInstances: 0,
-                totalReferences: 0
-            ))
+            return IntrospectionTools.encode(
+                InspectReport(
+                    root: .init(
+                        id: "label_0",
+                        name: (path as NSString).lastPathComponent,
+                        isAssembly: false,
+                        transform: identityTransform(),
+                        color: nil,
+                        children: [],
+                        referredTo: nil
+                    ),
+                    totalComponents: 1,
+                    totalInstances: 0,
+                    totalReferences: 0
+                ))
         }
 
         let document: Document
         switch ext {
         case "step", "stp":
-            guard let d = Document.loadSTEP(from: URL(fileURLWithPath: path), modes: STEPReaderModes()) else {
+            guard
+                let d = Document.loadSTEP(
+                    from: URL(fileURLWithPath: path), modes: STEPReaderModes())
+            else {
                 return .init("Failed to load STEP at \(path).", isError: true)
             }
             document = d
@@ -96,7 +101,11 @@ public enum AssemblyTools {
         var instances = 0
         var references = 0
         let roots = document.rootNodes
-        let nodes = roots.map { walk($0, currentDepth: 0, maxDepth: depth, components: &components, instances: &instances, references: &references) }
+        let nodes = roots.map {
+            walk(
+                $0, currentDepth: 0, maxDepth: depth, components: &components,
+                instances: &instances, references: &references)
+        }
 
         let root: InspectReport.Node?
         if nodes.count == 1 {
@@ -115,12 +124,13 @@ public enum AssemblyTools {
         } else {
             root = nil
         }
-        return IntrospectionTools.encode(InspectReport(
-            root: root,
-            totalComponents: components,
-            totalInstances: instances,
-            totalReferences: references
-        ))
+        return IntrospectionTools.encode(
+            InspectReport(
+                root: root,
+                totalComponents: components,
+                totalInstances: instances,
+                totalReferences: references
+            ))
     }
 
     static func walk(
@@ -140,7 +150,11 @@ public enum AssemblyTools {
         if let m = maxDepth, currentDepth >= m {
             children = []
         } else {
-            children = node.children.map { walk($0, currentDepth: nextDepth, maxDepth: maxDepth, components: &components, instances: &instances, references: &references) }
+            children = node.children.map {
+                walk(
+                    $0, currentDepth: nextDepth, maxDepth: maxDepth, components: &components,
+                    instances: &instances, references: &references)
+            }
         }
 
         let referredTo: InspectReport.ReferredTo? = node.referredNode.map {
@@ -173,8 +187,6 @@ public enum AssemblyTools {
         return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
     }
 }
-
-import simd
 
 // MARK: - set_assembly_metadata
 
@@ -217,7 +229,8 @@ extension AssemblyTools {
     }
 
     /// Write XCAF metadata onto a Document, save as OCAF binary (.xbf).
-    /// Mirrors `occtkit set-metadata` — same TDataStd_NamedData key set,
+    ///
+    /// Mirrors `occtkit set-metadata`: same TDataStd_NamedData key set,
     /// same BinXCAF storage format.
     public static func setAssemblyMetadata(
         inputPath: String,
@@ -234,10 +247,12 @@ extension AssemblyTools {
         do {
             switch ext {
             case "step", "stp":
-                guard let d = Document.loadSTEP(
-                    from: URL(fileURLWithPath: inputPath),
-                    modes: STEPReaderModes()
-                ) else {
+                guard
+                    let d = Document.loadSTEP(
+                        from: URL(fileURLWithPath: inputPath),
+                        modes: STEPReaderModes()
+                    )
+                else {
                     return .init("Failed to load STEP at \(inputPath).", isError: true)
                 }
                 document = d
@@ -254,7 +269,8 @@ extension AssemblyTools {
         switch scope {
         case .document:
             guard let main = document.mainLabel ?? document.rootNodes.first else {
-                return .init("Document has no main / root label to attach metadata to.", isError: true)
+                return .init(
+                    "Document has no main / root label to attach metadata to.", isError: true)
             }
             target = main
         case .component:
@@ -268,12 +284,30 @@ extension AssemblyTools {
         }
 
         var applied: [String: String] = [:]
-        if let v = metadata.title       { _ = target.setNamedString("title", value: v); applied["title"] = v }
-        if let v = metadata.drawnBy     { _ = target.setNamedString("drawnBy", value: v); applied["drawnBy"] = v }
-        if let v = metadata.material    { _ = target.setNamedString("material", value: v); applied["material"] = v }
-        if let v = metadata.weight      { _ = target.setNamedReal("weight", value: v); applied["weight"] = "\(v)" }
-        if let v = metadata.revision    { _ = target.setNamedString("revision", value: v); applied["revision"] = v }
-        if let v = metadata.partNumber  { _ = target.setNamedString("partNumber", value: v); applied["partNumber"] = v }
+        if let v = metadata.title {
+            _ = target.setNamedString("title", value: v)
+            applied["title"] = v
+        }
+        if let v = metadata.drawnBy {
+            _ = target.setNamedString("drawnBy", value: v)
+            applied["drawnBy"] = v
+        }
+        if let v = metadata.material {
+            _ = target.setNamedString("material", value: v)
+            applied["material"] = v
+        }
+        if let v = metadata.weight {
+            _ = target.setNamedReal("weight", value: v)
+            applied["weight"] = "\(v)"
+        }
+        if let v = metadata.revision {
+            _ = target.setNamedString("revision", value: v)
+            applied["revision"] = v
+        }
+        if let v = metadata.partNumber {
+            _ = target.setNamedString("partNumber", value: v)
+            applied["partNumber"] = v
+        }
         if scope == .component, let v = metadata.title { _ = target.setName(v) }
 
         for (k, v) in metadata.customAttrs {
@@ -292,9 +326,10 @@ extension AssemblyTools {
             return .init("Failed to save OCAF document at \(outURL.path): \(status)", isError: true)
         }
 
-        return IntrospectionTools.encode(MetadataReport(
-            outputPath: outputPath,
-            applied: applied
-        ))
+        return IntrospectionTools.encode(
+            MetadataReport(
+                outputPath: outputPath,
+                applied: applied
+            ))
     }
 }

@@ -1,4 +1,4 @@
-// IntrospectionRegistryTools — list_selections, clear_selections,
+// IntrospectionRegistryTools: list_selections, clear_selections,
 // list_annotations, list_zones, clear_zones. Cheap state-introspection tools
 // so the LLM can see what's been accumulated in the SelectionRegistry /
 // AnnotationsStore / ZoneRegistry without re-running select_topology /
@@ -19,10 +19,11 @@ public enum RegistryIntrospectionTools {
         registry: SelectionRegistry = .shared
     ) async -> ToolText {
         let entries = await registry.listEntries()
-        return IntrospectionTools.encode(ListSelectionsResult(
-            count: entries.count,
-            selections: entries
-        ))
+        return IntrospectionTools.encode(
+            ListSelectionsResult(
+                count: entries.count,
+                selections: entries
+            ))
     }
 
     // MARK: - clear_selections
@@ -50,10 +51,11 @@ public enum RegistryIntrospectionTools {
     ) async -> ToolText {
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let sidecar = AnnotationsStore(outputDir: outputDir).read()
-        return IntrospectionTools.encode(ListAnnotationsResult(
-            dimensions: sidecar.dimensions,
-            primitives: sidecar.primitives
-        ))
+        return IntrospectionTools.encode(
+            ListAnnotationsResult(
+                dimensions: sidecar.dimensions,
+                primitives: sidecar.primitives
+            ))
     }
 
     // MARK: - list_zones
@@ -69,7 +71,7 @@ public enum RegistryIntrospectionTools {
             public let triangleCount: Int
             public let areaMm2: Double
             public let fitKind: String
-            /// `ZoneRecord.slippage?.kind` (#109) — `nil` for a zone minted
+            /// `ZoneRecord.slippage?.kind` (#109): `nil` for a zone minted
             /// before slippage classification landed, or one whose weld
             /// guard failed at segmentation time (see `MeshZoneTools`).
             public let slippageKind: String?

@@ -1,4 +1,4 @@
-// ReconstructTools — the `reconstruct_*` MCP tool group (OCCTMCP #33).
+// ReconstructTools: the `reconstruct_*` MCP tool group (OCCTMCP #33).
 //
 // Read and write an attributed reconstruction graph from an LLM. Backed by
 // OCCTSwift 1.2.0's `NodeAttributeStore` + Codable `GraphSnapshot`, held in
@@ -14,7 +14,7 @@
 // Scope boundary: OCCTMCP is the read/write layer only. The reconstruction
 // engine (surface fitting, congruence detection, the math behind residuals
 // and confidence) lives in OCCTReconstruct. `force_fit` records the
-// override for the engine to honour on its next pass — it does not re-fit
+// override for the engine to honour on its next pass; it does not re-fit
 // here. Nodes are addressed by the self-describing string `<kind>:<index>`
 // (e.g. `face:3`), parseable in both directions.
 
@@ -49,7 +49,8 @@ public enum ReconstructTools {
             do {
                 let loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
                 guard let graph = BRepGraph(shape: loaded.shape) else {
-                    return .init("Failed to build a topology graph for body '\(bodyId)'.", isError: true)
+                    return .init(
+                        "Failed to build a topology graph for body '\(bodyId)'.", isError: true)
                 }
                 await registry.store(id: sid, graph: graph)
             } catch {
@@ -88,7 +89,7 @@ public enum ReconstructTools {
 
     // ── reconstruct_force_fit ───────────────────────────────────────────
     // Records the forced surface type as an attribute. The actual re-fit is
-    // performed by the OCCTReconstruct engine on its next pass — out of
+    // performed by the OCCTReconstruct engine on its next pass, out of
     // scope for this read/write layer.
 
     public static func forceFit(
@@ -116,7 +117,8 @@ public enum ReconstructTools {
         registry: ReconstructRegistry = .shared
     ) async -> ToolText {
         if nodes.isEmpty {
-            return .init("reconstruct_confirm_instances requires a non-empty `nodes` array.", isError: true)
+            return .init(
+                "reconstruct_confirm_instances requires a non-empty `nodes` array.", isError: true)
         }
         let outcome = await registry.confirmInstances(
             id: sessionId, clusterId: clusterId, nodeStrs: nodes, confirmed: confirmed
@@ -176,12 +178,13 @@ public enum ReconstructTools {
             let annotatedNodeCount: Int
             let formatVersion: Int
         }
-        return IntrospectionTools.encode(Result(
-            sessionId: sessionId,
-            path: outPath,
-            annotatedNodeCount: snapshot.attributes.annotatedNodeCount,
-            formatVersion: snapshot.formatVersion
-        ))
+        return IntrospectionTools.encode(
+            Result(
+                sessionId: sessionId,
+                path: outPath,
+                annotatedNodeCount: snapshot.attributes.annotatedNodeCount,
+                formatVersion: snapshot.formatVersion
+            ))
     }
 
     // ── reconstruct_import_session ──────────────────────────────────────
@@ -209,12 +212,15 @@ public enum ReconstructTools {
         } catch {
             return .init("reconstruct_import_session: rebuild failed: \(error)", isError: true)
         }
-        let sid = sessionId ?? (path as NSString).lastPathComponent
+        let sid =
+            sessionId
+            ?? (path as NSString).lastPathComponent
             .replacingOccurrences(of: ".session.json", with: "")
             .replacingOccurrences(of: ".json", with: "")
         await registry.store(id: sid, graph: graph)
         guard let state = await registry.state(id: sid) else {
-            return .init("reconstruct_import_session: session unavailable after import.", isError: true)
+            return .init(
+                "reconstruct_import_session: session unavailable after import.", isError: true)
         }
         return IntrospectionTools.encode(state)
     }

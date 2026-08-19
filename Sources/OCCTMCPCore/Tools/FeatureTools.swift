@@ -1,4 +1,4 @@
-// FeatureTools — apply_feature. Wraps OCCTSwift's
+// FeatureTools: apply_feature. Wraps OCCTSwift's
 // FeatureReconstructor.buildJSON, the JSON-driven dispatcher for the
 // FeatureSpec catalog (drill / fillet / chamfer / extrude / revolve /
 // thread / boolean).
@@ -58,23 +58,26 @@ public enum FeatureTools {
         let inputShape = lineage.shape
 
         let envelope: Value = .object([
-            "features": .array([feature]),
+            "features": .array([feature])
         ])
         let envelopeData: Data
         do {
             envelopeData = try JSONEncoder().encode(envelope)
         } catch {
-            return .init("Failed to encode feature spec: \(error.localizedDescription)", isError: true)
+            return .init(
+                "Failed to encode feature spec: \(error.localizedDescription)", isError: true)
         }
 
         let result: FeatureReconstructor.BuildResult
         do {
             result = try FeatureReconstructor.buildJSON(envelopeData, inputBody: inputShape)
         } catch {
-            return .init("FeatureReconstructor failed: \(error.localizedDescription)", isError: true)
+            return .init(
+                "FeatureReconstructor failed: \(error.localizedDescription)", isError: true)
         }
         guard let outputShape = result.shape else {
-            let skipped = result.skipped.map { "\($0.featureID): \($0.reason)" }.joined(separator: "; ")
+            let skipped = result.skipped.map { "\($0.featureID): \($0.reason)" }.joined(
+                separator: "; ")
             return .init("FeatureReconstructor produced no shape. Skipped: \(skipped)")
         }
 
@@ -82,7 +85,8 @@ public enum FeatureTools {
         if !isInPlace, let id = outputBodyId, manifest.bodies.contains(where: { $0.id == id }) {
             return .init("Output body id \"\(id)\" already exists.")
         }
-        let outputPath = isInPlace
+        let outputPath =
+            isInPlace
             ? inputPath
             : "\(outputDir)/applied-\(outputBodyId!)-\(ConstructionTools.shortUUID()).brep"
         do {
@@ -119,10 +123,11 @@ public enum FeatureTools {
             var chain: (graph: BRepGraph, root: BRepGraph.NodeRef)? = (lineage.graph, lineage.root)
             for ref in refs.dropLast() {
                 guard let current = chain,
-                      let newRoot = await HistoryRegistry.shared.absorb(
-                          into: current.graph, root: current.root, output: outputShape,
-                          ref: ref, operationName: "apply_feature"
-                      ) else {
+                    let newRoot = await HistoryRegistry.shared.absorb(
+                        into: current.graph, root: current.root, output: outputShape,
+                        ref: ref, operationName: "apply_feature"
+                    )
+                else {
                     chain = nil
                     break
                 }
@@ -137,39 +142,42 @@ public enum FeatureTools {
         if !isInPlace, let newId = outputBodyId {
             let newFile = (outputPath as NSString).lastPathComponent
             var bodies = manifest.bodies
-            bodies.append(BodyDescriptor(
-                id: newId,
-                file: newFile,
-                format: body.format,
-                name: body.name,
-                color: body.color,
-                roughness: body.roughness,
-                metallic: body.metallic
-            ))
-            try? store.write(ScriptManifest(
-                version: manifest.version,
-                timestamp: Date(),
-                description: manifest.description,
-                bodies: bodies,
-                graphs: manifest.graphs,
-                metadata: manifest.metadata
-            ))
+            bodies.append(
+                BodyDescriptor(
+                    id: newId,
+                    file: newFile,
+                    format: body.format,
+                    name: body.name,
+                    color: body.color,
+                    roughness: body.roughness,
+                    metallic: body.metallic
+                ))
+            try? store.write(
+                ScriptManifest(
+                    version: manifest.version,
+                    timestamp: Date(),
+                    description: manifest.description,
+                    bodies: bodies,
+                    graphs: manifest.graphs,
+                    metadata: manifest.metadata
+                ))
         } else {
             try? store.write(manifest)
         }
 
-        return IntrospectionTools.encode(ApplyReport(
-            outputPath: outputPath,
-            inPlace: isInPlace,
-            bodyId: bodyId,
-            outputBodyId: outputBodyId,
-            fulfilled: result.fulfilled,
-            skipped: result.skipped.map {
-                .init(id: $0.featureID, stage: "\($0.stage)", reason: "\($0.reason)")
-            },
-            annotations: result.annotations.map {
-                .init(id: $0.featureID, kind: "\($0.kind)")
-            }
-        ))
+        return IntrospectionTools.encode(
+            ApplyReport(
+                outputPath: outputPath,
+                inPlace: isInPlace,
+                bodyId: bodyId,
+                outputBodyId: outputBodyId,
+                fulfilled: result.fulfilled,
+                skipped: result.skipped.map {
+                    .init(id: $0.featureID, stage: "\($0.stage)", reason: "\($0.reason)")
+                },
+                annotations: result.annotations.map {
+                    .init(id: $0.featureID, kind: "\($0.kind)")
+                }
+            ))
     }
 }
