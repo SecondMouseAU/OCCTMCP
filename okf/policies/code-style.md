@@ -1,9 +1,9 @@
 ---
 type: policy
 title: Code style
-description: Swift naming/API shape follows the Swift API Design Guidelines, formatting follows Google's Swift Style Guide via swift-format, and doc comments stay terse; docs/ is the single source of truth for design rationale, not a second copy of it. Rolled out gradually via an exemption manifest, not a big-bang sweep.
+description: Swift naming/API shape follows the Swift API Design Guidelines, formatting follows Google's Swift Style Guide via swift-format, and doc comments stay terse; docs/ is the single source of truth for design rationale, not a second copy of it. Rolled out gradually via an exemption manifest, not a big-bang sweep, with a commit-trailer carve-out for forced cross-repo dependency migrations.
 tags: [policy, style, swift, docs, agents]
-timestamp: 2026-08-12
+timestamp: 2026-08-19
 ---
 
 # Code style
@@ -63,6 +63,51 @@ one PR) on the gradual-adoption path. Instead:
 - `SwiftTests/` is out of scope for both the manifest and the CI gate for now (same as OCCTSwift's
   `Tests/` exclusion), consistent with the policy's own naming/formatting focus on the public and
   internal library surface first.
+
+### Migration carve-out
+
+A cross-repo dependency migration (an OCCTSwift-family repin, e.g. the v3.0.0 bump in
+[#175](https://github.com/SecondMouseAU/OCCTMCP/issues/175)/[#176](https://github.com/SecondMouseAU/OCCTMCP/pull/176))
+can be forced by the compiler to touch a manifest-listed file it did not choose and has no
+editorial reason to bring into full compliance in the same PR: unwrapping six now-Optional
+bounding-box accessors is a ~250-line semantic change, and the 19 files it happened to pass
+through carry ~2,000 lines of unrelated reformat diff plus dozens of hand-written doc-comment
+summaries `swift-format format` cannot generate. Folding both into one PR buries the change a
+reviewer actually needs to scrutinize (the Optional-unwrap decisions) under an 8:1 ratio of
+mechanical noise. [#177](https://github.com/SecondMouseAU/OCCTMCP/issues/177) is the tracked
+decision that added this carve-out; see it for the measured cost that motivated it.
+
+**Mechanism:** a commit anywhere in the PR carries a trailer
+
+```
+Style-Manifest-Carveout: <reason, must cite a tracking issue, e.g. "repin, see #176">
+```
+
+`scripts/check-style-manifest.py` scans `base..HEAD` for it. When present, a touched-but-not-
+removed manifest file is reported as `WARN` (named, with the declared reason) instead of `FAIL`,
+so the PR's other checks (swift-format on non-manifest files, SwiftLint, the manifest's
+only-shrinks rule) still gate normally. The trailer must name a real tracking issue: a reason
+with no `#NNN` in it is treated as absent, not accepted, since an untracked carve-out is no
+different from silently waving past the gate. No CI workflow edit is needed to use it; it is a
+per-PR, per-author decision, made deliberately and left in the commit history as the audit trail.
+
+**What the carve-out does not cover:** it never permits growing the manifest (rule 3, "the
+manifest may only shrink"): a migration has no reason to add new exemptions, only to leave
+existing ones un-remediated for one more PR. It also is not a substitute for eventually clearing
+the files it waves through: a carve-out records debt, it does not discharge it. Pair it with a
+tracked sweep issue for the files it touches (see below) rather than leaving them to accumulate
+silently.
+
+**The scheduled sweep.** A carve-out plus a scheduled cleanup is the intended combination, not
+carve-out alone: see [#179](https://github.com/SecondMouseAU/OCCTMCP/issues/179) for the tracked
+sweep of the files a migration carve-out has waved through.
+
+The alternative to a carve-out is either an unreviewable PR (a 250-line semantic change drowned in
+an 8:1 reformat diff, exactly where a reviewer most needs clean signal on the Optional-unwrap
+decisions) or a migration blocked on unrelated pre-existing debt in files the migration did not
+choose to touch. Neither is acceptable, and the collision recurs on every future kernel major, in
+this repo and in any other repo running a gradual manifest; see the ecosystem proposal doc's own
+rollout mechanism, mirrored below.
 
 Why: the ecosystem-wide proposal and evidence (comment:code ratios, a live doc-drift bug found in
 OCCTSwift's `docs/reference/CurveAdaptors.md`) live in
