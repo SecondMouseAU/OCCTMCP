@@ -21,6 +21,18 @@ name: tests
 # reasoning OCCTSwiftScripts' own tests.yml uses.
 #
 # Baseline at rollout: 218 tests passing.
+#
+# "Check Package.resolved is current" (#185): this runner never has a local sibling
+# checkout (Package.swift's useLocalSibling gate only matches a `../<name>` folder,
+# which doesn't exist on a fresh actions/checkout), so `swift package resolve` here
+# already targets the real published dependency graph unconditionally, no
+# OCCTMCP_FORCE_REMOTE_DEPS=1 needed. That means the plain `swift build` step below
+# was always resolving correctly even while the committed Package.resolved sat stale
+# at the OCCTSwift 1.17.0 line after the 3.0.0 repin (#175/#176): SwiftPM silently
+# re-resolves an out-of-range pin to satisfy Package.swift's floor. This step turns
+# that silent, build-time re-resolution into a fast, explicit failure instead, so a
+# committed lockfile that fell out of sync with Package.swift (most likely from a
+# local-sibling dev machine never touching the OCCT pins) is caught before build.
 
 on:
   push:
@@ -49,6 +61,14 @@ jobs:
           path: .build
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
+
+      - name: Check Package.resolved is current
+        run: |
+          swift package resolve
+          if ! git diff --exit-code Package.resolved; then
+            echo "::error::Package.resolved is out of sync with Package.swift's dependency floors (diff above). Run 'swift package resolve' locally and commit the result." >&2
+            exit 1
+          fi
 
       - name: swift build
         run: swift build
