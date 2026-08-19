@@ -248,13 +248,12 @@ public enum GapFillerTools {
             let resolvedIndex = SelectionTools.graphIndex(
                 for: Shape.fromFace(face), kind: .face, in: graph, fallback: faceIndex
             )
-            let anchor = TopologyAnchor.face(bodyId: bodyId, index: resolvedIndex)
-            await registry.record(anchor: anchor, snapshot: snap)
-            if let uid = graph.uid(
+            // #182: mint the uid before constructing the anchor so `record`
+            // is the only registry write.
+            let uid = graph.uid(
                 ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: resolvedIndex)
-            {
-                await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
-            }
+            let anchor = TopologyAnchor.face(bodyId: bodyId, index: resolvedIndex, uid: uid)
+            await registry.record(anchor: anchor, snapshot: snap)
             results.append(.init(kind: kind, selectionId: anchor.selectionId, detail: snap))
         }
 

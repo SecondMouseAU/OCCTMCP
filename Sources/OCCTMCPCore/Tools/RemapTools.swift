@@ -193,25 +193,15 @@ public enum RemapTools {
         graph: BRepGraph,
         bodyId: String
     ) -> RemapEntry? {
-        let kind: BRepGraph.NodeKind
-        let originalIndex: Int
-        switch anchor {
-        case .body:
+        // #182: nodeKind/index are nil only for `.body`, which always
+        // rebinds to the same body rather than walking graph history.
+        guard let kind = anchor.nodeKind, let originalIndex = anchor.index else {
             return RemapEntry(
                 originalSelectionId: originalId,
                 newSelectionIds: [TopologyAnchor.body(bodyId: bodyId).selectionId],
                 fate: "preserved",
                 confidenceMm: 0
             )
-        case .face(_, let idx):
-            kind = .face
-            originalIndex = idx
-        case .edge(_, let idx):
-            kind = .edge
-            originalIndex = idx
-        case .vertex(_, let idx):
-            kind = .vertex
-            originalIndex = idx
         }
         return remapViaHistoryCore(
             originalId: originalId, kind: kind, originalIndex: originalIndex, graph: graph,
@@ -314,29 +304,36 @@ public enum RemapTools {
     /// remap, which would silently degrade a multi-hop remap chain back to
     /// the index-based rung (or worse, the centroid heuristic) after just
     /// one hop instead of staying UID-exact.
+    ///
+    /// #182: uid is attached to the parsed anchor (`withUID`) before the
+    /// single `record` call, rather than recorded separately afterward.
+    /// When `originalId` has no cached snapshot, nothing is recorded at
+    /// all: previously this path could still call `recordGraphUID` for a
+    /// `newId` that was never `record()`-ed (no snapshot means `record`
+    /// was skipped, but the old separate `recordGraphUID` call ran
+    /// regardless whenever a uid resolved), leaving a uid in the registry
+    /// with no matching anchor/snapshot behind it, exactly the orphan
+    /// `SelectionRegistryTests.countAndClearIncludeGraphUIDOnlyEntries`
+    /// existed to catch. With uid folded onto the anchor, that state is no
+    /// longer representable: there's nothing to attach a uid to without a
+    /// snapshot to record alongside it, so this now skips the whole id
+    /// instead of reproducing the gap under the new representation.
     static func refreshAfterHistoryRemap(
         entry: RemapEntry,
         originalId: String,
         registry: SelectionRegistry,
         graph: BRepGraph
     ) async {
-        let snapshot = await registry.snapshot(for: originalId)
+        guard let snapshot = await registry.snapshot(for: originalId) else { return }
         for newId in entry.newSelectionIds {
             guard let newAnchor = TopologyAnchor.parse(newId) else { continue }
-            if let snapshot {
-                await registry.record(anchor: newAnchor, snapshot: snapshot)
+            let uid: BRepGraph.GraphUID?
+            if let kind = newAnchor.nodeKind, let index = newAnchor.index {
+                uid = graph.uid(ofNodeKind: Int(kind.rawValue), index: index)
+            } else {
+                uid = nil
             }
-            let kindIndex: (BRepGraph.NodeKind, Int)?
-            switch newAnchor {
-            case .body: kindIndex = nil
-            case .face(_, let idx): kindIndex = (.face, idx)
-            case .edge(_, let idx): kindIndex = (.edge, idx)
-            case .vertex(_, let idx): kindIndex = (.vertex, idx)
-            }
-            guard let (kind, index) = kindIndex else { continue }
-            if let uid = graph.uid(ofNodeKind: Int(kind.rawValue), index: index) {
-                await registry.recordGraphUID(selectionId: newId, uid: uid)
-            }
+            await registry.record(anchor: newAnchor.withUID(uid), snapshot: snapshot)
         }
     }
 
