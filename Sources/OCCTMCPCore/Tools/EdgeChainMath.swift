@@ -48,7 +48,9 @@ enum EdgeChainMath {
 
     struct ArcFit {
         let center: SIMD3<Double>
-        /// Unit normal of the arc's plane. WHICH of the two possible normal
+        /// Unit normal of the arc's plane.
+        ///
+        /// WHICH of the two possible normal
         /// directions is picked is still arbitrary (inherent to the
         /// eigenvector recovery, the same caveat `AlignTools`/slippage
         /// classification's own `axisDirection` document elsewhere in this
@@ -105,27 +107,41 @@ enum EdgeChainMath {
     private static func covariance(_ points: [SIMD3<Double>], about c: SIMD3<Double>)
         -> (xx: Double, xy: Double, xz: Double, yy: Double, yz: Double, zz: Double)
     {
-        var xx = 0.0, xy = 0.0, xz = 0.0, yy = 0.0, yz = 0.0, zz = 0.0
+        var xx = 0.0
+        var xy = 0.0
+        var xz = 0.0
+        var yy = 0.0
+        var yz = 0.0
+        var zz = 0.0
         for p in points {
             let d = p - c
-            xx += d.x * d.x; xy += d.x * d.y; xz += d.x * d.z
-            yy += d.y * d.y; yz += d.y * d.z; zz += d.z * d.z
+            xx += d.x * d.x
+            xy += d.x * d.y
+            xz += d.x * d.z
+            yy += d.y * d.y
+            yz += d.y * d.z
+            zz += d.z * d.z
         }
         return (xx, xy, xz, yy, yz, zz)
     }
 
-    /// Least-squares line through `points`. Needs >= 2 points.
+    /// Least-squares line through `points`.
+    ///
+    /// Needs >= 2 points.
     static func fitLine(_ points: [SIMD3<Double>]) -> LineFit? {
         guard points.count >= 2 else { return nil }
         let c = centroid(points)
         let cov = covariance(points, about: c)
-        let eig = SymmetryTools.symmetricEigen3x3(xx: cov.xx, xy: cov.xy, xz: cov.xz, yy: cov.yy, yz: cov.yz, zz: cov.zz)
+        let eig = SymmetryTools.symmetricEigen3x3(
+            xx: cov.xx, xy: cov.xy, xz: cov.xz, yy: cov.yy, yz: cov.yz, zz: cov.zz)
         var dir = eig.vectors[0]
-        guard simd_length(dir) > 1e-12 else { return nil }   // fully degenerate (all points coincident)
+        // fully degenerate (all points coincident)
+        guard simd_length(dir) > 1e-12 else { return nil }
         let chainDir = points[points.count - 1] - points[0]
         if simd_dot(dir, chainDir) < 0 { dir = -dir }
 
-        var maxR = 0.0, sumSq = 0.0
+        var maxR = 0.0
+        var sumSq = 0.0
         for p in points {
             let d = p - c
             let perp = d - simd_dot(d, dir) * dir
@@ -133,16 +149,21 @@ enum EdgeChainMath {
             if r > maxR { maxR = r }
             sumSq += r * r
         }
-        return LineFit(point: c, direction: dir, maxResidual: maxR, rmsResidual: (sumSq / Double(points.count)).squareRoot())
+        return LineFit(
+            point: c, direction: dir, maxResidual: maxR,
+            rmsResidual: (sumSq / Double(points.count)).squareRoot())
     }
 
     /// Least-squares circular arc through `points` (plane fit + 2D Kasa
-    /// circle fit in-plane). Needs >= 3 points.
+    /// circle fit in-plane).
+    ///
+    /// Needs >= 3 points.
     static func fitArc(_ points: [SIMD3<Double>]) -> ArcFit? {
         guard points.count >= 3 else { return nil }
         let c = centroid(points)
         let cov = covariance(points, about: c)
-        let eig = SymmetryTools.symmetricEigen3x3(xx: cov.xx, xy: cov.xy, xz: cov.xz, yy: cov.yy, yz: cov.yz, zz: cov.zz)
+        let eig = SymmetryTools.symmetricEigen3x3(
+            xx: cov.xx, xy: cov.xy, xz: cov.xz, yy: cov.yy, yz: cov.yz, zz: cov.zz)
 
         // An orthonormal in-plane basis: eig.vectors[0]/[1] (the two largest-
         // variance directions) already span a near-planar point set's plane,
@@ -170,31 +191,45 @@ enum EdgeChainMath {
         let n = Double(uv.count)
         let ubar = uv.reduce(0.0) { $0 + $1.u } / n
         let vbar = uv.reduce(0.0) { $0 + $1.v } / n
-        var suu = 0.0, svv = 0.0, suv = 0.0, suuu = 0.0, svvv = 0.0, suvv = 0.0, svuu = 0.0
+        var suu = 0.0
+        var svv = 0.0
+        var suv = 0.0
+        var suuu = 0.0
+        var svvv = 0.0
+        var suvv = 0.0
+        var svuu = 0.0
         for p in uv {
-            let du = p.u - ubar, dv = p.v - vbar
-            suu += du * du; svv += dv * dv; suv += du * dv
-            suuu += du * du * du; svvv += dv * dv * dv
-            suvv += du * dv * dv; svuu += dv * du * du
+            let du = p.u - ubar
+            let dv = p.v - vbar
+            suu += du * du
+            svv += dv * dv
+            suv += du * dv
+            suuu += du * du * du
+            svvv += dv * dv * dv
+            suvv += du * dv * dv
+            svuu += dv * du * du
         }
         let rhsU = 0.5 * (suuu + suvv)
         let rhsV = 0.5 * (svvv + svuu)
         let det = suu * svv - suv * suv
-        guard abs(det) > 1e-18 else { return nil }   // degenerate: points are colinear in-plane
+        guard abs(det) > 1e-18 else { return nil }  // degenerate: points are colinear in-plane
         let uc = (rhsU * svv - rhsV * suv) / det
         let vc = (rhsV * suu - rhsU * suv) / det
         let radiusSq = uc * uc + vc * vc + (suu + svv) / n
         guard radiusSq > 0 else { return nil }
         let radius = radiusSq.squareRoot()
 
-        let centerU = ubar + uc, centerV = vbar + vc
+        let centerU = ubar + uc
+        let centerV = vbar + vc
         let center3D = c + centerU * u + centerV * v
 
-        var maxR = 0.0, sumSq = 0.0
+        var maxR = 0.0
+        var sumSq = 0.0
         var angles: [Double] = []
         angles.reserveCapacity(uv.count)
         for p in uv {
-            let du = p.u - centerU, dv = p.v - centerV
+            let du = p.u - centerU
+            let dv = p.v - centerV
             let r = (du * du + dv * dv).squareRoot()
             let residual = abs(r - radius)
             if residual > maxR { maxR = residual }
@@ -235,7 +270,9 @@ enum EdgeChainMath {
     // MARK: - Segmentation
 
     /// Greedy maximal-run segmentation of an ordered point chain into line
-    /// and arc runs. A window is grown while EITHER a line or an arc fits
+    /// and arc runs.
+    ///
+    /// A window is grown while EITHER a line or an arc fits
     /// every point in it within `toleranceMm`; ties (both fit) prefer the
     /// LINE, the simpler model, unless the arc fits meaningfully better
     /// (its max residual under half the line's), matching the intuition that
@@ -257,7 +294,7 @@ enum EdgeChainMath {
         var segments: [Segment] = []
         var i = 0
         while i < n - 1 {
-            var end = i + 1   // a 2-point window always fits a line exactly (residual 0)
+            var end = i + 1  // a 2-point window always fits a line exactly (residual 0)
             while end + 1 < n {
                 let window = Array(points[i...(end + 1)])
                 let lineFit = fitLine(window)
@@ -290,7 +327,10 @@ enum EdgeChainMath {
                 // eigenvector column, which its own normalisation already
                 // treats as the zero vector. A synthetic zero-length line
                 // keeps the segment list total either way.
-                fit = .line(LineFit(point: points[i], direction: SIMD3(1, 0, 0), maxResidual: 0, rmsResidual: 0))
+                fit = .line(
+                    LineFit(
+                        point: points[i], direction: SIMD3(1, 0, 0), maxResidual: 0, rmsResidual: 0)
+                )
             }
             segments.append(Segment(startIndex: i, endIndex: end, fit: fit))
             i = end

@@ -1,4 +1,4 @@
-// SceneHistory — in-memory ring buffer of recent manifest snapshots.
+// SceneHistory: in-memory ring buffer of recent manifest snapshots.
 // `compare_versions` reads from it; every scene-mutating tool (and
 // execute_script once it's ported) calls `snapshot()` *before*
 // mutating so the next compare can diff current vs prior.
@@ -18,7 +18,9 @@ public actor SceneHistory {
 
     private var snapshots: [ScriptManifest] = []
 
-    /// Capture the current manifest into the ring. No-op if the
+    /// Capture the current manifest into the ring.
+    ///
+    /// No-op if the
     /// manifest doesn't exist or fails to parse.
     public func snapshot(store: ManifestStore = ManifestStore()) async {
         guard let manifest = try? store.read() else { return }

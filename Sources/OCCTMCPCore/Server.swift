@@ -1,4 +1,4 @@
-// OCCTMCPCore — server factory + tool registration for the OCCTMCP MCP
+// OCCTMCPCore: server factory + tool registration for the OCCTMCP MCP
 // server. Tools are registered against a single Server instance via the
 // MCP SDK's withMethodHandler API.
 //
@@ -20,29 +20,30 @@ public enum OCCTMCPVersion {
 /// Shared by the three tools that share DeviationTools' signed-distance engine
 /// (#72), so the LLM reads one consistent account of what the sign means.
 let signModeDescription = """
-How each sample picks WHICH reference triangle it corresponds to. This steers \
-the SIGNED figures only (signedMean/signedMin/signedMax, per-section sweeps, \
-histogram buckets, heatmap colours). The unsigned ones (max/rms/mean/p95/\
-worstPoint/symmetricHausdorff/maxAbs/withinTolerance) always measure to the \
-NEAREST reference surface and mean the same in every mode. \
-"robust" (default) rejects reference triangles whose outward normal opposes the \
-sample's own before the nearest survivor wins. That matters against an OPEN, \
-thin-walled reference (a raw scan / STL skin): a candidate flank sitting 4.5mm \
-inside a 2mm wall is only 2.5mm from the wall's INNER surface, so under \
-"nearest" that surface wins on proximity and reports +2.5 proud when the truth \
-is −4.5 shy — inverted sign, with nothing tying to flag it. So against such a \
-reference expect max/mean to report 2.5 while signedMin reports −4.5: both are \
-true, they measure to different surfaces, and the gap between them is itself \
-the tell that the reference is thin-walled. Samples with no compatible surface \
-in reach are reported ambiguous and excluded from the signed figures rather \
-than guessed; if EVERY sample is (ambiguousFraction ≈ 1.0) the signed figures \
-come back null — do not read that as zero bias, it means the sign channel is \
-unavailable and the reference's winding is likely inverted relative to the \
-sampled body. "nearest" takes the nearest triangle whatever it is — the \
-pre-1.17 behaviour, correct only against a watertight / single-surface reference.
-"""
+    How each sample picks WHICH reference triangle it corresponds to. This steers \
+    the SIGNED figures only (signedMean/signedMin/signedMax, per-section sweeps, \
+    histogram buckets, heatmap colours). The unsigned ones (max/rms/mean/p95/\
+    worstPoint/symmetricHausdorff/maxAbs/withinTolerance) always measure to the \
+    NEAREST reference surface and mean the same in every mode. \
+    "robust" (default) rejects reference triangles whose outward normal opposes the \
+    sample's own before the nearest survivor wins. That matters against an OPEN, \
+    thin-walled reference (a raw scan / STL skin): a candidate flank sitting 4.5mm \
+    inside a 2mm wall is only 2.5mm from the wall's INNER surface, so under \
+    "nearest" that surface wins on proximity and reports +2.5 proud when the truth \
+    is −4.5 shy: inverted sign, with nothing tying to flag it. So against such a \
+    reference expect max/mean to report 2.5 while signedMin reports −4.5: both are \
+    true, they measure to different surfaces, and the gap between them is itself \
+    the tell that the reference is thin-walled. Samples with no compatible surface \
+    in reach are reported ambiguous and excluded from the signed figures rather \
+    than guessed; if EVERY sample is (ambiguousFraction ≈ 1.0) the signed figures \
+    come back null: do not read that as zero bias, it means the sign channel is \
+    unavailable and the reference's winding is likely inverted relative to the \
+    sampled body. "nearest" takes the nearest triangle whatever it is: the \
+    pre-1.17 behaviour, correct only against a watertight / single-surface reference.
+    """
 
 /// Build a fully-configured MCP server with every OCCTMCP tool registered.
+///
 /// Caller is responsible for `start(transport:)` and `waitUntilCompleted()`.
 public func makeOCCTMCPServer() async -> Server {
     let server = Server(
@@ -81,7 +82,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "get_script",
-            description: "Return the source of the most recent Swift CAD script executed in this session.",
+            description:
+                "Return the source of the most recent Swift CAD script executed in this session.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([:]),
@@ -90,7 +92,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "export_model",
-            description: "List exported model files (BREP, STEP, STL, OBJ, IGES, glTF, JSON) from the current output directory.",
+            description:
+                "List exported model files (BREP, STEP, STL, OBJ, IGES, glTF, JSON) from the current output directory.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([:]),
@@ -99,14 +102,16 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "validate_geometry",
-            description: "Per-body topology validation. Wraps GraphIO + BRepGraph.validate() in-process.",
+            description:
+                "Per-body topology validation. Wraps GraphIO + BRepGraph.validate() in-process.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object([
                         "type": .string("string"),
-                        "description": .string("Specific body to validate. If omitted, validates every BREP body."),
-                    ]),
+                        "description": .string(
+                            "Specific body to validate. If omitted, validates every BREP body."),
+                    ])
                 ]),
                 "additionalProperties": .bool(false),
             ])
@@ -132,7 +137,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "analyze_clearance",
-            description: "Pairwise interference / minimum-clearance check between 2+ bodies. Each pair gets minDistance + (optionally) up to 16 contacts.",
+            description:
+                "Pairwise interference / minimum-clearance check between 2+ bodies. Each pair gets minDistance + (optionally) up to 16 contacts.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -149,11 +155,12 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "graph_validate",
-            description: "Raw-path topology validation. Pass an absolute BREP path; use validate_geometry for the scene-aware version.",
+            description:
+                "Raw-path topology validation. Pass an absolute BREP path; use validate_geometry for the scene-aware version.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "brep_path": .object(["type": .string("string")]),
+                    "brep_path": .object(["type": .string("string")])
                 ]),
                 "required": .array([.string("brep_path")]),
                 "additionalProperties": .bool(false),
@@ -161,7 +168,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "graph_compact",
-            description: "Compact a BREP's topology graph (drops unreferenced nodes); writes the rebuilt shape to output_path.",
+            description:
+                "Compact a BREP's topology graph (drops unreferenced nodes); writes the rebuilt shape to output_path.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -174,7 +182,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "graph_dedup",
-            description: "Deduplicate shared surface/curve geometry in a BREP's topology graph; writes the rebuilt shape to output_path.",
+            description:
+                "Deduplicate shared surface/curve geometry in a BREP's topology graph; writes the rebuilt shape to output_path.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -187,7 +196,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "graph_ml",
-            description: "Export a BREP's topology graph as ML-friendly JSON. Pass an absolute BREP path and optionally a description. Wraps ScriptHarness BREPGraphJSONExporter, augmented with a `faceAdjacency` block ({face1,face2,convexity,sharedEdgeCount}) — the convexity-attributed gAAG edge attribute, face indices in shape.faces() order.",
+            description:
+                "Export a BREP's topology graph as ML-friendly JSON. Pass an absolute BREP path and optionally a description. Wraps ScriptHarness BREPGraphJSONExporter, augmented with a `faceAdjacency` block ({face1,face2,convexity,sharedEdgeCount}): the convexity-attributed gAAG edge attribute, face indices in shape.faces() order.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -200,19 +210,30 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "graph_select",
-            description: "Local B-rep graph adjacency / selection query (no full-graph dump). query=face-neighbors needs `face` (returns adjacent faces + convexity + shared-edge count); edge-faces needs `edge`; vertex-edges needs `vertex`; face-adjacency returns the full attributed face-adjacency graph (gAAG); edges-class needs `class` (boundary|non-manifold|seam|degenerate). Face indices follow shape.faces() order (the face[N] scheme query_topology emits); edge/vertex indices are BRepGraph indices.",
+            description:
+                "Local B-rep graph adjacency / selection query (no full-graph dump). query=face-neighbors needs `face` (returns adjacent faces + convexity + shared-edge count); edge-faces needs `edge`; vertex-edges needs `vertex`; face-adjacency returns the full attributed face-adjacency graph (gAAG); edges-class needs `class` (boundary|non-manifold|seam|degenerate). Face indices follow shape.faces() order (the face[N] scheme query_topology emits); edge/vertex indices are BRepGraph indices.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "brep_path": .object(["type": .string("string")]),
                     "query": .object([
                         "type": .string("string"),
-                        "enum": .array([.string("face-neighbors"), .string("edge-faces"), .string("vertex-edges"), .string("face-adjacency"), .string("edges-class")]),
+                        "enum": .array([
+                            .string("face-neighbors"), .string("edge-faces"),
+                            .string("vertex-edges"), .string("face-adjacency"),
+                            .string("edges-class"),
+                        ]),
                     ]),
                     "face": .object(["type": .string("integer")]),
                     "edge": .object(["type": .string("integer")]),
                     "vertex": .object(["type": .string("integer")]),
-                    "class": .object(["type": .string("string"), "enum": .array([.string("boundary"), .string("non-manifold"), .string("seam"), .string("degenerate")])]),
+                    "class": .object([
+                        "type": .string("string"),
+                        "enum": .array([
+                            .string("boundary"), .string("non-manifold"), .string("seam"),
+                            .string("degenerate"),
+                        ]),
+                    ]),
                 ]),
                 "required": .array([.string("brep_path"), .string("query")]),
                 "additionalProperties": .bool(false),
@@ -220,11 +241,12 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "feature_recognize",
-            description: "Detect pockets and holes via AAG heuristics. Pass an absolute BREP path; recognize_features is the scene-aware variant.",
+            description:
+                "Detect pockets and holes via AAG heuristics. Pass an absolute BREP path; recognize_features is the scene-aware variant.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "brep_path": .object(["type": .string("string")]),
+                    "brep_path": .object(["type": .string("string")])
                 ]),
                 "required": .array([.string("brep_path")]),
                 "additionalProperties": .bool(false),
@@ -232,28 +254,34 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "get_api_reference",
-            description: "Returns a catalog of every MCP tool this server exposes (category=mcp_tools), or a pointer to OCCTSwift docs for the OCCT API categories. Use mcp_tools for LLM auto-discovery.",
+            description:
+                "Returns a catalog of every MCP tool this server exposes (category=mcp_tools), or a pointer to OCCTSwift docs for the OCCT API categories. Use mcp_tools for LLM auto-discovery.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "category": .object([
                         "type": .string("string"),
-                        "description": .string("'mcp_tools' for the live tool catalog; any other value returns a pointer to the OCCTSwift sources / docs."),
-                    ]),
+                        "description": .string(
+                            "'mcp_tools' for the live tool catalog; any other value returns a pointer to the OCCTSwift sources / docs."
+                        ),
+                    ])
                 ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "apply_feature",
-            description: "Apply a single feature spec (drill / fillet / chamfer / extrude / revolve / thread / boolean) to a scene body via OCCTSwift's FeatureReconstructor. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
+            description:
+                "Apply a single feature spec (drill / fillet / chamfer / extrude / revolve / thread / boolean) to a scene body via OCCTSwift's FeatureReconstructor. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
                     "feature": .object([
                         "type": .string("object"),
-                        "description": .string("FeatureSpec object with a 'kind' discriminator. See OCCTSwift/Sources/OCCTSwift/FeatureReconstructor.swift for the schema."),
+                        "description": .string(
+                            "FeatureSpec object with a 'kind' discriminator. See OCCTSwift/Sources/OCCTSwift/FeatureReconstructor.swift for the schema."
+                        ),
                     ]),
                     "outputBodyId": .object(["type": .string("string")]),
                 ]),
@@ -263,7 +291,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "inspect_assembly",
-            description: "Walk an XCAF assembly hierarchy. Pass either a scene bodyId (BREP — degenerate single-node response) or an inputPath (STEP / IGES / XBF for the full tree).",
+            description:
+                "Walk an XCAF assembly hierarchy. Pass either a scene bodyId (BREP, degenerate single-node response) or an inputPath (STEP / IGES / XBF for the full tree).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -276,20 +305,28 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "generate_drawing",
-            description: "Render a multi-view ISO 128-30 DXF technical drawing. Pass `bodyId` for a single-part drawing (sections / dimensions honoured), or `bodyIds` (2+) for a general-arrangement / assembly sheet — shared views with a parts list and a numbered balloon per body. Pass a DrawingSpec object (sheet, title, views, sections, dimensions, ...).",
+            description:
+                "Render a multi-view ISO 128-30 DXF technical drawing. Pass `bodyId` for a single-part drawing (sections / dimensions honoured), or `bodyIds` (2+) for a general-arrangement / assembly sheet: shared views with a parts list and a numbered balloon per body. Pass a DrawingSpec object (sheet, title, views, sections, dimensions, ...).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "bodyId": .object(["type": .string("string"), "description": .string("Single body — standard part drawing.")]),
+                    "bodyId": .object([
+                        "type": .string("string"),
+                        "description": .string("Single body: standard part drawing."),
+                    ]),
                     "bodyIds": .object([
                         "type": .string("array"),
                         "items": .object(["type": .string("string")]),
-                        "description": .string("Two or more bodies — general-arrangement assembly sheet with a parts list. Takes precedence over `bodyId`."),
+                        "description": .string(
+                            "Two or more bodies: general-arrangement assembly sheet with a parts list. Takes precedence over `bodyId`."
+                        ),
                     ]),
                     "outputPath": .object(["type": .string("string")]),
                     "spec": .object([
                         "type": .string("object"),
-                        "description": .string("DrawingSpec object: { sheet, title?, views, sections?, dimensions?, ... }. See OCCTSwiftScripts/Sources/DrawingComposer/Spec.swift. For a general-arrangement sheet, per-view sections/dimensions are not applied."),
+                        "description": .string(
+                            "DrawingSpec object: { sheet, title?, views, sections?, dimensions?, ... }. See OCCTSwiftScripts/Sources/DrawingComposer/Spec.swift. For a general-arrangement sheet, per-view sections/dimensions are not applied."
+                        ),
                     ]),
                 ]),
                 "required": .array([.string("outputPath"), .string("spec")]),
@@ -298,7 +335,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "execute_script",
-            description: "Compile and run an arbitrary Swift CAD script via a cached SPM workspace. The script must import OCCTSwift and ScriptHarness, accumulate geometry on a ScriptContext, and call ctx.emit(). Cold start ~60s on first call (full SPM build of OCCTSwift); subsequent calls ~1-2s incremental.",
+            description:
+                "Compile and run an arbitrary Swift CAD script via a cached SPM workspace. The script must import OCCTSwift and ScriptHarness, accumulate geometry on a ScriptContext, and call ctx.emit(). Cold start ~60s on first call (full SPM build of OCCTSwift); subsequent calls ~1-2s incremental.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -317,12 +355,17 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "set_assembly_metadata",
-            description: "Write XCAF document- or component-level metadata onto an OCAF document and save as binary .xbf. Mirrors occtkit set-metadata.",
+            description:
+                "Write XCAF document- or component-level metadata onto an OCAF document and save as binary .xbf. Mirrors occtkit set-metadata.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "inputPath": .object(["type": .string("string"), "description": .string("STEP / XBF input.")]),
-                    "outputPath": .object(["type": .string("string"), "description": .string("Output .xbf path.")]),
+                    "inputPath": .object([
+                        "type": .string("string"), "description": .string("STEP / XBF input."),
+                    ]),
+                    "outputPath": .object([
+                        "type": .string("string"), "description": .string("Output .xbf path."),
+                    ]),
                     "scope": .object([
                         "type": .string("string"),
                         "enum": .array([.string("document"), .string("component")]),
@@ -344,13 +387,16 @@ func catalogTools() -> [Tool] {
                         ]),
                     ]),
                 ]),
-                "required": .array([.string("inputPath"), .string("outputPath"), .string("metadata")]),
+                "required": .array([
+                    .string("inputPath"), .string("outputPath"), .string("metadata"),
+                ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "check_thickness",
-            description: "Wall-thickness analysis (sheet metal / casting / 3D-printing). UV-grid sample each face + cast inward ray to opposite wall. Reports min/max/mean and flags samples below minAcceptable.",
+            description:
+                "Wall-thickness analysis (sheet metal / casting / 3D-printing). UV-grid sample each face + cast inward ray to opposite wall. Reports min/max/mean and flags samples below minAcceptable.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -367,7 +413,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "render_preview",
-            description: "Headless Metal render of the current scene (or a subset) to PNG. Uses OCCTSwiftViewport's OffscreenRenderer + OCCTSwiftTools' Shape→ViewportBody bridge. Mesh-scale bodies (imported STL/OBJ scans; >10k edges) render via a linear tessellation path — edge overlays kept up to 100k edges (bulk wireframe), surface-only beyond — so large scans return in seconds instead of hanging.",
+            description:
+                "Headless Metal render of the current scene (or a subset) to PNG. Uses OCCTSwiftViewport's OffscreenRenderer + OCCTSwiftTools' Shape→ViewportBody bridge. Mesh-scale bodies (imported STL/OBJ scans; >10k edges) render via a linear tessellation path: edge overlays kept up to 100k edges (bulk wireframe), surface-only beyond, so large scans return in seconds instead of hanging.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -383,7 +430,8 @@ func catalogTools() -> [Tool] {
                                 "type": .string("string"),
                                 "enum": .array([
                                     .string("iso"), .string("front"), .string("back"),
-                                    .string("top"), .string("bottom"), .string("left"), .string("right"),
+                                    .string("top"), .string("bottom"), .string("left"),
+                                    .string("right"),
                                 ]),
                             ]),
                             "cameraPosition": .object([
@@ -413,11 +461,14 @@ func catalogTools() -> [Tool] {
                             ]),
                             "background": .object([
                                 "type": .string("string"),
-                                "description": .string("'light' | 'dark' | 'transparent' | '#rrggbb' / '#rrggbbaa'"),
+                                "description": .string(
+                                    "'light' | 'dark' | 'transparent' | '#rrggbb' / '#rrggbbaa'"),
                             ]),
                             "renderAnnotations": .object([
                                 "type": .string("boolean"),
-                                "description": .string("Overlay sidecar annotations (Trihedron / WorkPlane / Axis / BoundingBox / DiffMarker). Default true."),
+                                "description": .string(
+                                    "Overlay sidecar annotations (Trihedron / WorkPlane / Axis / BoundingBox / DiffMarker). Default true."
+                                ),
                             ]),
                         ]),
                     ]),
@@ -428,16 +479,31 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "pick_surface_point",
-            description: "Cast a ray through pixel (screenX, screenY) of a render_preview-framed view and return the nearest world-space surface point [x,y,z] on a body, plus the bodyId and a selectionId. Pass the SAME options (camera / width / height) you rendered the preview with so the pixel maps to the same ray. The returned selectionId is a valid add_dimension anchor, so you can pick two points and dimension between them — measure to an arbitrary point on a face, not just a topology centroid.",
+            description:
+                "Cast a ray through pixel (screenX, screenY) of a render_preview-framed view and return the nearest world-space surface point [x,y,z] on a body, plus the bodyId and a selectionId. Pass the SAME options (camera / width / height) you rendered the preview with so the pixel maps to the same ray. The returned selectionId is a valid add_dimension anchor, so you can pick two points and dimension between them: measure to an arbitrary point on a face, not just a topology centroid.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "screenX": .object(["type": .string("number"), "description": .string("Pixel X (top-left origin) in the options.width×height image.")]),
-                    "screenY": .object(["type": .string("number"), "description": .string("Pixel Y (top-left origin) in the options.width×height image.")]),
-                    "id": .object(["type": .string("string"), "description": .string("Optional explicit selectionId for the picked point.")]),
+                    "screenX": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Pixel X (top-left origin) in the options.width×height image."),
+                    ]),
+                    "screenY": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Pixel Y (top-left origin) in the options.width×height image."),
+                    ]),
+                    "id": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Optional explicit selectionId for the picked point."),
+                    ]),
                     "options": .object([
                         "type": .string("object"),
-                        "description": .string("Camera / framing — same shape as render_preview.options (camera, cameraPosition/Target/Up, width, height)."),
+                        "description": .string(
+                            "Camera / framing: same shape as render_preview.options (camera, cameraPosition/Target/Up, width, height)."
+                        ),
                     ]),
                 ]),
                 "required": .array([.string("screenX"), .string("screenY")]),
@@ -446,7 +512,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "remap_selection",
-            description: "Remap selectionIds across a scene mutation using a position-matching heuristic (closest-centroid within a body-bbox-relative tolerance). Returns each input mapped to zero or more new selectionIds plus a `fate` ('preserved' | 'approximate' | 'lost'). High-confidence for transforms / in-place edits; approximate for fillets / chamfers / boolean splits.",
+            description:
+                "Remap selectionIds across a scene mutation using a position-matching heuristic (closest-centroid within a body-bbox-relative tolerance). Returns each input mapped to zero or more new selectionIds plus a `fate` ('preserved' | 'approximate' | 'lost'). High-confidence for transforms / in-place edits; approximate for fillets / chamfers / boolean splits.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -456,7 +523,9 @@ func catalogTools() -> [Tool] {
                     ]),
                     "toleranceMmFraction": .object([
                         "type": .string("number"),
-                        "description": .string("Fraction of body bbox diagonal to use as the match tolerance. Default 0.01."),
+                        "description": .string(
+                            "Fraction of body bbox diagonal to use as the match tolerance. Default 0.01."
+                        ),
                     ]),
                 ]),
                 "required": .array([.string("selectionIds")]),
@@ -465,7 +534,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "find_correspondences",
-            description: "Map selectionIds from a source body onto a target body that's a known transform of the source (typically a mirror_or_pattern output). Returns each source id mapped to one target selectionId (or null) with confidenceMm + fate ('matched' | 'lost'). `transform` is optional: when omitted, falls back to provenance metadata recorded by mirror_or_pattern, then to bbox-translation inference. Use this for cross-body workflows; remap_selection is for the within-body case.",
+            description:
+                "Map selectionIds from a source body onto a target body that's a known transform of the source (typically a mirror_or_pattern output). Returns each source id mapped to one target selectionId (or null) with confidenceMm + fate ('matched' | 'lost'). `transform` is optional: when omitted, falls back to provenance metadata recorded by mirror_or_pattern, then to bbox-translation inference. Use this for cross-body workflows; remap_selection is for the within-body case.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -476,13 +546,15 @@ func catalogTools() -> [Tool] {
                     "targetBodyId": .object(["type": .string("string")]),
                     "transform": .object([
                         "type": .string("object"),
-                        "description": .string("Optional. Transform applied to source anchors before nearest-neighbour search. Exactly one of `translate` / `mirror` / `rotate` / `compound` per object. `compound.steps` is an array of nested transform objects applied in order."),
+                        "description": .string(
+                            "Optional. Transform applied to source anchors before nearest-neighbour search. Exactly one of `translate` / `mirror` / `rotate` / `compound` per object. `compound.steps` is an array of nested transform objects applied in order."
+                        ),
                         "properties": .object([
                             "kind": .object([
                                 "type": .string("string"),
                                 "enum": .array([
                                     .string("translate"), .string("mirror"),
-                                    .string("rotate"),    .string("compound"),
+                                    .string("rotate"), .string("compound"),
                                 ]),
                             ]),
                             "offset": .object([
@@ -497,7 +569,8 @@ func catalogTools() -> [Tool] {
                             ]),
                             "planeNormal": .object([
                                 "type": .string("array"),
-                                "description": .string("mirror: plane normal (any length, normalized internally)"),
+                                "description": .string(
+                                    "mirror: plane normal (any length, normalized internally)"),
                                 "items": .object(["type": .string("number")]),
                             ]),
                             "axisOrigin": .object([
@@ -512,11 +585,13 @@ func catalogTools() -> [Tool] {
                             ]),
                             "angleDeg": .object([
                                 "type": .string("number"),
-                                "description": .string("rotate: angle in degrees, right-hand rule about axisDirection"),
+                                "description": .string(
+                                    "rotate: angle in degrees, right-hand rule about axisDirection"),
                             ]),
                             "steps": .object([
                                 "type": .string("array"),
-                                "description": .string("compound: array of transform objects applied in order"),
+                                "description": .string(
+                                    "compound: array of transform objects applied in order"),
                                 "items": .object(["type": .string("object")]),
                             ]),
                         ]),
@@ -524,7 +599,9 @@ func catalogTools() -> [Tool] {
                     ]),
                     "toleranceMmFraction": .object([
                         "type": .string("number"),
-                        "description": .string("Fraction of target bbox diagonal to use as the match tolerance. Default 0.01."),
+                        "description": .string(
+                            "Fraction of target bbox diagonal to use as the match tolerance. Default 0.01."
+                        ),
                     ]),
                 ]),
                 "required": .array([.string("sourceSelectionIds"), .string("targetBodyId")]),
@@ -533,7 +610,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "add_dimension",
-            description: "Compute a linear / angular / radial dimension from selectionIds, persist to <output_dir>/annotations.json. render_preview overlays it. linear needs anchors.from + anchors.to; angular needs anchors.armA + anchors.apex + anchors.armB; radial needs anchors.circularEdge.",
+            description:
+                "Compute a linear / angular / radial dimension from selectionIds, persist to <output_dir>/annotations.json. render_preview overlays it. linear needs anchors.from + anchors.to; angular needs anchors.armA + anchors.apex + anchors.armB; radial needs anchors.circularEdge.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -555,16 +633,20 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "add_scene_primitive",
-            description: "Add a Trihedron / WorkPlane / Axis / PointCloud annotation to <output_dir>/annotations.json. render_preview overlays it. params shape mirrors the OCCTSwiftAIS init: trihedron {origin,axisLength}; workPlane {origin,normal,size,color}; axis {from,to,color,radius}; pointCloud {points,colors?,pointRadius}.",
+            description:
+                "Add a Trihedron / WorkPlane / Axis / PointCloud annotation to <output_dir>/annotations.json. render_preview overlays it. params shape mirrors the OCCTSwiftAIS init: trihedron {origin,axisLength}; workPlane {origin,normal,size,color}; axis {from,to,color,radius}; pointCloud {points,colors?,pointRadius}.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "kind": .object([
                         "type": .string("string"),
-                        "enum": .array([.string("trihedron"), .string("workPlane"), .string("axis"), .string("pointCloud")]),
+                        "enum": .array([
+                            .string("trihedron"), .string("workPlane"), .string("axis"),
+                            .string("pointCloud"),
+                        ]),
                     ]),
                     "params": .object([
-                        "type": .string("object"),
+                        "type": .string("object")
                     ]),
                     "id": .object(["type": .string("string")]),
                 ]),
@@ -574,11 +656,12 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "remove_scene_annotation",
-            description: "Remove a dimension or scene primitive from <output_dir>/annotations.json by id. Returns whether the id was found.",
+            description:
+                "Remove a dimension or scene primitive from <output_dir>/annotations.json by id. Returns whether the id was found.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "id": .object(["type": .string("string")]),
+                    "id": .object(["type": .string("string")])
                 ]),
                 "required": .array([.string("id")]),
                 "additionalProperties": .bool(false),
@@ -586,7 +669,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "show_bounding_box",
-            description: "Compute a body's axis-aligned bounding box and register it as a `boundingBox` scene primitive. Returns min/max/extent/center inline so the LLM can reason about the body's footprint without a separate compute_metrics call.",
+            description:
+                "Compute a body's axis-aligned bounding box and register it as a `boundingBox` scene primitive. Returns min/max/extent/center inline so the LLM can reason about the body's footprint without a separate compute_metrics call.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -599,21 +683,23 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "diff_overlay",
-            description: "Visualise a recent scene change. For each body added/removed/modified since N runs ago, register a tinted scene primitive at its bbox center (added=green, removed=red, changed=yellow). Returns the lists of affected body ids plus the registered primitive ids.",
+            description:
+                "Visualise a recent scene change. For each body added/removed/modified since N runs ago, register a tinted scene primitive at its bbox center (added=green, removed=red, changed=yellow). Returns the lists of affected body ids plus the registered primitive ids.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "since": .object([
                         "type": .string("integer"),
                         "minimum": .int(1),
-                    ]),
+                    ])
                 ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "select_by_feature",
-            description: "Run AAG feature recognition (recognize_features) and register a selectionId for each detected hole / pocket. Returns selectionIds the LLM can then dimension or refer back to without re-running query_topology.",
+            description:
+                "Run AAG feature recognition (recognize_features) and register a selectionId for each detected hole / pocket. Returns selectionIds the LLM can then dimension or refer back to without re-running query_topology.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -632,7 +718,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "list_selections",
-            description: "Return every active selectionId in the SelectionRegistry plus its anchor metadata. Cheap introspection — useful when the LLM has lost track of which picks it has made earlier in the session.",
+            description:
+                "Return every active selectionId in the SelectionRegistry plus its anchor metadata. Cheap introspection: useful when the LLM has lost track of which picks it has made earlier in the session.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([:]),
@@ -641,7 +728,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "clear_selections",
-            description: "Drop every selectionId from the SelectionRegistry. Returns the count cleared.",
+            description:
+                "Drop every selectionId from the SelectionRegistry. Returns the count cleared.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([:]),
@@ -650,7 +738,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "list_annotations",
-            description: "Read the <output_dir>/annotations.json sidecar and return its dimensions + scene primitives.",
+            description:
+                "Read the <output_dir>/annotations.json sidecar and return its dimensions + scene primitives.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([:]),
@@ -659,14 +748,16 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "auto_dimension",
-            description: "Run AAG hole detection, then add a radial dimension to each hole's circular rim edge. One call instead of N (recognize_features → select_topology → add_dimension per hole). Returns a list of dimensionIds + selectionIds the LLM can refer to later.",
+            description:
+                "Run AAG hole detection, then add a radial dimension to each hole's circular rim edge. One call instead of N (recognize_features → select_topology → add_dimension per hole). Returns a list of dimensionIds + selectionIds the LLM can refer to later.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
                     "showDiameter": .object([
                         "type": .string("boolean"),
-                        "description": .string("If true, dimension shows diameter instead of radius. Default false."),
+                        "description": .string(
+                            "If true, dimension shows diameter instead of radius. Default false."),
                     ]),
                 ]),
                 "required": .array([.string("bodyId")]),
@@ -675,18 +766,23 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "select_topology",
-            description: "Pick faces / edges / vertices on a scene body matching criteria. Returns server-tracked selectionIds (sel:<bodyId>#<kind>[<idx>]) plus an anchor snapshot, which the LLM can refer back to via remap_selection / add_dimension. Edge anchors (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
+            description:
+                "Pick faces / edges / vertices on a scene body matching criteria. Returns server-tracked selectionIds (sel:<bodyId>#<kind>[<idx>]) plus an anchor snapshot, which the LLM can refer back to via remap_selection / add_dimension. Edge anchors (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
                     "kind": .object([
                         "type": .string("string"),
-                        "enum": .array([.string("body"), .string("face"), .string("edge"), .string("vertex")]),
+                        "enum": .array([
+                            .string("body"), .string("face"), .string("edge"), .string("vertex"),
+                        ]),
                     ]),
                     "filter": .object([
                         "type": .string("object"),
-                        "description": .string("face: surfaceType, minArea, maxArea, normalDirection, normalTolerance. edge: curveType, minLength, maxLength."),
+                        "description": .string(
+                            "face: surfaceType, minArea, maxArea, normalDirection, normalTolerance. edge: curveType, minLength, maxLength."
+                        ),
                     ]),
                     "limit": .object(["type": .string("integer"), "minimum": .int(1)]),
                 ]),
@@ -696,7 +792,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "ping",
-            description: "Sanity-check tool — returns 'pong' so callers can verify the OCCTMCP Swift server is alive.",
+            description:
+                "Sanity-check tool: returns 'pong' so callers can verify the OCCTMCP Swift server is alive.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([:]),
@@ -705,14 +802,15 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "remove_body",
-            description: "Delete a body from the current scene by id. Removes the body's BREP file from the output directory and re-emits the manifest (triggers viewport reload).",
+            description:
+                "Delete a body from the current scene by id. Removes the body's BREP file from the output directory and re-emits the manifest (triggers viewport reload).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object([
                         "type": .string("string"),
                         "description": .string("The id of the body to remove."),
-                    ]),
+                    ])
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -720,21 +818,24 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "clear_scene",
-            description: "Remove every body from the current scene. Optionally preserves the compare_versions history ring buffer.",
+            description:
+                "Remove every body from the current scene. Optionally preserves the compare_versions history ring buffer.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "keepHistory": .object([
                         "type": .string("boolean"),
-                        "description": .string("If true, keep the compare_versions history ring. Default false."),
-                    ]),
+                        "description": .string(
+                            "If true, keep the compare_versions history ring. Default false."),
+                    ])
                 ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "rename_body",
-            description: "Change a body's id in the scene manifest. Fails if the new id is already in use.",
+            description:
+                "Change a body's id in the scene manifest. Fails if the new id is already in use.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -747,7 +848,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "set_appearance",
-            description: "Update color / opacity / roughness / metallic / display name for a scene body without re-running a script. The viewport reloads automatically.",
+            description:
+                "Update color / opacity / roughness / metallic / display name for a scene body without re-running a script. The viewport reloads automatically.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -771,7 +873,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "compute_metrics",
-            description: "Compute volume / surface area / center of mass / bounding box / principal axes for a scene body. Direct OCCTSwift call, no occtkit subprocess. `boundingBox` is the default Bnd_Box (control-point hull — over-reports curved B-spline geometry); request `boundingBoxOptimal` for a tight BRepBndLib::AddOptimal extent that matches the exact surface / mesh.",
+            description:
+                "Compute volume / surface area / center of mass / bounding box / principal axes for a scene body. Direct OCCTSwift call, no occtkit subprocess. `boundingBox` is the default Bnd_Box (control-point hull, over-reports curved B-spline geometry); request `boundingBoxOptimal` for a tight BRepBndLib::AddOptimal extent that matches the exact surface / mesh.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -779,7 +882,9 @@ func catalogTools() -> [Tool] {
                     "metrics": .object([
                         "type": .string("array"),
                         "items": .object(["type": .string("string")]),
-                        "description": .string("Subset to compute. Default: all except boundingBoxOptimal. Items: volume, surfaceArea, centerOfMass, boundingBox, boundingBoxOptimal, principalAxes. boundingBoxOptimal (tight AddOptimal extent) is opt-in — list it explicitly."),
+                        "description": .string(
+                            "Subset to compute. Default: all except boundingBoxOptimal. Items: volume, surfaceArea, centerOfMass, boundingBox, boundingBoxOptimal, principalAxes. boundingBoxOptimal (tight AddOptimal extent) is opt-in; list it explicitly."
+                        ),
                     ]),
                 ]),
                 "required": .array([.string("bodyId")]),
@@ -788,7 +893,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "query_topology",
-            description: "Find faces / edges / vertices on a body matching criteria. Returns stable IDs (face[N], edge[N], vertex[N]). Edge results (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
+            description:
+                "Find faces / edges / vertices on a body matching criteria. Returns stable IDs (face[N], edge[N], vertex[N]). Edge results (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -799,7 +905,8 @@ func catalogTools() -> [Tool] {
                     ]),
                     "filter": .object([
                         "type": .string("object"),
-                        "description": .string("Optional: surfaceType, curveType, minArea, maxArea."),
+                        "description": .string(
+                            "Optional: surfaceType, curveType, minArea, maxArea."),
                     ]),
                     "limit": .object(["type": .string("integer"), "minimum": .int(1)]),
                 ]),
@@ -809,7 +916,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "measure_distance",
-            description: "Minimum distance between two scene bodies. Pass computeContacts=true to also return up to 32 contact pairs.",
+            description:
+                "Minimum distance between two scene bodies. Pass computeContacts=true to also return up to 32 contact pairs.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -823,7 +931,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "measure_deviation",
-            description: "Signed, spatially-resolved surface deviation between two scene bodies — the metric for certifying a reconstruction against its source mesh. Unlike measure_distance (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface and reports, in BOTH directions (`fromToTo` = from's surface vs to / over-extension, `toToFrom` = under-coverage): max, rms, mean, p95 (robust worst-case), `signedMean` (≠0 ⇒ a systematic proud(+)/shy(−) bias a Hausdorff hides), signedMin/signedMax, and a worstPoint — plus `symmetricHausdorff`. Optional `sectionAxis`+`sections` bins the forward samples along an axis into per-station signedMean (a near-constant non-zero value across stations ⇒ systematic section-shape error). Mesh-based; fidelity scales with `deflection` (default 0.5% of the from-body bbox diagonal). `maxSamples` (default 20000) stride-subsamples per direction.",
+            description:
+                "Signed, spatially-resolved surface deviation between two scene bodies: the metric for certifying a reconstruction against its source mesh. Unlike measure_distance (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface and reports, in BOTH directions (`fromToTo` = from's surface vs to / over-extension, `toToFrom` = under-coverage): max, rms, mean, p95 (robust worst-case), `signedMean` (≠0 ⇒ a systematic proud(+)/shy(−) bias a Hausdorff hides), signedMin/signedMax, and a worstPoint, plus `symmetricHausdorff`. Optional `sectionAxis`+`sections` bins the forward samples along an axis into per-station signedMean (a near-constant non-zero value across stations ⇒ systematic section-shape error). Mesh-based; fidelity scales with `deflection` (default 0.5% of the from-body bbox diagonal). `maxSamples` (default 20000) stride-subsamples per direction.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -831,21 +940,29 @@ func catalogTools() -> [Tool] {
                     "toBodyId": .object(["type": .string("string")]),
                     "deflection": .object([
                         "type": .string("number"),
-                        "description": .string("Mesh linear deflection (model units). Smaller = finer = tighter bound. Default: 0.5% of the from-body bbox diagonal."),
+                        "description": .string(
+                            "Mesh linear deflection (model units). Smaller = finer = tighter bound. Default: 0.5% of the from-body bbox diagonal."
+                        ),
                     ]),
                     "maxSamples": .object([
                         "type": .string("integer"),
-                        "description": .string("Max source surface samples per direction (stride-subsampled). Default 20000."),
+                        "description": .string(
+                            "Max source surface samples per direction (stride-subsampled). Default 20000."
+                        ),
                     ]),
                     "sectionAxis": .object([
                         "type": .string("array"),
                         "items": .object(["type": .string("number")]),
                         "minItems": .int(3), "maxItems": .int(3),
-                        "description": .string("[x,y,z] axis to bin the forward (from→to) samples along. When set with `sections`, the report gains a per-station signedMean array."),
+                        "description": .string(
+                            "[x,y,z] axis to bin the forward (from→to) samples along. When set with `sections`, the report gains a per-station signedMean array."
+                        ),
                     ]),
                     "sections": .object([
                         "type": .string("integer"),
-                        "description": .string("Number of along-axis bins for the per-section signedMean sweep (≥2). Requires sectionAxis."),
+                        "description": .string(
+                            "Number of along-axis bins for the per-section signedMean sweep (≥2). Requires sectionAxis."
+                        ),
                     ]),
                     "signMode": .object([
                         "type": .string("string"),
@@ -859,17 +976,38 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "deviation_histogram",
-            description: "Signed point-to-surface deviation DISTRIBUTION of `fromBodyId` vs `referenceBodyId`: μ (mean — non-zero ⇒ systematic bias), σ, median, p95 (of |dev|), proud/shy extremes, percent within ±tolerance, and a bucket histogram — plus an optional PNG. A tight unimodal histogram on 0 is honest noise; a non-zero mean or two humps is a systematic shape error even when the headline mean looks small.",
+            description:
+                "Signed point-to-surface deviation DISTRIBUTION of `fromBodyId` vs `referenceBodyId`: μ (mean, non-zero ⇒ systematic bias), σ, median, p95 (of |dev|), proud/shy extremes, percent within ±tolerance, and a bucket histogram, plus an optional PNG. A tight unimodal histogram on 0 is honest noise; a non-zero mean or two humps is a systematic shape error even when the headline mean looks small.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "fromBodyId": .object(["type": .string("string")]),
                     "referenceBodyId": .object(["type": .string("string")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
-                    "bins": .object(["type": .string("integer"), "description": .string("Histogram bucket count. Default 40.")]),
-                    "maxSamples": .object(["type": .string("integer"), "description": .string("Max from-surface vertices sampled (stride-subsampled). Default 50000.")]),
-                    "tolerance": .object(["type": .string("number"), "description": .string("± band (model units); report fraction of samples within it + shade it on the PNG.")]),
-                    "outputPath": .object(["type": .string("string"), "description": .string("PNG path for the histogram image. Omit to return stats only.")]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the from-body bbox diagonal."),
+                    ]),
+                    "bins": .object([
+                        "type": .string("integer"),
+                        "description": .string("Histogram bucket count. Default 40."),
+                    ]),
+                    "maxSamples": .object([
+                        "type": .string("integer"),
+                        "description": .string(
+                            "Max from-surface vertices sampled (stride-subsampled). Default 50000."),
+                    ]),
+                    "tolerance": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "± band (model units); report fraction of samples within it + shade it on the PNG."
+                        ),
+                    ]),
+                    "outputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "PNG path for the histogram image. Omit to return stats only."),
+                    ]),
                     "signMode": .object([
                         "type": .string("string"),
                         "enum": .array([.string("robust"), .string("nearest")]),
@@ -882,34 +1020,92 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "cross_section_compare",
-            description: "Slice BOTH bodies at N stations across their shared axis overlap, overlay the two 2D profiles, and report per-station signed-mean (the direct detector of a systematic section offset), RMS, area ratio, centroid offset, and a pose-robust radial shape scalar (catches wrong-shape a Hausdorff misses). Default `outerEnvelope` mode compares against the reference's OUTER boundary per angular direction, so inner window-return / frame paths of a thin-wall / scanned part don't pollute the aggregate. Each station reports `axisCoord` (world position along the axis). The highest-leverage tool for a reconstruction whose cross-section is the wrong shape everywhere yet whose 3D mean looks fine. Optional per-station overlay PNGs.",
+            description:
+                "Slice BOTH bodies at N stations across their shared axis overlap, overlay the two 2D profiles, and report per-station signed-mean (the direct detector of a systematic section offset), RMS, area ratio, centroid offset, and a pose-robust radial shape scalar (catches wrong-shape a Hausdorff misses). Default `outerEnvelope` mode compares against the reference's OUTER boundary per angular direction, so inner window-return / frame paths of a thin-wall / scanned part don't pollute the aggregate. Each station reports `axisCoord` (world position along the axis). The highest-leverage tool for a reconstruction whose cross-section is the wrong shape everywhere yet whose 3D mean looks fine. Optional per-station overlay PNGs.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "fromBodyId": .object(["type": .string("string"), "description": .string("Candidate body (e.g. the reconstruction).")]),
-                    "referenceBodyId": .object(["type": .string("string"), "description": .string("Reference body (e.g. the source mesh).")]),
-                    "axis": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("[x,y,z] section sweep axis (e.g. the carbody longitudinal axis).")]),
-                    "stations": .object(["type": .string("integer"), "description": .string("Number of evenly-spaced cut planes across the bodies' shared overlap. Default 12.")]),
-                    "through": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("A point the axis passes through. Default: from-body bbox centre.")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
-                    "outerEnvelope": .object(["type": .string("boolean"), "description": .string("Compare against the reference's OUTER boundary per angular direction (default true) so inner window-return / frame paths don't pollute the metric. Set false for raw point-to-main-loop comparison.")]),
-                    "outputDir": .object(["type": .string("string"), "description": .string("Directory for per-station overlay PNGs. Omit to return numbers only.")]),
-                    "imagePrefix": .object(["type": .string("string"), "description": .string("Filename prefix for station PNGs. Default \"section\".")]),
+                    "fromBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string("Candidate body (e.g. the reconstruction)."),
+                    ]),
+                    "referenceBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string("Reference body (e.g. the source mesh)."),
+                    ]),
+                    "axis": .object([
+                        "type": .string("array"), "items": .object(["type": .string("number")]),
+                        "minItems": .int(3), "maxItems": .int(3),
+                        "description": .string(
+                            "[x,y,z] section sweep axis (e.g. the carbody longitudinal axis)."),
+                    ]),
+                    "stations": .object([
+                        "type": .string("integer"),
+                        "description": .string(
+                            "Number of evenly-spaced cut planes across the bodies' shared overlap. Default 12."
+                        ),
+                    ]),
+                    "through": .object([
+                        "type": .string("array"), "items": .object(["type": .string("number")]),
+                        "minItems": .int(3), "maxItems": .int(3),
+                        "description": .string(
+                            "A point the axis passes through. Default: from-body bbox centre."),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the from-body bbox diagonal."),
+                    ]),
+                    "outerEnvelope": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Compare against the reference's OUTER boundary per angular direction (default true) so inner window-return / frame paths don't pollute the metric. Set false for raw point-to-main-loop comparison."
+                        ),
+                    ]),
+                    "outputDir": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Directory for per-station overlay PNGs. Omit to return numbers only."),
+                    ]),
+                    "imagePrefix": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Filename prefix for station PNGs. Default \"section\"."),
+                    ]),
                 ]),
-                "required": .array([.string("fromBodyId"), .string("referenceBodyId"), .string("axis")]),
+                "required": .array([
+                    .string("fromBodyId"), .string("referenceBodyId"), .string("axis"),
+                ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "symmetric_difference_volume",
-            description: "The direct geometric fidelity figure a mean/RMS surface deviation can hide via cancellation (#122): the two ONE-SIDED volumes between fromBodyId and referenceBodyId (excess material only fromBodyId occupies, missing material only referenceBodyId occupies) and their sum. boolean_op cannot produce a true symmetric-difference solid against a mesh-only, possibly non-watertight reference (subtract fails both directions on a real STL); this instead classifies deterministic Halton-sequence sample points against BOTH bodies via OCCTSwiftMesh's generalized winding number (robust to open/non-watertight/self-intersecting meshes, unlike a parity/ray test) and reports the resulting volumes plus a Monte Carlo standard error. Cost is O(fromTriangles + referenceTriangles) per sample point (no spatial acceleration upstream), so total cost scales with maxSamples x (fromTriangles + referenceTriangles); keep maxSamples modest (the default, 300) for scan-scale meshes.",
+            description:
+                "The direct geometric fidelity figure a mean/RMS surface deviation can hide via cancellation (#122): the two ONE-SIDED volumes between fromBodyId and referenceBodyId (excess material only fromBodyId occupies, missing material only referenceBodyId occupies) and their sum. boolean_op cannot produce a true symmetric-difference solid against a mesh-only, possibly non-watertight reference (subtract fails both directions on a real STL); this instead classifies deterministic Halton-sequence sample points against BOTH bodies via OCCTSwiftMesh's generalized winding number (robust to open/non-watertight/self-intersecting meshes, unlike a parity/ray test) and reports the resulting volumes plus a Monte Carlo standard error. Cost is O(fromTriangles + referenceTriangles) per sample point (no spatial acceleration upstream), so total cost scales with maxSamples x (fromTriangles + referenceTriangles); keep maxSamples modest (the default, 300) for scan-scale meshes.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "fromBodyId": .object(["type": .string("string"), "description": .string("Candidate body (e.g. the reconstruction).")]),
-                    "referenceBodyId": .object(["type": .string("string"), "description": .string("Reference body (e.g. the source mesh); may be a non-watertight mesh.")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
-                    "maxSamples": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Monte Carlo sample points (Halton low-discrepancy sequence) tested against both meshes. Default 300; cost is O(maxSamples x triangleCount) per body, much steeper per-sample than surface-deviation tools.")]),
+                    "fromBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string("Candidate body (e.g. the reconstruction)."),
+                    ]),
+                    "referenceBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Reference body (e.g. the source mesh); may be a non-watertight mesh."),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the from-body bbox diagonal."),
+                    ]),
+                    "maxSamples": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Monte Carlo sample points (Halton low-discrepancy sequence) tested against both meshes. Default 300; cost is O(maxSamples x triangleCount) per body, much steeper per-sample than surface-deviation tools."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("fromBodyId"), .string("referenceBodyId")]),
                 "additionalProperties": .bool(false),
@@ -917,46 +1113,83 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "signed_deviation_heatmap",
-            description: "Render `fromBodyId`'s surface coloured by SIGNED distance to `referenceBodyId` — proud (over-build) red, on-target near-white, shy (under-build) blue — via a diverging colormap, with a colorbar legend. Shows exactly WHERE a reconstruction departs, which a scalar deviation can't. Per-triangle bands; pure-Swift offscreen render to PNG. CAVEAT: the sign is only trustworthy when `referenceBodyId` is a watertight/single-surface solid. Against an OPEN, thin-walled reference (a raw scan/STL skin where an outer and inner surface are a small gap apart) the nearest-triangle sign can flip per sample with no real positional meaning; those triangles render GREY instead of red/blue and are counted in the response's `ambiguousTriangles`/`ambiguousFraction`. A mostly-grey render means trust the magnitude (or `cross_section_compare`), not this tool's sign.",
+            description:
+                "Render `fromBodyId`'s surface coloured by SIGNED distance to `referenceBodyId`: proud (over-build) red, on-target near-white, shy (under-build) blue, via a diverging colormap, with a colorbar legend. Shows exactly WHERE a reconstruction departs, which a scalar deviation can't. Per-triangle bands; pure-Swift offscreen render to PNG. CAVEAT: the sign is only trustworthy when `referenceBodyId` is a watertight/single-surface solid. Against an OPEN, thin-walled reference (a raw scan/STL skin where an outer and inner surface are a small gap apart) the nearest-triangle sign can flip per sample with no real positional meaning; those triangles render GREY instead of red/blue and are counted in the response's `ambiguousTriangles`/`ambiguousFraction`. A mostly-grey render means trust the magnitude (or `cross_section_compare`), not this tool's sign.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "fromBodyId": .object(["type": .string("string")]),
                     "referenceBodyId": .object(["type": .string("string")]),
                     "outputPath": .object(["type": .string("string")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the from-body bbox diagonal.")]),
-                    "bands": .object(["type": .string("integer"), "description": .string("Colormap band count. Default 11.")]),
-                    "clamp": .object(["type": .string("number"), "description": .string("|signed| ≥ clamp saturates to full red/blue. Default: p95 of |signed|.")]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the from-body bbox diagonal."),
+                    ]),
+                    "bands": .object([
+                        "type": .string("integer"),
+                        "description": .string("Colormap band count. Default 11."),
+                    ]),
+                    "clamp": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "|signed| ≥ clamp saturates to full red/blue. Default: p95 of |signed|."
+                        ),
+                    ]),
                     "signMode": .object([
                         "type": .string("string"),
                         "enum": .array([.string("robust"), .string("nearest")]),
                         "description": .string(signModeDescription),
                     ]),
-                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                    "options": .object([
+                        "type": .string("object"),
+                        "description": .string(
+                            "Render options: same shape as render_preview.options (camera, width, height, background)."
+                        ),
+                    ]),
                 ]),
-                "required": .array([.string("fromBodyId"), .string("referenceBodyId"), .string("outputPath")]),
+                "required": .array([
+                    .string("fromBodyId"), .string("referenceBodyId"), .string("outputPath"),
+                ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "overlay_render",
-            description: "Render the reference mesh (`meshBodyId`, semi-transparent amber) superimposed over the opaque candidate solid (`solidBodyId`, steel-grey) — see in 3D exactly where the reconstruction departs from the source mesh. Pure-Swift offscreen render to PNG.",
+            description:
+                "Render the reference mesh (`meshBodyId`, semi-transparent amber) superimposed over the opaque candidate solid (`solidBodyId`, steel-grey): see in 3D exactly where the reconstruction departs from the source mesh. Pure-Swift offscreen render to PNG.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "solidBodyId": .object(["type": .string("string"), "description": .string("Opaque body (the candidate solid).")]),
-                    "meshBodyId": .object(["type": .string("string"), "description": .string("Translucent body (the reference mesh).")]),
+                    "solidBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string("Opaque body (the candidate solid)."),
+                    ]),
+                    "meshBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string("Translucent body (the reference mesh)."),
+                    ]),
                     "outputPath": .object(["type": .string("string")]),
-                    "transparency": .object(["type": .string("number"), "description": .string("Reference-mesh opacity 0.05–0.95. Default 0.5.")]),
-                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options.")]),
+                    "transparency": .object([
+                        "type": .string("number"),
+                        "description": .string("Reference-mesh opacity 0.05–0.95. Default 0.5."),
+                    ]),
+                    "options": .object([
+                        "type": .string("object"),
+                        "description": .string(
+                            "Render options: same shape as render_preview.options."),
+                    ]),
                 ]),
-                "required": .array([.string("solidBodyId"), .string("meshBodyId"), .string("outputPath")]),
+                "required": .array([
+                    .string("solidBodyId"), .string("meshBodyId"), .string("outputPath"),
+                ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "transform_body",
-            description: "Apply translate / rotate / uniform-scale to a scene body. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
+            description:
+                "Apply translate / rotate / uniform-scale to a scene body. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -987,13 +1220,17 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "boolean_op",
-            description: "Boolean op (union / subtract / intersect / split) between two scene bodies. Output is added as a new body.",
+            description:
+                "Boolean op (union / subtract / intersect / split) between two scene bodies. Output is added as a new body.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "op": .object([
                         "type": .string("string"),
-                        "enum": .array([.string("union"), .string("subtract"), .string("intersect"), .string("split")]),
+                        "enum": .array([
+                            .string("union"), .string("subtract"), .string("intersect"),
+                            .string("split"),
+                        ]),
                     ]),
                     "aBodyId": .object(["type": .string("string")]),
                     "bBodyId": .object(["type": .string("string")]),
@@ -1006,7 +1243,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "mirror_or_pattern",
-            description: "Mirror / linear / circular pattern of a body. Output is a single (possibly compound) body added to the scene.",
+            description:
+                "Mirror / linear / circular pattern of a body. Output is a single (possibly compound) body added to the scene.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1017,7 +1255,9 @@ func catalogTools() -> [Tool] {
                     ]),
                     "params": .object([
                         "type": .string("object"),
-                        "description": .string("Mirror: planeNormal (required), planeOrigin (optional). Linear: direction, spacing, count. Circular: axisOrigin, axisDirection, totalCount, totalAngle (optional)."),
+                        "description": .string(
+                            "Mirror: planeNormal (required), planeOrigin (optional). Linear: direction, spacing, count. Circular: axisOrigin, axisDirection, totalCount, totalAngle (optional)."
+                        ),
                     ]),
                     "outputBodyId": .object(["type": .string("string")]),
                 ]),
@@ -1027,7 +1267,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "generate_mesh",
-            description: "Tessellate a scene body into triangles + quality metrics. Optionally inline geometry or write to .stl/.obj.",
+            description:
+                "Tessellate a scene body into triangles + quality metrics. Optionally inline geometry or write to .stl/.obj.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1043,13 +1284,15 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "simplify_mesh",
-            description: "QEM mesh decimation via OCCTSwiftMesh (vendored meshoptimizer). Outputs .stl or .obj.",
+            description:
+                "QEM mesh decimation via OCCTSwiftMesh (vendored meshoptimizer). Outputs .stl or .obj.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
                     "outputPath": .object(["type": .string("string")]),
-                    "targetTriangleCount": .object(["type": .string("integer"), "minimum": .int(1)]),
+                    "targetTriangleCount": .object(["type": .string("integer"), "minimum": .int(1)]
+                    ),
                     "targetReduction": .object(["type": .string("number")]),
                     "preserveBoundary": .object(["type": .string("boolean")]),
                     "preserveTopology": .object(["type": .string("boolean")]),
@@ -1063,7 +1306,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "heal_shape",
-            description: "Heal imported / non-watertight geometry via OCCT ShapeFix. Returns before/after stats.",
+            description:
+                "Heal imported / non-watertight geometry via OCCT ShapeFix. Returns before/after stats.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1088,7 +1332,9 @@ func catalogTools() -> [Tool] {
                     ]),
                     "allowInvalid": .object([
                         "type": .string("boolean"),
-                        "description": .string("Load a topologically invalid / loose-face shape as-is (skip the validity write-gate) so compute_metrics / measure_deviation / validate_geometry can run on an in-progress reconstruction. Default false."),
+                        "description": .string(
+                            "Load a topologically invalid / loose-face shape as-is (skip the validity write-gate) so compute_metrics / measure_deviation / validate_geometry can run on an in-progress reconstruction. Default false."
+                        ),
                     ]),
                 ]),
                 "required": .array([.string("inputPath")]),
@@ -1097,20 +1343,28 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "import_file",
-            description: "Multi-format CAD import (STEP / IGES / BREP / STL / OBJ). Mesh formats (STL / OBJ) land as a raw triangulated shell — the reference scan the deviation / cross-section tools compare against. Adds the imported shape as a single body.",
+            description:
+                "Multi-format CAD import (STEP / IGES / BREP / STL / OBJ). Mesh formats (STL / OBJ) land as a raw triangulated shell: the reference scan the deviation / cross-section tools compare against. Adds the imported shape as a single body.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "inputPath": .object(["type": .string("string")]),
                     "format": .object([
                         "type": .string("string"),
-                        "description": .string("Explicit format overrides extension sniffing. `auto` sniffs the extension."),
-                        "enum": .array([.string("auto"), .string("step"), .string("iges"), .string("obj"), .string("brep"), .string("stl")]),
+                        "description": .string(
+                            "Explicit format overrides extension sniffing. `auto` sniffs the extension."
+                        ),
+                        "enum": .array([
+                            .string("auto"), .string("step"), .string("iges"), .string("obj"),
+                            .string("brep"), .string("stl"),
+                        ]),
                     ]),
                     "idPrefix": .object(["type": .string("string")]),
                     "allowInvalid": .object([
                         "type": .string("boolean"),
-                        "description": .string("Import a topologically invalid / loose-face shape as-is (skip the validity write-gate) so the analysis tools can measure an in-progress reconstruction. Default false."),
+                        "description": .string(
+                            "Import a topologically invalid / loose-face shape as-is (skip the validity write-gate) so the analysis tools can measure an in-progress reconstruction. Default false."
+                        ),
                     ]),
                 ]),
                 "required": .array([.string("inputPath")]),
@@ -1119,7 +1373,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "export_scene",
-            description: "Export the current scene (or a subset) to step / iges / brep / stl / obj / gltf / glb.",
+            description:
+                "Export the current scene (or a subset) to step / iges / brep / stl / obj / gltf / glb.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1142,7 +1397,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "compare_versions",
-            description: "Diff the current scene against a snapshot from N runs ago. Detects added / removed / appearance-changed / file-changed bodies.",
+            description:
+                "Diff the current scene against a snapshot from N runs ago. Detects added / removed / appearance-changed / file-changed bodies.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1150,32 +1406,45 @@ func catalogTools() -> [Tool] {
                         "type": .string("integer"),
                         "minimum": .int(1),
                         "description": .string("How many runs back to compare against. Default 1."),
-                    ]),
+                    ])
                 ]),
                 "additionalProperties": .bool(false),
             ])
         ),
-        // ── reconstruct_* — read/write the attributed reconstruction graph (#33)
+        // ── reconstruct_*: read/write the attributed reconstruction graph (#33)
         Tool(
             name: "reconstruct_get_graph",
-            description: "Export the attributed reconstruction graph as JSON: topology counts, every annotated node (with its reconstruct.* attributes), and instance clusters. Pass `sessionId` for an existing session, or `bodyId` to start one from a scene body. Nodes are addressed as `<kind>:<index>` (e.g. `face:3`).",
+            description:
+                "Export the attributed reconstruction graph as JSON: topology counts, every annotated node (with its reconstruct.* attributes), and instance clusters. Pass `sessionId` for an existing session, or `bodyId` to start one from a scene body. Nodes are addressed as `<kind>:<index>` (e.g. `face:3`).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "sessionId": .object(["type": .string("string"), "description": .string("Existing reconstruction session id.")]),
-                    "bodyId": .object(["type": .string("string"), "description": .string("Scene body to start a new session from (sessionId defaults to bodyId).")]),
+                    "sessionId": .object([
+                        "type": .string("string"),
+                        "description": .string("Existing reconstruction session id."),
+                    ]),
+                    "bodyId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Scene body to start a new session from (sessionId defaults to bodyId)."
+                        ),
+                    ]),
                 ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "reconstruct_set_decision",
-            description: "Annotate a node's reconstruction decision: `decidedBy` (geometric | ml | human) and/or `accepted` (accept/reject a proposed fit). At least one must be supplied.",
+            description:
+                "Annotate a node's reconstruction decision: `decidedBy` (geometric | ml | human) and/or `accepted` (accept/reject a proposed fit). At least one must be supplied.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "sessionId": .object(["type": .string("string")]),
-                    "node": .object(["type": .string("string"), "description": .string("Target node as `<kind>:<index>`, e.g. `face:3`.")]),
+                    "node": .object([
+                        "type": .string("string"),
+                        "description": .string("Target node as `<kind>:<index>`, e.g. `face:3`."),
+                    ]),
                     "decidedBy": .object([
                         "type": .string("string"),
                         "enum": .array([.string("geometric"), .string("ml"), .string("human")]),
@@ -1188,13 +1457,21 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "reconstruct_force_fit",
-            description: "Override a node's fitted surface type (e.g. force `cylinder`). Records the override as an attribute for the OCCTReconstruct engine to honour on its next pass; it does not re-fit here.",
+            description:
+                "Override a node's fitted surface type (e.g. force `cylinder`). Records the override as an attribute for the OCCTReconstruct engine to honour on its next pass; it does not re-fit here.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "sessionId": .object(["type": .string("string")]),
-                    "node": .object(["type": .string("string"), "description": .string("Target node as `<kind>:<index>`.")]),
-                    "surfaceType": .object(["type": .string("string"), "description": .string("Forced surface type, e.g. plane / cylinder / cone / sphere / torus.")]),
+                    "node": .object([
+                        "type": .string("string"),
+                        "description": .string("Target node as `<kind>:<index>`."),
+                    ]),
+                    "surfaceType": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Forced surface type, e.g. plane / cylinder / cone / sphere / torus."),
+                    ]),
                 ]),
                 "required": .array([.string("sessionId"), .string("node"), .string("surfaceType")]),
                 "additionalProperties": .bool(false),
@@ -1202,7 +1479,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "reconstruct_confirm_instances",
-            description: "Confirm or reject a congruence cluster (\"these N nodes are one part definition\"). Tags every listed node with `clusterId` and the `confirmed` flag.",
+            description:
+                "Confirm or reject a congruence cluster (\"these N nodes are one part definition\"). Tags every listed node with `clusterId` and the `confirmed` flag.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1213,7 +1491,9 @@ func catalogTools() -> [Tool] {
                         "items": .object(["type": .string("string")]),
                         "description": .string("Cluster member nodes as `<kind>:<index>`."),
                     ]),
-                    "confirmed": .object(["type": .string("boolean"), "description": .string("Default true.")]),
+                    "confirmed": .object([
+                        "type": .string("boolean"), "description": .string("Default true."),
+                    ]),
                 ]),
                 "required": .array([.string("sessionId"), .string("clusterId"), .string("nodes")]),
                 "additionalProperties": .bool(false),
@@ -1221,12 +1501,15 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "reconstruct_export_session",
-            description: "Write the session's attributed graph snapshot to disk (byte-stable JSON). Defaults to <output_dir>/reconstruct/<sessionId>.session.json. Round-trips losslessly via reconstruct_import_session.",
+            description:
+                "Write the session's attributed graph snapshot to disk (byte-stable JSON). Defaults to <output_dir>/reconstruct/<sessionId>.session.json. Round-trips losslessly via reconstruct_import_session.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "sessionId": .object(["type": .string("string")]),
-                    "path": .object(["type": .string("string"), "description": .string("Optional output path.")]),
+                    "path": .object([
+                        "type": .string("string"), "description": .string("Optional output path."),
+                    ]),
                 ]),
                 "required": .array([.string("sessionId")]),
                 "additionalProperties": .bool(false),
@@ -1234,7 +1517,8 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "reconstruct_import_session",
-            description: "Reload a graph snapshot file into a session and return its state. `sessionId` defaults to the file's stem.",
+            description:
+                "Reload a graph snapshot file into a session and return its state. `sessionId` defaults to the file's stem.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1248,21 +1532,69 @@ func catalogTools() -> [Tool] {
         // ── mesh zone tools (#101/#102) ─────────────────────────────────
         Tool(
             name: "segment_mesh_zones",
-            description: "Split a body's mesh into surface zones (plane / cylinder / sphere / cone) via OCCTSwiftMesh's dihedral region-growing + primitive-fit merge. Each zone gets a stable `zone:<bodyId>#<n>` id (largest-first) plus a fitted primitive (kind, params, residual, inlier ratio), a slippage classification (kind: plane/sphere/cylinder/extrusion/revolution/helix/freeform, plus its characteristic axisPoint/axisDirection/pitch, a confidence in [0,1], and erosionSkipped (Gelfand-Guibas local slippage analysis, OCCTSwiftMesh#26/#31), and is minted into the zone registry (<output_dir>/zones.json) so a later zone_continuity_sweep can resolve it without re-segmenting. axisDirection's SIGN is arbitrary and its MEANING is kind-dependent: the surface NORMAL for plane (never a sweep direction), the rotation/screw axis for cylinder/revolution/helix, the extrude direction for extrusion, nil for sphere (no preferred axis) and freeform. confidence is a spectral-gap diagnostic, not a probability: a near-symmetric body's true eigen-spectrum has no clean separation to begin with, so it reads as low-confidence rather than confidently wrong. erosionSkipped is true when the zone was too small/thin for the boundary-vertex-erosion pass to run, so its classification includes boundary-contaminated normals and CAN be a confident, plausible, WRONG kind even at high confidence (not just a low-confidence one); treat erosionSkipped zones with suspicion regardless of the confidence number. Optionally renders a categorical per-zone PNG and/or registers each zone as its own scene body (facet-shell BREP) for downstream measurement tools.",
+            description:
+                "Split a body's mesh into surface zones (plane / cylinder / sphere / cone) via OCCTSwiftMesh's dihedral region-growing + primitive-fit merge. Each zone gets a stable `zone:<bodyId>#<n>` id (largest-first) plus a fitted primitive (kind, params, residual, inlier ratio), a slippage classification (kind: plane/sphere/cylinder/extrusion/revolution/helix/freeform, plus its characteristic axisPoint/axisDirection/pitch, a confidence in [0,1], and erosionSkipped (Gelfand-Guibas local slippage analysis, OCCTSwiftMesh#26/#31), and is minted into the zone registry (<output_dir>/zones.json) so a later zone_continuity_sweep can resolve it without re-segmenting. axisDirection's SIGN is arbitrary and its MEANING is kind-dependent: the surface NORMAL for plane (never a sweep direction), the rotation/screw axis for cylinder/revolution/helix, the extrude direction for extrusion, nil for sphere (no preferred axis) and freeform. confidence is a spectral-gap diagnostic, not a probability: a near-symmetric body's true eigen-spectrum has no clean separation to begin with, so it reads as low-confidence rather than confidently wrong. erosionSkipped is true when the zone was too small/thin for the boundary-vertex-erosion pass to run, so its classification includes boundary-contaminated normals and CAN be a confident, plausible, WRONG kind even at high confidence (not just a low-confidence one); treat erosionSkipped zones with suspicion regardless of the confidence number. Optionally renders a categorical per-zone PNG and/or registers each zone as its own scene body (facet-shell BREP) for downstream measurement tools.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
-                    "maxDihedralDegrees": .object(["type": .string("number"), "description": .string("Region-growing breaks where adjacent face normals exceed this angle. Default 20.")]),
-                    "mergeToleranceMm": .object(["type": .string("number"), "description": .string("Absolute mm merge tolerance (converted internally to a fraction of the body's bbox diagonal). Default: library default (0.4% of bbox diagonal).")]),
-                    "minRegionTriangles": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Regions smaller than this after growing + merging are dropped and counted in truncatedTriangleCount. Default 8.")]),
-                    "maxZones": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on returned zones; the largest are kept, the rest counted in truncatedTriangleCount. Default 64, tuned for simple parts. A many-featured/scanned mesh (e.g. a many-toothed gear) can leave 40%+ of the mesh uncovered at the default; if truncatedTriangleCount is non-trivial after a first call, raise this substantially (hundreds to low thousands for dense parts) rather than trusting a small default on a complex part.")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
-                    "registerZones": .object(["type": .string("boolean"), "description": .string("If true, register each zone (up to registerCap, largest-first) as its own scene body `<bodyId>_zone<n>` (facet-shell BREP via writeBREP(allowInvalid:)). Default false.")]),
-                    "registerCap": .object(["type": .string("integer"), "minimum": .int(0), "description": .string("Max zones to register as bodies when registerZones is true. Default 32.")]),
-                    "render": .object(["type": .string("boolean"), "description": .string("Render a categorical per-zone PNG with a legend. Default true.")]),
-                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_zones.png).")]),
-                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                    "maxDihedralDegrees": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Region-growing breaks where adjacent face normals exceed this angle. Default 20."
+                        ),
+                    ]),
+                    "mergeToleranceMm": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Absolute mm merge tolerance (converted internally to a fraction of the body's bbox diagonal). Default: library default (0.4% of bbox diagonal)."
+                        ),
+                    ]),
+                    "minRegionTriangles": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Regions smaller than this after growing + merging are dropped and counted in truncatedTriangleCount. Default 8."
+                        ),
+                    ]),
+                    "maxZones": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Cap on returned zones; the largest are kept, the rest counted in truncatedTriangleCount. Default 64, tuned for simple parts. A many-featured/scanned mesh (e.g. a many-toothed gear) can leave 40%+ of the mesh uncovered at the default; if truncatedTriangleCount is non-trivial after a first call, raise this substantially (hundreds to low thousands for dense parts) rather than trusting a small default on a complex part."
+                        ),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the body's bbox diagonal."),
+                    ]),
+                    "registerZones": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "If true, register each zone (up to registerCap, largest-first) as its own scene body `<bodyId>_zone<n>` (facet-shell BREP via writeBREP(allowInvalid:)). Default false."
+                        ),
+                    ]),
+                    "registerCap": .object([
+                        "type": .string("integer"), "minimum": .int(0),
+                        "description": .string(
+                            "Max zones to register as bodies when registerZones is true. Default 32."
+                        ),
+                    ]),
+                    "render": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Render a categorical per-zone PNG with a legend. Default true."),
+                    ]),
+                    "renderPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Override the default render path (<output_dir>/<bodyId>_zones.png)."),
+                    ]),
+                    "options": .object([
+                        "type": .string("object"),
+                        "description": .string(
+                            "Render options: same shape as render_preview.options (camera, width, height, background)."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -1270,22 +1602,73 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "zone_continuity_sweep",
-            description: "Per-zone (or whole-body) loftable-extent map: slices along an axis at N stations, compares each station's 2D profile against a running reference, and reports maximal within-tolerance runs (the completable/loftable extents) plus deviation intervals between them, each with world axisCoord spans and magnitudes. Pass zoneId (from segment_mesh_zones) to sweep only that zone's own triangles — slicing just the zone keeps a neighbouring feature from polluting its verdict; omit it to sweep the whole body. Axis resolution (see axisSource in the response): an explicit axis argument always wins; otherwise a zoneId-scoped sweep whose zone has a slippage classification of cylinder/extrusion/revolution/helix (never plane — its slippage axis is the surface NORMAL — and never sphere/freeform) with confidence >= 0.25 AND erosionSkipped == false defaults to that axis (axisSource \"slippage\"); anything else, including every whole-body sweep, falls back to the zone/body's principal axis via PCA (axisSource \"pca\"), with a warning naming the rejected kind/confidence when a low-confidence or erosion-skipped slippage classification was the reason (erosionSkipped means the zone was too small/thin for boundary-vertex erosion, so its kind can be a confident, plausible, WRONG classification, not merely a low-confidence one). Revolve-aware angular stationing for revolution zones is not yet implemented (#109 follow-up). Optional render (zone/body colored by nearest-station verdict: constant=blue, deviating=red, missed=grey) and per-station strip chart.",
+            description:
+                "Per-zone (or whole-body) loftable-extent map: slices along an axis at N stations, compares each station's 2D profile against a running reference, and reports maximal within-tolerance runs (the completable/loftable extents) plus deviation intervals between them, each with world axisCoord spans and magnitudes. Pass zoneId (from segment_mesh_zones) to sweep only that zone's own triangles: slicing just the zone keeps a neighbouring feature from polluting its verdict; omit it to sweep the whole body. Axis resolution (see axisSource in the response): an explicit axis argument always wins; otherwise a zoneId-scoped sweep whose zone has a slippage classification of cylinder/extrusion/revolution/helix (never plane, its slippage axis is the surface NORMAL, and never sphere/freeform) with confidence >= 0.25 AND erosionSkipped == false defaults to that axis (axisSource \"slippage\"); anything else, including every whole-body sweep, falls back to the zone/body's principal axis via PCA (axisSource \"pca\"), with a warning naming the rejected kind/confidence when a low-confidence or erosion-skipped slippage classification was the reason (erosionSkipped means the zone was too small/thin for boundary-vertex erosion, so its kind can be a confident, plausible, WRONG classification, not merely a low-confidence one). Revolve-aware angular stationing for revolution zones is not yet implemented (#109 follow-up). Optional render (zone/body colored by nearest-station verdict: constant=blue, deviating=red, missed=grey) and per-station strip chart.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
-                    "zoneId": .object(["type": .string("string"), "description": .string("A zone:<bodyId>#<n> id from segment_mesh_zones. Omit to sweep the whole body.")]),
-                    "axis": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3), "description": .string("[x,y,z] sweep axis. Default: the zone's own slippage axis when eligible (cylinder/extrusion/revolution/helix, confidence >= 0.25) and zoneId is given; otherwise the zone/body's principal axis via PCA over its triangle vertices. See axisSource in the response.")]),
-                    "stations": .object(["type": .string("integer"), "minimum": .int(2), "description": .string("Number of evenly-spaced cut planes across the zone/body's axis extent (2% end margin). Default 32.")]),
-                    "toleranceMm": .object(["type": .string("number"), "description": .string("Within-tolerance verdict threshold on profile RMS (mm). Default 0.5.")]),
-                    "lateralToleranceMm": .object(["type": .string("number"), "description": .string("Within-tolerance verdict threshold on profile centroid offset (mm). Default: same as toleranceMm.")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection for a whole-body sweep. Default 0.5% of the body's bbox diagonal. Ignored (and warned) for a zoneId-scoped sweep, which always re-meshes at the zone's own segmentation deflection so triangleIndices stay valid.")]),
-                    "render": .object(["type": .string("boolean"), "description": .string("Render the zone/body colored by nearest-station verdict. Default true.")]),
-                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path.")]),
-                    "chart": .object(["type": .string("boolean"), "description": .string("Render a per-station profileRmsMm-vs-axisCoord strip chart PNG with the tolerance line. Default false.")]),
-                    "chartPath": .object(["type": .string("string"), "description": .string("Override the default chart path.")]),
-                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options.")]),
+                    "zoneId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "A zone:<bodyId>#<n> id from segment_mesh_zones. Omit to sweep the whole body."
+                        ),
+                    ]),
+                    "axis": .object([
+                        "type": .string("array"), "items": .object(["type": .string("number")]),
+                        "minItems": .int(3), "maxItems": .int(3),
+                        "description": .string(
+                            "[x,y,z] sweep axis. Default: the zone's own slippage axis when eligible (cylinder/extrusion/revolution/helix, confidence >= 0.25) and zoneId is given; otherwise the zone/body's principal axis via PCA over its triangle vertices. See axisSource in the response."
+                        ),
+                    ]),
+                    "stations": .object([
+                        "type": .string("integer"), "minimum": .int(2),
+                        "description": .string(
+                            "Number of evenly-spaced cut planes across the zone/body's axis extent (2% end margin). Default 32."
+                        ),
+                    ]),
+                    "toleranceMm": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Within-tolerance verdict threshold on profile RMS (mm). Default 0.5."),
+                    ]),
+                    "lateralToleranceMm": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Within-tolerance verdict threshold on profile centroid offset (mm). Default: same as toleranceMm."
+                        ),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection for a whole-body sweep. Default 0.5% of the body's bbox diagonal. Ignored (and warned) for a zoneId-scoped sweep, which always re-meshes at the zone's own segmentation deflection so triangleIndices stay valid."
+                        ),
+                    ]),
+                    "render": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Render the zone/body colored by nearest-station verdict. Default true."
+                        ),
+                    ]),
+                    "renderPath": .object([
+                        "type": .string("string"),
+                        "description": .string("Override the default render path."),
+                    ]),
+                    "chart": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Render a per-station profileRmsMm-vs-axisCoord strip chart PNG with the tolerance line. Default false."
+                        ),
+                    ]),
+                    "chartPath": .object([
+                        "type": .string("string"),
+                        "description": .string("Override the default chart path."),
+                    ]),
+                    "options": .object([
+                        "type": .string("object"),
+                        "description": .string(
+                            "Render options: same shape as render_preview.options."),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -1293,22 +1676,33 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "list_zones",
-            description: "Return every zone in the zone registry (<output_dir>/zones.json), optionally filtered to one body. Cheap introspection — see what segment_mesh_zones has minted without re-segmenting.",
+            description:
+                "Return every zone in the zone registry (<output_dir>/zones.json), optionally filtered to one body. Cheap introspection: see what segment_mesh_zones has minted without re-segmenting.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "bodyId": .object(["type": .string("string"), "description": .string("Restrict to this body's zones. Omit to list every zone across all bodies.")]),
+                    "bodyId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Restrict to this body's zones. Omit to list every zone across all bodies."
+                        ),
+                    ])
                 ]),
                 "additionalProperties": .bool(false),
             ])
         ),
         Tool(
             name: "clear_zones",
-            description: "Drop zones from the zone registry and its <output_dir>/zones.json sidecar, optionally for one body only. Returns the count cleared.",
+            description:
+                "Drop zones from the zone registry and its <output_dir>/zones.json sidecar, optionally for one body only. Returns the count cleared.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "bodyId": .object(["type": .string("string"), "description": .string("Clear only this body's zones. Omit to clear every zone.")]),
+                    "bodyId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Clear only this body's zones. Omit to clear every zone."),
+                    ])
                 ]),
                 "additionalProperties": .bool(false),
             ])
@@ -1316,13 +1710,23 @@ func catalogTools() -> [Tool] {
         // ── mesh inspection (Phase 2 of the mesh-analysis expansion) ────
         Tool(
             name: "mesh_diagnose",
-            description: "Printability-check-list integrity report over a body's mesh: watertight, edge/vertex-manifold, orientable, connected components, boundary loops, Euler characteristic / genus, duplicate/degenerate triangle counts, and sliver signals (minAngleDegrees, aspectRatio). `checks[]` derives pass/warn/fail verdicts from the raw counts. IMPORTANT: self-intersection is NOT checked (an OCCTSwiftMesh limitation) — a self-intersecting closed manifold still reports isWatertight: true.",
+            description:
+                "Printability-check-list integrity report over a body's mesh: watertight, edge/vertex-manifold, orientable, connected components, boundary loops, Euler characteristic / genus, duplicate/degenerate triangle counts, and sliver signals (minAngleDegrees, aspectRatio). `checks[]` derives pass/warn/fail verdicts from the raw counts. IMPORTANT: self-intersection is NOT checked (an OCCTSwiftMesh limitation): a self-intersecting closed manifold still reports isWatertight: true.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
-                    "weldToleranceMm": .object(["type": .string("number"), "minimum": .double(0), "description": .string("Absolute mm weld tolerance used internally before computing manifoldness. Default 0 (auto: 1e-6 x the mesh's bbox diagonal).")]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the body's bbox diagonal."),
+                    ]),
+                    "weldToleranceMm": .object([
+                        "type": .string("number"), "minimum": .double(0),
+                        "description": .string(
+                            "Absolute mm weld tolerance used internally before computing manifoldness. Default 0 (auto: 1e-6 x the mesh's bbox diagonal)."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -1330,17 +1734,45 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "mesh_thickness",
-            description: "Mesh-domain wall thickness via the ray method (normal-opposite, first-hit): the complement to the BREP-only check_thickness, which degrades on facet shells (a raw STL import is one BREP face per facet). Samples up to maxSamples surface points and casts a ray from each along its inward normal against an internal triangle BVH; the first hit distance is the local thickness. Rays that exit without hitting anything (open shells) are excluded from the stats and counted in noHitSamples. Optional coneAngleDegrees averages 5 rays per sample (the SDF convention: takes the median) for a more robust estimate near edges/features.",
+            description:
+                "Mesh-domain wall thickness via the ray method (normal-opposite, first-hit): the complement to the BREP-only check_thickness, which degrades on facet shells (a raw STL import is one BREP face per facet). Samples up to maxSamples surface points and casts a ray from each along its inward normal against an internal triangle BVH; the first hit distance is the local thickness. Rays that exit without hitting anything (open shells) are excluded from the stats and counted in noHitSamples. Optional coneAngleDegrees averages 5 rays per sample (the SDF convention: takes the median) for a more robust estimate near edges/features.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
-                    "maxSamples": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on surface sample points (stride-subsampled). Default 2000.")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
-                    "thresholdMm": .object(["type": .string("number"), "minimum": .double(0), "description": .string("If set, adds a belowThreshold section reporting samples thinner than this.")]),
-                    "coneAngleDegrees": .object(["type": .string("number"), "minimum": .double(0), "maximum": .double(89), "description": .string("Half-angle of a 5-ray averaging cone (center + 4 boundary rays), median taken. 0 (default) casts a single ray.")]),
-                    "chart": .object(["type": .string("boolean"), "description": .string("Render a thicknessMm histogram PNG. Default false.")]),
-                    "chartPath": .object(["type": .string("string"), "description": .string("Override the default chart path (<output_dir>/<bodyId>_thickness.png).")]),
+                    "maxSamples": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Cap on surface sample points (stride-subsampled). Default 2000."),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the body's bbox diagonal."),
+                    ]),
+                    "thresholdMm": .object([
+                        "type": .string("number"), "minimum": .double(0),
+                        "description": .string(
+                            "If set, adds a belowThreshold section reporting samples thinner than this."
+                        ),
+                    ]),
+                    "coneAngleDegrees": .object([
+                        "type": .string("number"), "minimum": .double(0), "maximum": .double(89),
+                        "description": .string(
+                            "Half-angle of a 5-ray averaging cone (center + 4 boundary rays), median taken. 0 (default) casts a single ray."
+                        ),
+                    ]),
+                    "chart": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Render a thicknessMm histogram PNG. Default false."),
+                    ]),
+                    "chartPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Override the default chart path (<output_dir>/<bodyId>_thickness.png)."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -1348,14 +1780,28 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "detect_symmetry",
-            description: "Detect reflective (mirror-plane) symmetry: 3 candidate planes through the area-weighted centroid, normal to each PCA principal axis, verified by reflecting sampled surface points across the plane and measuring their unsigned nearest distance back to the mesh's own surface. A candidate is `symmetric` when its p95 residual is within toleranceMm. Reports all 3 candidates sorted best-first, plus bestPlane when any passes. Rotational/axis symmetry detection is deferred to a later phase — this covers mirror-plane symmetry only.",
+            description:
+                "Detect reflective (mirror-plane) symmetry: 3 candidate planes through the area-weighted centroid, normal to each PCA principal axis, verified by reflecting sampled surface points across the plane and measuring their unsigned nearest distance back to the mesh's own surface. A candidate is `symmetric` when its p95 residual is within toleranceMm. Reports all 3 candidates sorted best-first, plus bestPlane when any passes. Rotational/axis symmetry detection is deferred to a later phase; this covers mirror-plane symmetry only.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
-                    "maxSamples": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on surface sample points (stride-subsampled). Default 2000.")]),
-                    "toleranceMm": .object(["type": .string("number"), "minimum": .double(0), "description": .string("A candidate plane is symmetric when its p95 residual is within this. Default 0.5.")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
+                    "maxSamples": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Cap on surface sample points (stride-subsampled). Default 2000."),
+                    ]),
+                    "toleranceMm": .object([
+                        "type": .string("number"), "minimum": .double(0),
+                        "description": .string(
+                            "A candidate plane is symmetric when its p95 residual is within this. Default 0.5."
+                        ),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the body's bbox diagonal."),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -1363,19 +1809,65 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "align_bodies",
-            description: "GOM-style alignment: register a SOURCE body onto a REFERENCE body via point-to-plane ICP (PCA pre-align + normal-space sampling + trimmed correspondence, OCCTSwiftMesh#22/#25). `mode: \"bestFit\"` (default) runs the full pre-align + ICP pipeline; `mode: \"preAlign\"` stops after the coarse PCA/bbox stage (maxIterations forced to 0, ignored if supplied) — GOM's \"pre-align\" tier. localBestFit / 3-2-1 / RPS-datum alignment are deferred. Returns the recovered rigid transform (translation + axis-angle rotation) and residual stats; scan-vs-CAD deviation tools (measure_deviation, cross_section_compare, etc.) are meaningless before the two bodies are in a shared frame, which is what this tool establishes. KNOWN LIMITATIONS (see docs/reference/mesh-analysis.md#align_bodies): near-degenerate principal axes make the PCA pre-align orientation ambiguous (near-symmetric bodies may converge to a plausible wrong pose — watch `converged` and `residualRmsMm`); bodies with continuous symmetry about an axis (cylinders) have an unobservable rotation about that axis. `apply: true` writes the recovered transform onto the SOURCE body in place (same generation-reset history semantics as transform_body); omit or leave false to only measure.",
+            description:
+                "GOM-style alignment: register a SOURCE body onto a REFERENCE body via point-to-plane ICP (PCA pre-align + normal-space sampling + trimmed correspondence, OCCTSwiftMesh#22/#25). `mode: \"bestFit\"` (default) runs the full pre-align + ICP pipeline; `mode: \"preAlign\"` stops after the coarse PCA/bbox stage (maxIterations forced to 0, ignored if supplied); GOM's \"pre-align\" tier. localBestFit / 3-2-1 / RPS-datum alignment are deferred. Returns the recovered rigid transform (translation + axis-angle rotation) and residual stats; scan-vs-CAD deviation tools (measure_deviation, cross_section_compare, etc.) are meaningless before the two bodies are in a shared frame, which is what this tool establishes. KNOWN LIMITATIONS (see docs/reference/mesh-analysis.md#align_bodies): near-degenerate principal axes make the PCA pre-align orientation ambiguous (near-symmetric bodies may converge to a plausible wrong pose; watch `converged` and `residualRmsMm`); bodies with continuous symmetry about an axis (cylinders) have an unobservable rotation about that axis. `apply: true` writes the recovered transform onto the SOURCE body in place (same generation-reset history semantics as transform_body); omit or leave false to only measure.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "bodyId": .object(["type": .string("string"), "description": .string("The SOURCE (moving) body — the one that gets registered onto referenceBodyId.")]),
-                    "referenceBodyId": .object(["type": .string("string"), "description": .string("The REFERENCE (fixed) body bodyId is aligned onto.")]),
-                    "mode": .object(["type": .string("string"), "enum": .array([.string("bestFit"), .string("preAlign")]), "description": .string("\"bestFit\" (default): full PCA pre-align + ICP refinement. \"preAlign\": PCA/bbox coarse pose only (maxIterations forced to 0).")]),
-                    "maxSamples": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on source correspondence-search sample points (normal-space sampled). Default 2000.")]),
-                    "trimFraction": .object(["type": .string("number"), "minimum": .double(0), "description": .string("Drop the worst trimFraction of surviving correspondences by residual each iteration (trimmed ICP; robust to partial overlap). Default 0.1.")]),
-                    "correspondenceDistanceCapMm": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "description": .string("Absolute mm cap rejecting correspondences farther apart than this. Default: auto, 0.15x the reference body's bbox diagonal.")]),
-                    "maxIterations": .object(["type": .string("integer"), "minimum": .int(0), "description": .string("Max ICP refinement iterations after pre-align. Default 50. Ignored (forced to 0) when mode is \"preAlign\".")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection for BOTH bodies. Default 0.5% of the source body's bbox diagonal.")]),
-                    "apply": .object(["type": .string("boolean"), "description": .string("If true, write the recovered transform onto the source body in place (generation-reset history, same as transform_body). Default false (measure only).")]),
+                    "bodyId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "The SOURCE (moving) body: the one that gets registered onto referenceBodyId."
+                        ),
+                    ]),
+                    "referenceBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "The REFERENCE (fixed) body bodyId is aligned onto."),
+                    ]),
+                    "mode": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("bestFit"), .string("preAlign")]),
+                        "description": .string(
+                            "\"bestFit\" (default): full PCA pre-align + ICP refinement. \"preAlign\": PCA/bbox coarse pose only (maxIterations forced to 0)."
+                        ),
+                    ]),
+                    "maxSamples": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Cap on source correspondence-search sample points (normal-space sampled). Default 2000."
+                        ),
+                    ]),
+                    "trimFraction": .object([
+                        "type": .string("number"), "minimum": .double(0),
+                        "description": .string(
+                            "Drop the worst trimFraction of surviving correspondences by residual each iteration (trimmed ICP; robust to partial overlap). Default 0.1."
+                        ),
+                    ]),
+                    "correspondenceDistanceCapMm": .object([
+                        "type": .string("number"), "exclusiveMinimum": .double(0),
+                        "description": .string(
+                            "Absolute mm cap rejecting correspondences farther apart than this. Default: auto, 0.15x the reference body's bbox diagonal."
+                        ),
+                    ]),
+                    "maxIterations": .object([
+                        "type": .string("integer"), "minimum": .int(0),
+                        "description": .string(
+                            "Max ICP refinement iterations after pre-align. Default 50. Ignored (forced to 0) when mode is \"preAlign\"."
+                        ),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection for BOTH bodies. Default 0.5% of the source body's bbox diagonal."
+                        ),
+                    ]),
+                    "apply": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "If true, write the recovered transform onto the source body in place (generation-reset history, same as transform_body). Default false (measure only)."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId"), .string("referenceBodyId")]),
                 "additionalProperties": .bool(false),
@@ -1383,19 +1875,62 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "mesh_curvature",
-            description: "Per-vertex discrete curvature over a body's own mesh (Rusinkiewicz per-face tensor, OCCTSwiftMesh.Mesh.vertexCurvatures, #23/#24): principal curvatures k1 (larger magnitude, convex-positive) / k2, mean = (k1+k2)/2, gaussian = k1*k2, plus a colored render and stats. No reference body needed — Phase 3 of the mesh-analysis expansion, the single-body curvature render mode deferred from #101. UNITS: k1/k2/mean are 1/mm; gaussian is 1/mm^2 (a different unit — k1*k2). Internally welds the mesh before computing curvature (vertexCurvatures' own precondition: unwelded input degrades to zero curvature everywhere) — triangleCount/vertexCount in the response are the WELDED counts. `colorBy` picks which channel drives both the render and highCurvatureFraction; `clampPercentile` (default 0.95) clamps the diverging colormap symmetrically at that percentile of |colorBy value| (1.0 = no clamp) so a few extreme vertices (mesh edges, sharp fillets) don't wash out the map. `flatFraction` is colorBy-independent: fraction of vertices with max(|k1|,|k2|) below 0.1/bboxDiag (1/mm), an absolute model-scale flatness threshold. Warns if the internal weld demonstrably failed to merge any vertices (mesh appears unweldable), a real precondition failure distinct from a genuinely flat body reading near-zero curvature. Related upstream primitives not yet available (tracked, not implemented here): curvature-ordered segmentation seeding (OCCTSwiftMesh#29, no MCP-side tracking issue), crease-edge detection (OCCTSwiftMesh#28 / OCCTMCP#108), RANSAC primitive fitting (OCCTSwiftMesh#27 / OCCTMCP#107), slippage-based zone classification (OCCTSwiftMesh#26 / OCCTMCP#109), generalized winding number orientation (OCCTSwiftMesh#30, no MCP-side tracking issue).",
+            description:
+                "Per-vertex discrete curvature over a body's own mesh (Rusinkiewicz per-face tensor, OCCTSwiftMesh.Mesh.vertexCurvatures, #23/#24): principal curvatures k1 (larger magnitude, convex-positive) / k2, mean = (k1+k2)/2, gaussian = k1*k2, plus a colored render and stats. No reference body needed: Phase 3 of the mesh-analysis expansion, the single-body curvature render mode deferred from #101. UNITS: k1/k2/mean are 1/mm; gaussian is 1/mm^2 (a different unit, k1*k2). Internally welds the mesh before computing curvature (vertexCurvatures' own precondition: unwelded input degrades to zero curvature everywhere); triangleCount/vertexCount in the response are the WELDED counts. `colorBy` picks which channel drives both the render and highCurvatureFraction; `clampPercentile` (default 0.95) clamps the diverging colormap symmetrically at that percentile of |colorBy value| (1.0 = no clamp) so a few extreme vertices (mesh edges, sharp fillets) don't wash out the map. `flatFraction` is colorBy-independent: fraction of vertices with max(|k1|,|k2|) below 0.1/bboxDiag (1/mm), an absolute model-scale flatness threshold. Warns if the internal weld demonstrably failed to merge any vertices (mesh appears unweldable), a real precondition failure distinct from a genuinely flat body reading near-zero curvature. Related upstream primitives not yet available (tracked, not implemented here): curvature-ordered segmentation seeding (OCCTSwiftMesh#29, no MCP-side tracking issue), crease-edge detection (OCCTSwiftMesh#28 / OCCTMCP#108), RANSAC primitive fitting (OCCTSwiftMesh#27 / OCCTMCP#107), slippage-based zone classification (OCCTSwiftMesh#26 / OCCTMCP#109), generalized winding number orientation (OCCTSwiftMesh#30, no MCP-side tracking issue).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
-                    "colorBy": .object(["type": .string("string"), "enum": .array([.string("mean"), .string("gaussian"), .string("k1"), .string("maxAbs")]), "description": .string("Which channel drives the render and highCurvatureFraction. \"maxAbs\" = max(|k1|,|k2|). Default \"mean\".")]),
-                    "clampPercentile": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "maximum": .double(1), "description": .string("Colormap clamp: the p-th percentile of |colorBy value|. 1.0 = no clamp. Default 0.95.")]),
-                    "render": .object(["type": .string("boolean"), "description": .string("Render a per-triangle colored PNG with a colorbar legend. Default true.")]),
-                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_curvature.png).")]),
-                    "chart": .object(["type": .string("boolean"), "description": .string("Render a histogram PNG of the colorBy channel. Default false.")]),
-                    "chartPath": .object(["type": .string("string"), "description": .string("Override the default chart path (<output_dir>/<bodyId>_curvature_hist.png).")]),
-                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the body's bbox diagonal."),
+                    ]),
+                    "colorBy": .object([
+                        "type": .string("string"),
+                        "enum": .array([
+                            .string("mean"), .string("gaussian"), .string("k1"), .string("maxAbs"),
+                        ]),
+                        "description": .string(
+                            "Which channel drives the render and highCurvatureFraction. \"maxAbs\" = max(|k1|,|k2|). Default \"mean\"."
+                        ),
+                    ]),
+                    "clampPercentile": .object([
+                        "type": .string("number"), "exclusiveMinimum": .double(0),
+                        "maximum": .double(1),
+                        "description": .string(
+                            "Colormap clamp: the p-th percentile of |colorBy value|. 1.0 = no clamp. Default 0.95."
+                        ),
+                    ]),
+                    "render": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Render a per-triangle colored PNG with a colorbar legend. Default true."
+                        ),
+                    ]),
+                    "renderPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Override the default render path (<output_dir>/<bodyId>_curvature.png)."
+                        ),
+                    ]),
+                    "chart": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Render a histogram PNG of the colorBy channel. Default false."),
+                    ]),
+                    "chartPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Override the default chart path (<output_dir>/<bodyId>_curvature_hist.png)."
+                        ),
+                    ]),
+                    "options": .object([
+                        "type": .string("object"),
+                        "description": .string(
+                            "Render options: same shape as render_preview.options (camera, width, height, background)."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -1403,20 +1938,66 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "fit_primitives",
-            description: "RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style global-inlier extraction (OCCTSwiftMesh.Mesh.segmentedRANSAC/segmentedAutoSelect, OCCTSwiftMesh#27/#32). Distinct from segment_mesh_zones' per-region fits: RANSAC claims GLOBAL inliers, so ONE primitive can span regions the dihedral grower keeps separate (e.g. a cylinder interrupted by a boss) — the reverse-engineering question zone fits can't answer. Pass zoneId (from segment_mesh_zones) to fit only that zone's own triangles (re-meshed at the zone's own stored deflection); omit it to fit the whole body. `strategy: \"ransac\"` (default) always uses RANSAC; `strategy: \"auto\"` runs segmentedAutoSelect's dihedral-vs-RANSAC bake-off and reports which won plus both scores (strategyScores). Deterministic: repeat calls with identical arguments against an unchanged mesh/zone return byte-identical primitive tables. `uncoveredFraction` is the fraction of triangles NO primitive ever claimed, computed BEFORE any maxPrimitives cap; a maxPrimitives cap is applied afterward and reported as a SEPARATE warning naming its own triangle count, never folded into uncoveredFraction. Optional categorical per-primitive PNG render (largest-support-first coloring, same band-group + legend machinery as segment_mesh_zones).",
+            description:
+                "RANSAC primitive report over a body's (or one zone's) mesh: Schnabel-style global-inlier extraction (OCCTSwiftMesh.Mesh.segmentedRANSAC/segmentedAutoSelect, OCCTSwiftMesh#27/#32). Distinct from segment_mesh_zones' per-region fits: RANSAC claims GLOBAL inliers, so ONE primitive can span regions the dihedral grower keeps separate (e.g. a cylinder interrupted by a boss): the reverse-engineering question zone fits can't answer. Pass zoneId (from segment_mesh_zones) to fit only that zone's own triangles (re-meshed at the zone's own stored deflection); omit it to fit the whole body. `strategy: \"ransac\"` (default) always uses RANSAC; `strategy: \"auto\"` runs segmentedAutoSelect's dihedral-vs-RANSAC bake-off and reports which won plus both scores (strategyScores). Deterministic: repeat calls with identical arguments against an unchanged mesh/zone return byte-identical primitive tables. `uncoveredFraction` is the fraction of triangles NO primitive ever claimed, computed BEFORE any maxPrimitives cap; a maxPrimitives cap is applied afterward and reported as a SEPARATE warning naming its own triangle count, never folded into uncoveredFraction. Optional categorical per-primitive PNG render (largest-support-first coloring, same band-group + legend machinery as segment_mesh_zones).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
-                    "zoneId": .object(["type": .string("string"), "description": .string("A zone:<bodyId>#<n> id from segment_mesh_zones, scoping the fit to just that zone's own triangles (re-meshed at the zone's own stored deflection so triangleIndices stay valid). Omit to fit the whole body.")]),
-                    "strategy": .object(["type": .string("string"), "enum": .array([.string("ransac"), .string("auto")]), "description": .string("\"ransac\" (default): Schnabel-style global-inlier RANSAC extraction only. \"auto\": runs segmentedAutoSelect's dihedral-vs-RANSAC substantial-clean-coverage bake-off and reports which strategy won (strategyScores).")]),
-                    "inlierEpsilonMm": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "description": .string("Absolute mm point-to-primitive distance for a triangle to count as an inlier of a candidate. Default: library auto (0.5% of the fitted mesh's bbox diagonal).")]),
-                    "minSupportTriangles": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Minimum inlier-cluster triangle count for a candidate primitive to be accepted; smaller clusters are left unclaimed. Default: library default (30). For strategy \"auto\", also sets the dihedral bake-off candidate's minRegionTriangles, so both strategies are compared on a consistent floor.")]),
-                    "maxPrimitives": .object(["type": .string("integer"), "minimum": .int(0), "description": .string("Cap on returned primitives (largest-support-first kept). Triangles in the dropped primitives are named in a warning with their own count, kept separate from uncoveredFraction (which reflects only triangles no primitive ever claimed, at any cap).")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection for a whole-body fit. Default 0.5% of the body's bbox diagonal. Ignored (and warned) for a zoneId-scoped fit, which always re-meshes at the zone's own segmentation deflection.")]),
-                    "render": .object(["type": .string("boolean"), "description": .string("Render a categorical per-primitive PNG with a legend. Default true.")]),
-                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_primitives.png).")]),
-                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                    "zoneId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "A zone:<bodyId>#<n> id from segment_mesh_zones, scoping the fit to just that zone's own triangles (re-meshed at the zone's own stored deflection so triangleIndices stay valid). Omit to fit the whole body."
+                        ),
+                    ]),
+                    "strategy": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("ransac"), .string("auto")]),
+                        "description": .string(
+                            "\"ransac\" (default): Schnabel-style global-inlier RANSAC extraction only. \"auto\": runs segmentedAutoSelect's dihedral-vs-RANSAC substantial-clean-coverage bake-off and reports which strategy won (strategyScores)."
+                        ),
+                    ]),
+                    "inlierEpsilonMm": .object([
+                        "type": .string("number"), "exclusiveMinimum": .double(0),
+                        "description": .string(
+                            "Absolute mm point-to-primitive distance for a triangle to count as an inlier of a candidate. Default: library auto (0.5% of the fitted mesh's bbox diagonal)."
+                        ),
+                    ]),
+                    "minSupportTriangles": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Minimum inlier-cluster triangle count for a candidate primitive to be accepted; smaller clusters are left unclaimed. Default: library default (30). For strategy \"auto\", also sets the dihedral bake-off candidate's minRegionTriangles, so both strategies are compared on a consistent floor."
+                        ),
+                    ]),
+                    "maxPrimitives": .object([
+                        "type": .string("integer"), "minimum": .int(0),
+                        "description": .string(
+                            "Cap on returned primitives (largest-support-first kept). Triangles in the dropped primitives are named in a warning with their own count, kept separate from uncoveredFraction (which reflects only triangles no primitive ever claimed, at any cap)."
+                        ),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection for a whole-body fit. Default 0.5% of the body's bbox diagonal. Ignored (and warned) for a zoneId-scoped fit, which always re-meshes at the zone's own segmentation deflection."
+                        ),
+                    ]),
+                    "render": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Render a categorical per-primitive PNG with a legend. Default true."),
+                    ]),
+                    "renderPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Override the default render path (<output_dir>/<bodyId>_primitives.png)."
+                        ),
+                    ]),
+                    "options": .object([
+                        "type": .string("object"),
+                        "description": .string(
+                            "Render options: same shape as render_preview.options (camera, width, height, background)."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -1424,18 +2005,54 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "detect_mesh_features",
-            description: "Crease-ring feature outlines (doors, panels, window returns, recesses) on a raw scan mesh via dihedral-fold-edge detection (OCCTSwiftMesh.Mesh.creaseEdges, OCCTSwiftMesh#28), for meshes where recognize_features (BREP/AAG) cannot operate at all — a scanned/STL body has no B-rep face/edge structure to recognize features against. Meshes the body, welds it (MANDATORY precondition: on unwelded input every edge is a boundary edge and the dihedral angle is undefined, so zero creases are ever found regardless of the body's actual geometry), then chains dihedral-fold edges exceeding minAngleDegrees into closed rings (e.g. a door outline) and open paths (a crease running off an open mesh boundary), largest-first. Y/T junctions where 3+ creases meet split cleanly into separate rings/paths rather than being wandered through arbitrarily; leftover edges that couldn't be chained are counted in unchainedCreaseEdgeCount, never dropped. When segment_mesh_zones has already been run for this body (same mesh state, verified by signature), each ring reports containingZones: the zone id(s) whose triangles are incident to the ring's own vertices, majority first — omitted with a warning if the zone table is stale or the internal weld guard failed, omitted silently (no warning) if no zones are registered for this body at all. Pass includePoints:true (#120) to also return each ring/path's ordered world-coordinate vertex polyline, not just its statistics; edge-level verification (comparing a built solid's edges against the mesh's own crease lines) needs the ordered chain itself. Optional render: the body surface as a neutral translucent grey mesh, plus each ring as its own categorically-colored wireframe overlay with a legend. maxRings' default of 64 is tuned for simple parts; dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths, and truncation at the default can make the reported closed/open ring split look unrepresentative; raise maxRings substantially for coverage-style analysis and check the truncation warning.",
+            description:
+                "Crease-ring feature outlines (doors, panels, window returns, recesses) on a raw scan mesh via dihedral-fold-edge detection (OCCTSwiftMesh.Mesh.creaseEdges, OCCTSwiftMesh#28), for meshes where recognize_features (BREP/AAG) cannot operate at all: a scanned/STL body has no B-rep face/edge structure to recognize features against. Meshes the body, welds it (MANDATORY precondition: on unwelded input every edge is a boundary edge and the dihedral angle is undefined, so zero creases are ever found regardless of the body's actual geometry), then chains dihedral-fold edges exceeding minAngleDegrees into closed rings (e.g. a door outline) and open paths (a crease running off an open mesh boundary), largest-first. Y/T junctions where 3+ creases meet split cleanly into separate rings/paths rather than being wandered through arbitrarily; leftover edges that couldn't be chained are counted in unchainedCreaseEdgeCount, never dropped. When segment_mesh_zones has already been run for this body (same mesh state, verified by signature), each ring reports containingZones: the zone id(s) whose triangles are incident to the ring's own vertices, majority first: omitted with a warning if the zone table is stale or the internal weld guard failed, omitted silently (no warning) if no zones are registered for this body at all. Pass includePoints:true (#120) to also return each ring/path's ordered world-coordinate vertex polyline, not just its statistics; edge-level verification (comparing a built solid's edges against the mesh's own crease lines) needs the ordered chain itself. Optional render: the body surface as a neutral translucent grey mesh, plus each ring as its own categorically-colored wireframe overlay with a legend. maxRings' default of 64 is tuned for simple parts; dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths, and truncation at the default can make the reported closed/open ring split look unrepresentative; raise maxRings substantially for coverage-style analysis and check the truncation warning.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "bodyId": .object(["type": .string("string")]),
-                    "minAngleDegrees": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "maximum": .double(180), "description": .string("Dihedral fold-angle threshold in degrees; an edge whose two triangles' normals differ by at least this much is a crease. Default 30.")]),
-                    "maxRings": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on returned rings/paths; the largest (by length) are kept, the rest counted in a warning. Default 64, tuned for simple parts. Dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths: measured truncation of 70-99% at the default on such fixtures, which can also make the reported closed/open split look unrepresentative (all-open in the visible top-N while real closed boundaries sit further down the list). If the truncation warning fires, raise this substantially for coverage-style analysis.")]),
-                    "deflection": .object(["type": .string("number"), "description": .string("Mesh linear deflection. Default 0.5% of the body's bbox diagonal.")]),
-                    "includePoints": .object(["type": .string("boolean"), "description": .string("Include each ring/path's ordered world-coordinate vertex polyline (#120). Default false; ring statistics only.")]),
-                    "render": .object(["type": .string("boolean"), "description": .string("Render the body with each ring overlaid as a categorically-colored wireframe, with a legend. Default true.")]),
-                    "renderPath": .object(["type": .string("string"), "description": .string("Override the default render path (<output_dir>/<bodyId>_features.png).")]),
-                    "options": .object(["type": .string("object"), "description": .string("Render options — same shape as render_preview.options (camera, width, height, background).")]),
+                    "minAngleDegrees": .object([
+                        "type": .string("number"), "exclusiveMinimum": .double(0),
+                        "maximum": .double(180),
+                        "description": .string(
+                            "Dihedral fold-angle threshold in degrees; an edge whose two triangles' normals differ by at least this much is a crease. Default 30."
+                        ),
+                    ]),
+                    "maxRings": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Cap on returned rings/paths; the largest (by length) are kept, the rest counted in a warning. Default 64, tuned for simple parts. Dense feature parts (many-toothed gears, grilles, frame members) commonly produce hundreds of rings/paths: measured truncation of 70-99% at the default on such fixtures, which can also make the reported closed/open split look unrepresentative (all-open in the visible top-N while real closed boundaries sit further down the list). If the truncation warning fires, raise this substantially for coverage-style analysis."
+                        ),
+                    ]),
+                    "deflection": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "Mesh linear deflection. Default 0.5% of the body's bbox diagonal."),
+                    ]),
+                    "includePoints": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Include each ring/path's ordered world-coordinate vertex polyline (#120). Default false; ring statistics only."
+                        ),
+                    ]),
+                    "render": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Render the body with each ring overlaid as a categorically-colored wireframe, with a legend. Default true."
+                        ),
+                    ]),
+                    "renderPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Override the default render path (<output_dir>/<bodyId>_features.png)."
+                        ),
+                    ]),
+                    "options": .object([
+                        "type": .string("object"),
+                        "description": .string(
+                            "Render options: same shape as render_preview.options (camera, width, height, background)."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("bodyId")]),
                 "additionalProperties": .bool(false),
@@ -1443,15 +2060,40 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "measure_vertex_fit",
-            description: "Exact per-vertex distance table from fromBodyId's own vertices to toBodyId's real BRep geometry (#118): the vertex-fit instrument measure_distance (body-to-body, capped at 32 pairs, 0 for overlapping bodies), measure_deviation (mesh-to-mesh, approximate, no raw per-vertex table), and find_correspondences (only matches toBodyId's topological vertices, a handful on a typical solid) don't provide. Every scene body is stored as BRep (an STL import is a facet shell, one planar face per triangle), so fromBodyId's own Shape.vertices() ARE its mesh corner points; each is measured via exact BRepExtrema (Shape.vertex(at:).distance(to:)) against toBodyId, with the nearest entity KIND (vertex/edge/face) classified via distanceSolutionDetail. Entity index isn't resolved (would multiply the per-vertex cost by toBodyId's face/edge count for a 'nice to have'). Response is mean/rms/max/p95 plus a worst-N table (largest-first, default 20); pass includeAllVertices:true for the full per-vertex table instead.",
+            description:
+                "Exact per-vertex distance table from fromBodyId's own vertices to toBodyId's real BRep geometry (#118): the vertex-fit instrument measure_distance (body-to-body, capped at 32 pairs, 0 for overlapping bodies), measure_deviation (mesh-to-mesh, approximate, no raw per-vertex table), and find_correspondences (only matches toBodyId's topological vertices, a handful on a typical solid) don't provide. Every scene body is stored as BRep (an STL import is a facet shell, one planar face per triangle), so fromBodyId's own Shape.vertices() ARE its mesh corner points; each is measured via exact BRepExtrema (Shape.vertex(at:).distance(to:)) against toBodyId, with the nearest entity KIND (vertex/edge/face) classified via distanceSolutionDetail. Entity index isn't resolved (would multiply the per-vertex cost by toBodyId's face/edge count for a 'nice to have'). Response is mean/rms/max/p95 plus a worst-N table (largest-first, default 20); pass includeAllVertices:true for the full per-vertex table instead.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "fromBodyId": .object(["type": .string("string"), "description": .string("Body whose OWN vertices are measured (typically a mesh/STL import).")]),
-                    "toBodyId": .object(["type": .string("string"), "description": .string("Body each vertex is measured against (typically a BRep solid, e.g. a reconstruction).")]),
-                    "maxVertices": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("Cap on vertices measured (stride-subsampled if fromBodyId has more). Default 2000.")]),
-                    "worstN": .object(["type": .string("integer"), "minimum": .int(0), "description": .string("Worst-N vertices (by distance, largest-first) included in the response. Default 20.")]),
-                    "includeAllVertices": .object(["type": .string("boolean"), "description": .string("Return every sampled vertex's entry, not just the worst-N. Default false.")]),
+                    "fromBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Body whose OWN vertices are measured (typically a mesh/STL import)."),
+                    ]),
+                    "toBodyId": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Body each vertex is measured against (typically a BRep solid, e.g. a reconstruction)."
+                        ),
+                    ]),
+                    "maxVertices": .object([
+                        "type": .string("integer"), "minimum": .int(1),
+                        "description": .string(
+                            "Cap on vertices measured (stride-subsampled if fromBodyId has more). Default 2000."
+                        ),
+                    ]),
+                    "worstN": .object([
+                        "type": .string("integer"), "minimum": .int(0),
+                        "description": .string(
+                            "Worst-N vertices (by distance, largest-first) included in the response. Default 20."
+                        ),
+                    ]),
+                    "includeAllVertices": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Return every sampled vertex's entry, not just the worst-N. Default false."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("fromBodyId"), .string("toBodyId")]),
                 "additionalProperties": .bool(false),
@@ -1459,19 +2101,35 @@ func catalogTools() -> [Tool] {
         ),
         Tool(
             name: "fit_edge_chain",
-            description: "Segments an ordered 3D point chain into line and circular-arc runs (#121): per-segment kind, endpoints, unit direction (line) or center/radius/axis/startAngle/endAngle (arc), and fit residuals. A raw STL has no curved edges by construction: an arc exists on the mesh only as a fit over a chain of straight facet edges. fit_primitives/segment_mesh_zones RANSAC-fit SURFACES; nothing upstream fits a circle/arc to an edge chain, which is the gap this closes. The natural source for `points` is detect_mesh_features(includePoints:true)'s per-ring polyline (#120), but any ordered chain works; this tool has no OCCT dependency. Greedy maximal-run segmentation: a window grows while either a line or an arc fits every point within toleranceMm, preferring line (the simpler model) unless the arc fits meaningfully better, so a multi-radius chain (the failure mode a single-circle-only fit collapses into one wrong radius) breaks into separate segments as soon as the current arc's radius stops explaining the next point. closed:true is not yet segmented across the wrap; see the response warnings.",
+            description:
+                "Segments an ordered 3D point chain into line and circular-arc runs (#121): per-segment kind, endpoints, unit direction (line) or center/radius/axis/startAngle/endAngle (arc), and fit residuals. A raw STL has no curved edges by construction: an arc exists on the mesh only as a fit over a chain of straight facet edges. fit_primitives/segment_mesh_zones RANSAC-fit SURFACES; nothing upstream fits a circle/arc to an edge chain, which is the gap this closes. The natural source for `points` is detect_mesh_features(includePoints:true)'s per-ring polyline (#120), but any ordered chain works; this tool has no OCCT dependency. Greedy maximal-run segmentation: a window grows while either a line or an arc fits every point within toleranceMm, preferring line (the simpler model) unless the arc fits meaningfully better, so a multi-radius chain (the failure mode a single-circle-only fit collapses into one wrong radius) breaks into separate segments as soon as the current arc's radius stops explaining the next point. closed:true is not yet segmented across the wrap; see the response warnings.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "points": .object([
                         "type": .string("array"),
-                        "items": .object(["type": .string("array"), "items": .object(["type": .string("number")]), "minItems": .int(3), "maxItems": .int(3)]),
+                        "items": .object([
+                            "type": .string("array"), "items": .object(["type": .string("number")]),
+                            "minItems": .int(3), "maxItems": .int(3),
+                        ]),
                         "minItems": .int(2),
                         "maxItems": .int(2000),
-                        "description": .string("Ordered chain of [x,y,z] world points, e.g. from detect_mesh_features's includePoints:true. Capped at 2000 (segmentation cost grows quadratically with a single unbroken run's length); downsample longer chains first."),
+                        "description": .string(
+                            "Ordered chain of [x,y,z] world points, e.g. from detect_mesh_features's includePoints:true. Capped at 2000 (segmentation cost grows quadratically with a single unbroken run's length); downsample longer chains first."
+                        ),
                     ]),
-                    "closed": .object(["type": .string("boolean"), "description": .string("Whether the chain wraps (last point connects back to first). Not yet segmented across the wrap; see the response warnings. Default false.")]),
-                    "toleranceMm": .object(["type": .string("number"), "exclusiveMinimum": .double(0), "description": .string("Max per-point fit residual (model units) for a segment to stay a single line/arc. Default 0.5% of the chain's own bbox diagonal.")]),
+                    "closed": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Whether the chain wraps (last point connects back to first). Not yet segmented across the wrap; see the response warnings. Default false."
+                        ),
+                    ]),
+                    "toleranceMm": .object([
+                        "type": .string("number"), "exclusiveMinimum": .double(0),
+                        "description": .string(
+                            "Max per-point fit residual (model units) for a segment to stay a single line/arc. Default 0.5% of the chain's own bbox diagonal."
+                        ),
+                    ]),
                 ]),
                 "required": .array([.string("points")]),
                 "additionalProperties": .bool(false),
@@ -1493,19 +2151,19 @@ func paramsToAnyCodable(_ value: Value?) -> [String: AnyCodable] {
 }
 func toAnyCodable(_ value: Value) -> AnyCodable {
     switch value {
-    case .bool(let v):    return .bool(v)
-    case .int(let v):     return .number(Double(v))
-    case .double(let v):  return .number(v)
-    case .string(let v):  return .string(v)
+    case .bool(let v): return .bool(v)
+    case .int(let v): return .number(Double(v))
+    case .double(let v): return .number(v)
+    case .string(let v): return .string(v)
     case .array(let arr): return .array(arr.map(toAnyCodable))
-    case .object(let o):  return .object(o.mapValues(toAnyCodable))
-    case .null:           return .null
-    case .data:           return .null  // base64 blobs not used by annotations params
-    @unknown default:     return .null
+    case .object(let o): return .object(o.mapValues(toAnyCodable))
+    case .null: return .null
+    case .data: return .null  // base64 blobs not used by annotations params
+    @unknown default: return .null
     }
 }
 
-/// `.robust` unless the caller explicitly asks for `"nearest"` — an unparseable
+/// `.robust` unless the caller explicitly asks for `"nearest"`: an unparseable
 /// or absent value gets the mode that can't invert a sign silently (#72).
 func parseSignMode(_ value: Value?) -> DeviationTools.SignMode {
     guard let raw = value?.stringValue, let mode = DeviationTools.SignMode(rawValue: raw) else {
@@ -1522,7 +2180,8 @@ func parseRenderOptions(_ value: Value?) -> RenderPreviewTool.Options {
     }
     func vec3(_ key: String) -> SIMD3<Float>? {
         guard let arr = o[key]?.arrayValue, arr.count == 3,
-              let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue else { return nil }
+            let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+        else { return nil }
         return SIMD3(Float(x), Float(y), Float(z))
     }
     opts.cameraPosition = vec3("cameraPosition")
@@ -1535,10 +2194,10 @@ func parseRenderOptions(_ value: Value?) -> RenderPreviewTool.Options {
     }
     if let s = o["background"]?.stringValue {
         switch s {
-        case "light":        opts.background = .light
-        case "dark":         opts.background = .dark
-        case "transparent":  opts.background = .transparent
-        default:             opts.background = .hex(s)
+        case "light": opts.background = .light
+        case "dark": opts.background = .dark
+        case "transparent": opts.background = .transparent
+        default: opts.background = .hex(s)
         }
     }
     if let b = o["renderAnnotations"]?.boolValue {
@@ -1554,7 +2213,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "show_bounding_box":
         guard let bodyId = arguments["bodyId"]?.stringValue else {
-            return ToolText("show_bounding_box requires `bodyId`.", isError: true).asCallToolResult()
+            return ToolText("show_bounding_box requires `bodyId`.", isError: true)
+                .asCallToolResult()
         }
         return await GapFillerTools.showBoundingBox(
             bodyId: bodyId,
@@ -1567,14 +2227,16 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "select_by_feature":
         guard let bodyId = arguments["bodyId"]?.stringValue else {
-            return ToolText("select_by_feature requires `bodyId`.", isError: true).asCallToolResult()
+            return ToolText("select_by_feature requires `bodyId`.", isError: true)
+                .asCallToolResult()
         }
         let kinds = arguments["kinds"]?.arrayValue?.compactMap { $0.stringValue }
         return await GapFillerTools.selectByFeature(bodyId: bodyId, kinds: kinds).asCallToolResult()
 
     case "add_dimension":
         guard let kindStr = arguments["kind"]?.stringValue,
-              let kind = AnnotationsTools.DimensionKind(rawValue: kindStr) else {
+            let kind = AnnotationsTools.DimensionKind(rawValue: kindStr)
+        else {
             return ToolText("add_dimension requires `kind`.", isError: true).asCallToolResult()
         }
         var anchors: [String: String] = [:]
@@ -1593,8 +2255,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "add_scene_primitive":
         guard let kindStr = arguments["kind"]?.stringValue,
-              let kind = AnnotationsTools.PrimitiveKind(rawValue: kindStr) else {
-            return ToolText("add_scene_primitive requires `kind`.", isError: true).asCallToolResult()
+            let kind = AnnotationsTools.PrimitiveKind(rawValue: kindStr)
+        else {
+            return ToolText("add_scene_primitive requires `kind`.", isError: true)
+                .asCallToolResult()
         }
         let params = paramsToAnyCodable(arguments["params"])
         return await AnnotationsTools.addScenePrimitive(
@@ -1604,13 +2268,17 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "remove_scene_annotation":
         guard let id = arguments["id"]?.stringValue else {
-            return ToolText("remove_scene_annotation requires `id`.", isError: true).asCallToolResult()
+            return ToolText("remove_scene_annotation requires `id`.", isError: true)
+                .asCallToolResult()
         }
         return await AnnotationsTools.removeSceneAnnotation(id: id).asCallToolResult()
 
     case "remap_selection":
-        guard let ids = arguments["selectionIds"]?.arrayValue?.compactMap({ $0.stringValue }), !ids.isEmpty else {
-            return ToolText("remap_selection requires `selectionIds` array.", isError: true).asCallToolResult()
+        guard let ids = arguments["selectionIds"]?.arrayValue?.compactMap({ $0.stringValue }),
+            !ids.isEmpty
+        else {
+            return ToolText("remap_selection requires `selectionIds` array.", isError: true)
+                .asCallToolResult()
         }
         let tol = arguments["toleranceMmFraction"]?.numberValue ?? 0.01
         return await RemapTools.remapSelection(
@@ -1618,20 +2286,26 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         ).asCallToolResult()
 
     case "find_correspondences":
-        guard let ids = arguments["sourceSelectionIds"]?.arrayValue?.compactMap({ $0.stringValue }), !ids.isEmpty else {
-            return ToolText("find_correspondences requires `sourceSelectionIds` array.", isError: true).asCallToolResult()
+        guard let ids = arguments["sourceSelectionIds"]?.arrayValue?.compactMap({ $0.stringValue }),
+            !ids.isEmpty
+        else {
+            return ToolText(
+                "find_correspondences requires `sourceSelectionIds` array.", isError: true
+            ).asCallToolResult()
         }
         guard let targetId = arguments["targetBodyId"]?.stringValue else {
-            return ToolText("find_correspondences requires `targetBodyId`.", isError: true).asCallToolResult()
+            return ToolText("find_correspondences requires `targetBodyId`.", isError: true)
+                .asCallToolResult()
         }
-        // transform is now optional — find_correspondences falls back
+        // transform is now optional: find_correspondences falls back
         // to provenance metadata (mirror_or_pattern emits this) and
         // then bbox-translation inference when omitted.
         var transform: CorrespondenceTools.TransformHint?
         if let transformValue = arguments["transform"] {
             do {
                 let data = try JSONEncoder().encode(transformValue)
-                transform = try JSONDecoder().decode(CorrespondenceTools.TransformHint.self, from: data)
+                transform = try JSONDecoder().decode(
+                    CorrespondenceTools.TransformHint.self, from: data)
             } catch {
                 return ToolText(
                     "transform parse failed: \(error.localizedDescription)",
@@ -1667,8 +2341,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "select_topology":
         guard let bodyId = arguments["bodyId"]?.stringValue,
-              let kind = arguments["kind"]?.stringValue else {
-            return ToolText("select_topology requires `bodyId` and `kind`.", isError: true).asCallToolResult()
+            let kind = arguments["kind"]?.stringValue
+        else {
+            return ToolText("select_topology requires `bodyId` and `kind`.", isError: true)
+                .asCallToolResult()
         }
         var filter = SelectionTools.Filter()
         if case .object(let f)? = arguments["filter"] {
@@ -1679,7 +2355,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             filter.minLength = f["minLength"]?.doubleValue
             filter.maxLength = f["maxLength"]?.doubleValue
             if let arr = f["normalDirection"]?.arrayValue, arr.count == 3,
-               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+                let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+            {
                 filter.normalDirection = SIMD3(x, y, z)
             }
             filter.normalTolerance = f["normalTolerance"]?.doubleValue
@@ -1691,10 +2368,14 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "set_assembly_metadata":
         guard let inputPath = arguments["inputPath"]?.stringValue,
-              let outputPath = arguments["outputPath"]?.stringValue else {
-            return ToolText("set_assembly_metadata requires `inputPath` and `outputPath`.", isError: true).asCallToolResult()
+            let outputPath = arguments["outputPath"]?.stringValue
+        else {
+            return ToolText(
+                "set_assembly_metadata requires `inputPath` and `outputPath`.", isError: true
+            ).asCallToolResult()
         }
-        let scope: AssemblyTools.MetadataScope = (arguments["scope"]?.stringValue)
+        let scope: AssemblyTools.MetadataScope =
+            (arguments["scope"]?.stringValue)
             .flatMap(AssemblyTools.MetadataScope.init(rawValue:)) ?? .document
         let componentId: Int64? = arguments["componentId"]?.intValue.map(Int64.init)
         var meta = AssemblyTools.AssemblyMetadata()
@@ -1725,7 +2406,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         }
         let density: EngineeringTools.SamplingDensity =
             (arguments["samplingDensity"]?.stringValue)
-                .flatMap(EngineeringTools.SamplingDensity.init(rawValue:)) ?? .medium
+            .flatMap(EngineeringTools.SamplingDensity.init(rawValue:)) ?? .medium
         return await EngineeringTools.checkThickness(
             bodyId: bodyId,
             minAcceptable: arguments["minAcceptable"]?.doubleValue,
@@ -1734,7 +2415,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "render_preview":
         guard let outputPath = arguments["outputPath"]?.stringValue else {
-            return ToolText("render_preview requires `outputPath`.", isError: true).asCallToolResult()
+            return ToolText("render_preview requires `outputPath`.", isError: true)
+                .asCallToolResult()
         }
         let ids = arguments["bodyIds"]?.arrayValue?.compactMap { $0.stringValue }
         let opts = parseRenderOptions(arguments["options"])
@@ -1746,8 +2428,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         // numberValue (not doubleValue): an integer pixel like 200 round-trips
         // through JSON to Value.int, and doubleValue returns nil for .int.
         guard let sx = arguments["screenX"]?.numberValue,
-              let sy = arguments["screenY"]?.numberValue else {
-            return ToolText("pick_surface_point requires `screenX` and `screenY`.", isError: true).asCallToolResult()
+            let sy = arguments["screenY"]?.numberValue
+        else {
+            return ToolText("pick_surface_point requires `screenX` and `screenY`.", isError: true)
+                .asCallToolResult()
         }
         return await RayPickTool.pickSurfacePoint(
             screenX: sx,
@@ -1767,8 +2451,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "apply_feature":
         guard let bodyId = arguments["bodyId"]?.stringValue,
-              let feature = arguments["feature"] else {
-            return ToolText("apply_feature requires `bodyId` and `feature`.", isError: true).asCallToolResult()
+            let feature = arguments["feature"]
+        else {
+            return ToolText("apply_feature requires `bodyId` and `feature`.", isError: true)
+                .asCallToolResult()
         }
         return await FeatureTools.applyFeature(
             bodyId: bodyId,
@@ -1785,14 +2471,19 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "generate_drawing":
         guard let outputPath = arguments["outputPath"]?.stringValue,
-              let spec = arguments["spec"] else {
-            return ToolText("generate_drawing requires `outputPath` and `spec`.", isError: true).asCallToolResult()
+            let spec = arguments["spec"]
+        else {
+            return ToolText("generate_drawing requires `outputPath` and `spec`.", isError: true)
+                .asCallToolResult()
         }
         // Accept either a single `bodyId` or a `bodyIds` array (general-arrangement).
-        let ids = arguments["bodyIds"]?.arrayValue?.compactMap { $0.stringValue }
+        let ids =
+            arguments["bodyIds"]?.arrayValue?.compactMap { $0.stringValue }
             ?? arguments["bodyId"]?.stringValue.map { [$0] }
         guard let bodyIds = ids, !bodyIds.isEmpty else {
-            return ToolText("generate_drawing requires `bodyId` or a non-empty `bodyIds`.", isError: true).asCallToolResult()
+            return ToolText(
+                "generate_drawing requires `bodyId` or a non-empty `bodyIds`.", isError: true
+            ).asCallToolResult()
         }
         return await DrawingTools.generateDrawing(
             bodyIds: bodyIds, outputPath: outputPath, spec: spec
@@ -1805,14 +2496,15 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let payload = ToolCatalog(tools: catalogTools(), count: catalogTools().count)
             if let data = try? encoder.encode(payload),
-               let str = String(data: data, encoding: .utf8) {
+                let str = String(data: data, encoding: .utf8)
+            {
                 return ToolText(str).asCallToolResult()
             }
             return ToolText("Failed to encode tool catalog.", isError: true).asCallToolResult()
         }
         return ToolText(
-            "OCCTSwift API documentation lives at https://github.com/gsdali/OCCTSwift — browse the public func declarations there. " +
-                "Pass category=\"mcp_tools\" to get this server's live tool catalog as JSON."
+            "OCCTSwift API documentation lives at https://github.com/gsdali/OCCTSwift; browse the public func declarations there. "
+                + "Pass category=\"mcp_tools\" to get this server's live tool catalog as JSON."
         ).asCallToolResult()
 
     case "get_scene":
@@ -1831,14 +2523,19 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "recognize_features":
         guard let bodyId = arguments["bodyId"]?.stringValue else {
-            return ToolText("recognize_features requires `bodyId`.", isError: true).asCallToolResult()
+            return ToolText("recognize_features requires `bodyId`.", isError: true)
+                .asCallToolResult()
         }
         let kinds = arguments["kinds"]?.arrayValue?.compactMap { $0.stringValue }
-        return await AnalysisTools.recognizeFeatures(bodyId: bodyId, kinds: kinds).asCallToolResult()
+        return await AnalysisTools.recognizeFeatures(bodyId: bodyId, kinds: kinds)
+            .asCallToolResult()
 
     case "analyze_clearance":
-        guard let ids = arguments["bodyIds"]?.arrayValue?.compactMap({ $0.stringValue }), !ids.isEmpty else {
-            return ToolText("analyze_clearance requires `bodyIds` array.", isError: true).asCallToolResult()
+        guard let ids = arguments["bodyIds"]?.arrayValue?.compactMap({ $0.stringValue }),
+            !ids.isEmpty
+        else {
+            return ToolText("analyze_clearance requires `bodyIds` array.", isError: true)
+                .asCallToolResult()
         }
         return await AnalysisTools.analyzeClearance(
             bodyIds: ids,
@@ -1847,34 +2544,42 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "graph_validate":
         guard let path = arguments["brep_path"]?.stringValue else {
-            return ToolText("graph_validate requires `brep_path`.", isError: true).asCallToolResult()
+            return ToolText("graph_validate requires `brep_path`.", isError: true)
+                .asCallToolResult()
         }
         return await AnalysisTools.graphValidate(brepPath: path).asCallToolResult()
 
     case "graph_compact":
         guard let inP = arguments["brep_path"]?.stringValue,
-              let outP = arguments["output_path"]?.stringValue else {
-            return ToolText("graph_compact requires `brep_path` and `output_path`.", isError: true).asCallToolResult()
+            let outP = arguments["output_path"]?.stringValue
+        else {
+            return ToolText("graph_compact requires `brep_path` and `output_path`.", isError: true)
+                .asCallToolResult()
         }
         return await AnalysisTools.graphCompact(brepPath: inP, outputPath: outP).asCallToolResult()
 
     case "graph_dedup":
         guard let inP = arguments["brep_path"]?.stringValue,
-              let outP = arguments["output_path"]?.stringValue else {
-            return ToolText("graph_dedup requires `brep_path` and `output_path`.", isError: true).asCallToolResult()
+            let outP = arguments["output_path"]?.stringValue
+        else {
+            return ToolText("graph_dedup requires `brep_path` and `output_path`.", isError: true)
+                .asCallToolResult()
         }
         return await AnalysisTools.graphDedup(brepPath: inP, outputPath: outP).asCallToolResult()
 
     case "feature_recognize":
         guard let path = arguments["brep_path"]?.stringValue else {
-            return ToolText("feature_recognize requires `brep_path`.", isError: true).asCallToolResult()
+            return ToolText("feature_recognize requires `brep_path`.", isError: true)
+                .asCallToolResult()
         }
         return await AnalysisTools.featureRecognize(brepPath: path).asCallToolResult()
 
     case "graph_select":
         guard let path = arguments["brep_path"]?.stringValue,
-              let query = arguments["query"]?.stringValue else {
-            return ToolText("graph_select requires `brep_path` and `query`.", isError: true).asCallToolResult()
+            let query = arguments["query"]?.stringValue
+        else {
+            return ToolText("graph_select requires `brep_path` and `query`.", isError: true)
+                .asCallToolResult()
         }
         return await AnalysisTools.graphSelect(
             brepPath: path,
@@ -1906,8 +2611,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "rename_body":
         guard let bodyId = arguments["bodyId"]?.stringValue,
-              let newBodyId = arguments["newBodyId"]?.stringValue else {
-            return ToolText("rename_body requires `bodyId` and `newBodyId`.", isError: true).asCallToolResult()
+            let newBodyId = arguments["newBodyId"]?.stringValue
+        else {
+            return ToolText("rename_body requires `bodyId` and `newBodyId`.", isError: true)
+                .asCallToolResult()
         }
         return await SceneTools.renameBody(bodyId: bodyId, newBodyId: newBodyId).asCallToolResult()
 
@@ -1916,7 +2623,9 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             return ToolText("set_appearance requires `bodyId`.", isError: true).asCallToolResult()
         }
         let update = SceneTools.AppearanceUpdate(
-            color: arguments["color"]?.arrayValue?.compactMap { $0.doubleValue.flatMap { Float($0) } },
+            color: arguments["color"]?.arrayValue?.compactMap {
+                $0.doubleValue.flatMap { Float($0) }
+            },
             opacity: arguments["opacity"]?.doubleValue.flatMap { Float($0) },
             roughness: arguments["roughness"]?.doubleValue.flatMap { Float($0) },
             metallic: arguments["metallic"]?.doubleValue.flatMap { Float($0) },
@@ -1930,12 +2639,15 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         }
         let metricsArr = arguments["metrics"]?.arrayValue?.compactMap { $0.stringValue }
         let metrics: Set<String>? = metricsArr.flatMap { $0.isEmpty ? nil : Set($0) }
-        return await IntrospectionTools.computeMetrics(bodyId: bodyId, metrics: metrics).asCallToolResult()
+        return await IntrospectionTools.computeMetrics(bodyId: bodyId, metrics: metrics)
+            .asCallToolResult()
 
     case "query_topology":
         guard let bodyId = arguments["bodyId"]?.stringValue,
-              let entity = arguments["entity"]?.stringValue else {
-            return ToolText("query_topology requires `bodyId` and `entity`.", isError: true).asCallToolResult()
+            let entity = arguments["entity"]?.stringValue
+        else {
+            return ToolText("query_topology requires `bodyId` and `entity`.", isError: true)
+                .asCallToolResult()
         }
         var filter = IntrospectionTools.TopologyFilter()
         if case .object(let f)? = arguments["filter"] {
@@ -1951,8 +2663,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "measure_distance":
         guard let fromId = arguments["fromBodyId"]?.stringValue,
-              let toId = arguments["toBodyId"]?.stringValue else {
-            return ToolText("measure_distance requires `fromBodyId` and `toBodyId`.", isError: true).asCallToolResult()
+            let toId = arguments["toBodyId"]?.stringValue
+        else {
+            return ToolText("measure_distance requires `fromBodyId` and `toBodyId`.", isError: true)
+                .asCallToolResult()
         }
         let computeContacts = arguments["computeContacts"]?.boolValue ?? false
         return await IntrospectionTools.measureDistance(
@@ -1961,14 +2675,18 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "measure_deviation":
         guard let fromId = arguments["fromBodyId"]?.stringValue,
-              let toId = arguments["toBodyId"]?.stringValue else {
-            return ToolText("measure_deviation requires `fromBodyId` and `toBodyId`.", isError: true).asCallToolResult()
+            let toId = arguments["toBodyId"]?.stringValue
+        else {
+            return ToolText(
+                "measure_deviation requires `fromBodyId` and `toBodyId`.", isError: true
+            ).asCallToolResult()
         }
         let deflection = arguments["deflection"]?.numberValue
         let maxSamples = arguments["maxSamples"]?.intValue ?? 20_000
         var sectionAxis: SIMD3<Double>? = nil
         if let arr = arguments["sectionAxis"]?.arrayValue, arr.count == 3,
-           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+            let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+        {
             sectionAxis = SIMD3(x, y, z)
         }
         let sectionCount = arguments["sections"]?.intValue ?? 0
@@ -1980,8 +2698,11 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "deviation_histogram":
         guard let fromId = arguments["fromBodyId"]?.stringValue,
-              let refId = arguments["referenceBodyId"]?.stringValue else {
-            return ToolText("deviation_histogram requires `fromBodyId` and `referenceBodyId`.", isError: true).asCallToolResult()
+            let refId = arguments["referenceBodyId"]?.stringValue
+        else {
+            return ToolText(
+                "deviation_histogram requires `fromBodyId` and `referenceBodyId`.", isError: true
+            ).asCallToolResult()
         }
         return await DeviationHistogramTool.deviationHistogram(
             fromBodyId: fromId,
@@ -1996,14 +2717,20 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "cross_section_compare":
         guard let fromId = arguments["fromBodyId"]?.stringValue,
-              let refId = arguments["referenceBodyId"]?.stringValue,
-              let axisArr = arguments["axis"]?.arrayValue, axisArr.count == 3,
-              let ax = axisArr[0].numberValue, let ay = axisArr[1].numberValue, let az = axisArr[2].numberValue else {
-            return ToolText("cross_section_compare requires `fromBodyId`, `referenceBodyId`, and `axis` [x,y,z].", isError: true).asCallToolResult()
+            let refId = arguments["referenceBodyId"]?.stringValue,
+            let axisArr = arguments["axis"]?.arrayValue, axisArr.count == 3,
+            let ax = axisArr[0].numberValue, let ay = axisArr[1].numberValue,
+            let az = axisArr[2].numberValue
+        else {
+            return ToolText(
+                "cross_section_compare requires `fromBodyId`, `referenceBodyId`, and `axis` [x,y,z].",
+                isError: true
+            ).asCallToolResult()
         }
         var through: SIMD3<Double>? = nil
         if let t = arguments["through"]?.arrayValue, t.count == 3,
-           let tx = t[0].numberValue, let ty = t[1].numberValue, let tz = t[2].numberValue {
+            let tx = t[0].numberValue, let ty = t[1].numberValue, let tz = t[2].numberValue
+        {
             through = SIMD3(tx, ty, tz)
         }
         return await CrossSectionCompareTool.crossSectionCompare(
@@ -2020,21 +2747,30 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "symmetric_difference_volume":
         guard let fromId = arguments["fromBodyId"]?.stringValue,
-              let refId = arguments["referenceBodyId"]?.stringValue else {
-            return ToolText("symmetric_difference_volume requires `fromBodyId` and `referenceBodyId`.", isError: true).asCallToolResult()
+            let refId = arguments["referenceBodyId"]?.stringValue
+        else {
+            return ToolText(
+                "symmetric_difference_volume requires `fromBodyId` and `referenceBodyId`.",
+                isError: true
+            ).asCallToolResult()
         }
         return await SymmetricDifferenceTools.symmetricDifferenceVolume(
             fromBodyId: fromId,
             referenceBodyId: refId,
             deflection: arguments["deflection"]?.numberValue,
-            maxSamples: arguments["maxSamples"]?.intValue ?? SymmetricDifferenceTools.defaultMaxSamples
+            maxSamples: arguments["maxSamples"]?.intValue
+                ?? SymmetricDifferenceTools.defaultMaxSamples
         ).asCallToolResult()
 
     case "signed_deviation_heatmap":
         guard let fromId = arguments["fromBodyId"]?.stringValue,
-              let refId = arguments["referenceBodyId"]?.stringValue,
-              let outputPath = arguments["outputPath"]?.stringValue else {
-            return ToolText("signed_deviation_heatmap requires `fromBodyId`, `referenceBodyId`, and `outputPath`.", isError: true).asCallToolResult()
+            let refId = arguments["referenceBodyId"]?.stringValue,
+            let outputPath = arguments["outputPath"]?.stringValue
+        else {
+            return ToolText(
+                "signed_deviation_heatmap requires `fromBodyId`, `referenceBodyId`, and `outputPath`.",
+                isError: true
+            ).asCallToolResult()
         }
         return await HeatmapTools.signedDeviationHeatmap(
             fromBodyId: fromId,
@@ -2049,9 +2785,13 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "overlay_render":
         guard let solidId = arguments["solidBodyId"]?.stringValue,
-              let meshId = arguments["meshBodyId"]?.stringValue,
-              let outputPath = arguments["outputPath"]?.stringValue else {
-            return ToolText("overlay_render requires `solidBodyId`, `meshBodyId`, and `outputPath`.", isError: true).asCallToolResult()
+            let meshId = arguments["meshBodyId"]?.stringValue,
+            let outputPath = arguments["outputPath"]?.stringValue
+        else {
+            return ToolText(
+                "overlay_render requires `solidBodyId`, `meshBodyId`, and `outputPath`.",
+                isError: true
+            ).asCallToolResult()
         }
         return await HeatmapTools.overlayRender(
             solidBodyId: solidId,
@@ -2067,29 +2807,35 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         }
         var opts = ConstructionTools.TransformOptions()
         if let arr = arguments["translate"]?.arrayValue, arr.count == 3,
-           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+            let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+        {
             opts.translate = SIMD3(x, y, z)
         }
         if let arr = arguments["rotateAxisAngle"]?.arrayValue, arr.count == 4,
-           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue,
-           let r = arr[3].doubleValue {
+            let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue,
+            let r = arr[3].doubleValue
+        {
             opts.rotateAxisAngle = (SIMD3(x, y, z), r)
         }
         if let arr = arguments["rotateEulerXyz"]?.arrayValue, arr.count == 3,
-           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+            let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+        {
             opts.rotateEulerXyz = SIMD3(x, y, z)
         }
         opts.scale = arguments["scale"]?.doubleValue
         opts.inPlace = arguments["inPlace"]?.boolValue
         opts.outputBodyId = arguments["outputBodyId"]?.stringValue
-        return await ConstructionTools.transformBody(bodyId: bodyId, options: opts).asCallToolResult()
+        return await ConstructionTools.transformBody(bodyId: bodyId, options: opts)
+            .asCallToolResult()
 
     case "boolean_op":
         guard let opStr = arguments["op"]?.stringValue,
-              let op = ConstructionTools.BooleanOp(rawValue: opStr),
-              let a = arguments["aBodyId"]?.stringValue,
-              let b = arguments["bBodyId"]?.stringValue else {
-            return ToolText("boolean_op requires `op`, `aBodyId`, `bBodyId`.", isError: true).asCallToolResult()
+            let op = ConstructionTools.BooleanOp(rawValue: opStr),
+            let a = arguments["aBodyId"]?.stringValue,
+            let b = arguments["bBodyId"]?.stringValue
+        else {
+            return ToolText("boolean_op requires `op`, `aBodyId`, `bBodyId`.", isError: true)
+                .asCallToolResult()
         }
         return await ConstructionTools.booleanOp(
             op: op,
@@ -2100,32 +2846,39 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "mirror_or_pattern":
         guard let bodyId = arguments["bodyId"]?.stringValue,
-              let kindStr = arguments["kind"]?.stringValue,
-              let kind = ConstructionTools.PatternKind(rawValue: kindStr) else {
-            return ToolText("mirror_or_pattern requires `bodyId` and `kind`.", isError: true).asCallToolResult()
+            let kindStr = arguments["kind"]?.stringValue,
+            let kind = ConstructionTools.PatternKind(rawValue: kindStr)
+        else {
+            return ToolText("mirror_or_pattern requires `bodyId` and `kind`.", isError: true)
+                .asCallToolResult()
         }
         var p = ConstructionTools.PatternParams()
         if case .object(let f)? = arguments["params"] {
             if let arr = f["planeOrigin"]?.arrayValue, arr.count == 3,
-               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+                let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+            {
                 p.planeOrigin = SIMD3(x, y, z)
             }
             if let arr = f["planeNormal"]?.arrayValue, arr.count == 3,
-               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+                let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+            {
                 p.planeNormal = SIMD3(x, y, z)
             }
             if let arr = f["direction"]?.arrayValue, arr.count == 3,
-               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+                let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+            {
                 p.direction = SIMD3(x, y, z)
             }
             p.spacing = f["spacing"]?.numberValue
             p.count = f["count"]?.intValue
             if let arr = f["axisOrigin"]?.arrayValue, arr.count == 3,
-               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+                let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+            {
                 p.axisOrigin = SIMD3(x, y, z)
             }
             if let arr = f["axisDirection"]?.arrayValue, arr.count == 3,
-               let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+                let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+            {
                 p.axisDirection = SIMD3(x, y, z)
             }
             p.totalCount = f["totalCount"]?.intValue
@@ -2150,8 +2903,10 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "simplify_mesh":
         guard let bodyId = arguments["bodyId"]?.stringValue,
-              let outputPath = arguments["outputPath"]?.stringValue else {
-            return ToolText("simplify_mesh requires `bodyId` and `outputPath`.", isError: true).asCallToolResult()
+            let outputPath = arguments["outputPath"]?.stringValue
+        else {
+            return ToolText("simplify_mesh requires `bodyId` and `outputPath`.", isError: true)
+                .asCallToolResult()
         }
         return await MeshTools.simplifyMesh(
             bodyId: bodyId, outputPath: outputPath,
@@ -2177,7 +2932,9 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         guard let inputPath = arguments["inputPath"]?.stringValue else {
             return ToolText("read_brep requires `inputPath`.", isError: true).asCallToolResult()
         }
-        let color = arguments["color"]?.arrayValue?.compactMap { $0.doubleValue.flatMap { Float($0) } }
+        let color = arguments["color"]?.arrayValue?.compactMap {
+            $0.doubleValue.flatMap { Float($0) }
+        }
         return await IOTools.readBrep(
             inputPath: inputPath,
             bodyId: arguments["bodyId"]?.stringValue,
@@ -2189,7 +2946,9 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         guard let inputPath = arguments["inputPath"]?.stringValue else {
             return ToolText("import_file requires `inputPath`.", isError: true).asCallToolResult()
         }
-        let format = (arguments["format"]?.stringValue).flatMap(IOTools.ImportFormat.init(rawValue:)) ?? .auto
+        let format =
+            (arguments["format"]?.stringValue).flatMap(IOTools.ImportFormat.init(rawValue:))
+            ?? .auto
         return await IOTools.importFile(
             inputPath: inputPath,
             format: format,
@@ -2199,12 +2958,15 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "export_scene":
         guard let formatStr = arguments["format"]?.stringValue,
-              let format = IOTools.ExportFormat(rawValue: formatStr),
-              let outputPath = arguments["outputPath"]?.stringValue else {
-            return ToolText("export_scene requires `format` and `outputPath`.", isError: true).asCallToolResult()
+            let format = IOTools.ExportFormat(rawValue: formatStr),
+            let outputPath = arguments["outputPath"]?.stringValue
+        else {
+            return ToolText("export_scene requires `format` and `outputPath`.", isError: true)
+                .asCallToolResult()
         }
         let ids = arguments["bodyIds"]?.arrayValue?.compactMap { $0.stringValue }
-        return await IOTools.exportScene(format: format, outputPath: outputPath, bodyIds: ids).asCallToolResult()
+        return await IOTools.exportScene(format: format, outputPath: outputPath, bodyIds: ids)
+            .asCallToolResult()
 
     case "compare_versions":
         let since = arguments["since"]?.intValue ?? 1
@@ -2218,8 +2980,11 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "reconstruct_set_decision":
         guard let sessionId = arguments["sessionId"]?.stringValue,
-              let node = arguments["node"]?.stringValue else {
-            return ToolText("reconstruct_set_decision requires `sessionId` and `node`.", isError: true).asCallToolResult()
+            let node = arguments["node"]?.stringValue
+        else {
+            return ToolText(
+                "reconstruct_set_decision requires `sessionId` and `node`.", isError: true
+            ).asCallToolResult()
         }
         return await ReconstructTools.setDecision(
             sessionId: sessionId,
@@ -2230,9 +2995,13 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "reconstruct_force_fit":
         guard let sessionId = arguments["sessionId"]?.stringValue,
-              let node = arguments["node"]?.stringValue,
-              let surfaceType = arguments["surfaceType"]?.stringValue else {
-            return ToolText("reconstruct_force_fit requires `sessionId`, `node`, and `surfaceType`.", isError: true).asCallToolResult()
+            let node = arguments["node"]?.stringValue,
+            let surfaceType = arguments["surfaceType"]?.stringValue
+        else {
+            return ToolText(
+                "reconstruct_force_fit requires `sessionId`, `node`, and `surfaceType`.",
+                isError: true
+            ).asCallToolResult()
         }
         return await ReconstructTools.forceFit(
             sessionId: sessionId, node: node, surfaceType: surfaceType
@@ -2240,9 +3009,14 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "reconstruct_confirm_instances":
         guard let sessionId = arguments["sessionId"]?.stringValue,
-              let clusterId = arguments["clusterId"]?.stringValue,
-              let nodes = arguments["nodes"]?.arrayValue?.compactMap({ $0.stringValue }), !nodes.isEmpty else {
-            return ToolText("reconstruct_confirm_instances requires `sessionId`, `clusterId`, and a non-empty `nodes` array.", isError: true).asCallToolResult()
+            let clusterId = arguments["clusterId"]?.stringValue,
+            let nodes = arguments["nodes"]?.arrayValue?.compactMap({ $0.stringValue }),
+            !nodes.isEmpty
+        else {
+            return ToolText(
+                "reconstruct_confirm_instances requires `sessionId`, `clusterId`, and a non-empty `nodes` array.",
+                isError: true
+            ).asCallToolResult()
         }
         return await ReconstructTools.confirmInstances(
             sessionId: sessionId,
@@ -2253,7 +3027,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "reconstruct_export_session":
         guard let sessionId = arguments["sessionId"]?.stringValue else {
-            return ToolText("reconstruct_export_session requires `sessionId`.", isError: true).asCallToolResult()
+            return ToolText("reconstruct_export_session requires `sessionId`.", isError: true)
+                .asCallToolResult()
         }
         return await ReconstructTools.exportSession(
             sessionId: sessionId, path: arguments["path"]?.stringValue
@@ -2261,7 +3036,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "reconstruct_import_session":
         guard let path = arguments["path"]?.stringValue else {
-            return ToolText("reconstruct_import_session requires `path`.", isError: true).asCallToolResult()
+            return ToolText("reconstruct_import_session requires `path`.", isError: true)
+                .asCallToolResult()
         }
         return await ReconstructTools.importSession(
             path: path, sessionId: arguments["sessionId"]?.stringValue
@@ -2269,7 +3045,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "segment_mesh_zones":
         guard let bodyId = arguments["bodyId"]?.stringValue else {
-            return ToolText("segment_mesh_zones requires `bodyId`.", isError: true).asCallToolResult()
+            return ToolText("segment_mesh_zones requires `bodyId`.", isError: true)
+                .asCallToolResult()
         }
         return await MeshZoneTools.segmentMeshZones(
             bodyId: bodyId,
@@ -2287,11 +3064,13 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "zone_continuity_sweep":
         guard let bodyId = arguments["bodyId"]?.stringValue else {
-            return ToolText("zone_continuity_sweep requires `bodyId`.", isError: true).asCallToolResult()
+            return ToolText("zone_continuity_sweep requires `bodyId`.", isError: true)
+                .asCallToolResult()
         }
         var axis: SIMD3<Double>? = nil
         if let arr = arguments["axis"]?.arrayValue, arr.count == 3,
-           let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue {
+            let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+        {
             axis = SIMD3(x, y, z)
         }
         return await ZoneSweepTool.zoneContinuitySweep(
@@ -2310,10 +3089,12 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         ).asCallToolResult()
 
     case "list_zones":
-        return await RegistryIntrospectionTools.listZones(bodyId: arguments["bodyId"]?.stringValue).asCallToolResult()
+        return await RegistryIntrospectionTools.listZones(bodyId: arguments["bodyId"]?.stringValue)
+            .asCallToolResult()
 
     case "clear_zones":
-        return await RegistryIntrospectionTools.clearZones(bodyId: arguments["bodyId"]?.stringValue).asCallToolResult()
+        return await RegistryIntrospectionTools.clearZones(bodyId: arguments["bodyId"]?.stringValue)
+            .asCallToolResult()
 
     case "mesh_diagnose":
         guard let bodyId = arguments["bodyId"]?.stringValue else {
@@ -2355,7 +3136,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             return ToolText("align_bodies requires `bodyId`.", isError: true).asCallToolResult()
         }
         guard let referenceBodyId = arguments["referenceBodyId"]?.stringValue else {
-            return ToolText("align_bodies requires `referenceBodyId`.", isError: true).asCallToolResult()
+            return ToolText("align_bodies requires `referenceBodyId`.", isError: true)
+                .asCallToolResult()
         }
         // An unrecognized mode must error, not silently fall back to bestFit: MCP clients don't
         // reliably validate the schema's enum, and the description itself names deferred modes
@@ -2364,8 +3146,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         if let modeString = arguments["mode"]?.stringValue {
             guard let parsed = AlignTools.Mode(rawValue: modeString) else {
                 return ToolText(
-                    "align_bodies: unknown mode \"\(modeString)\". Valid modes: \"bestFit\" (default), \"preAlign\". " +
-                    "localBestFit / 3-2-1 / RPS-datum alignment are not implemented yet.",
+                    "align_bodies: unknown mode \"\(modeString)\". Valid modes: \"bestFit\" (default), \"preAlign\". "
+                        + "localBestFit / 3-2-1 / RPS-datum alignment are not implemented yet.",
                     isError: true
                 ).asCallToolResult()
             }
@@ -2394,7 +3176,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         let colorBy: MeshCurvatureTools.ColorBy
         if let colorByString = arguments["colorBy"]?.stringValue {
             guard let parsed = MeshCurvatureTools.ColorBy(rawValue: colorByString) else {
-                let valid = MeshCurvatureTools.ColorBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                let valid = MeshCurvatureTools.ColorBy.allCases.map { "\"\($0.rawValue)\"" }.joined(
+                    separator: ", ")
                 return ToolText(
                     "mesh_curvature: unknown colorBy \"\(colorByString)\". Valid values: \(valid).",
                     isError: true
@@ -2418,14 +3201,17 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "detect_mesh_features":
         guard let bodyId = arguments["bodyId"]?.stringValue else {
-            return ToolText("detect_mesh_features requires `bodyId`.", isError: true).asCallToolResult()
+            return ToolText("detect_mesh_features requires `bodyId`.", isError: true)
+                .asCallToolResult()
         }
         // Dispatch-level guard (the #106 convention): an invalid minAngleDegrees must error here
-        // too, not just inside the tool function — this is the layer an MCP client's own schema
+        // too, not just inside the tool function: this is the layer an MCP client's own schema
         // validation can be bypassed at.
         let minAngle = arguments["minAngleDegrees"]?.numberValue ?? 30
         guard minAngle > 0, minAngle <= 180 else {
-            return ToolText("detect_mesh_features: minAngleDegrees must be in (0, 180].", isError: true).asCallToolResult()
+            return ToolText(
+                "detect_mesh_features: minAngleDegrees must be in (0, 180].", isError: true
+            ).asCallToolResult()
         }
         return await MeshFeatureTools.detectMeshFeatures(
             bodyId: bodyId,
@@ -2447,7 +3233,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         let strategy: FitPrimitivesTools.Strategy
         if let strategyString = arguments["strategy"]?.stringValue {
             guard let parsed = FitPrimitivesTools.Strategy(rawValue: strategyString) else {
-                let valid = FitPrimitivesTools.Strategy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                let valid = FitPrimitivesTools.Strategy.allCases.map { "\"\($0.rawValue)\"" }
+                    .joined(separator: ", ")
                 return ToolText(
                     "fit_primitives: unknown strategy \"\(strategyString)\". Valid values: \(valid).",
                     isError: true
@@ -2472,8 +3259,11 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "measure_vertex_fit":
         guard let fromId = arguments["fromBodyId"]?.stringValue,
-              let toId = arguments["toBodyId"]?.stringValue else {
-            return ToolText("measure_vertex_fit requires `fromBodyId` and `toBodyId`.", isError: true).asCallToolResult()
+            let toId = arguments["toBodyId"]?.stringValue
+        else {
+            return ToolText(
+                "measure_vertex_fit requires `fromBodyId` and `toBodyId`.", isError: true
+            ).asCallToolResult()
         }
         return await VertexFitTools.measureVertexFit(
             fromBodyId: fromId, toBodyId: toId,
@@ -2484,14 +3274,21 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
 
     case "fit_edge_chain":
         guard let rawPoints = arguments["points"]?.arrayValue, rawPoints.count >= 2 else {
-            return ToolText("fit_edge_chain requires `points`: an array of at least 2 [x,y,z] triples.", isError: true).asCallToolResult()
+            return ToolText(
+                "fit_edge_chain requires `points`: an array of at least 2 [x,y,z] triples.",
+                isError: true
+            ).asCallToolResult()
         }
         var points: [SIMD3<Double>] = []
         points.reserveCapacity(rawPoints.count)
         for entry in rawPoints {
             guard let arr = entry.arrayValue, arr.count == 3,
-                  let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue else {
-                return ToolText("fit_edge_chain: every entry in `points` must be a [x,y,z] triple of numbers.", isError: true).asCallToolResult()
+                let x = arr[0].numberValue, let y = arr[1].numberValue, let z = arr[2].numberValue
+            else {
+                return ToolText(
+                    "fit_edge_chain: every entry in `points` must be a [x,y,z] triple of numbers.",
+                    isError: true
+                ).asCallToolResult()
             }
             points.append(SIMD3(x, y, z))
         }

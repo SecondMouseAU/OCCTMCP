@@ -1,4 +1,4 @@
-// AnnotationsTools — add_dimension, add_scene_primitive,
+// AnnotationsTools: add_dimension, add_scene_primitive,
 // remove_scene_annotation. All three persist to the
 // <output_dir>/annotations.json sidecar; render_preview reads it (in
 // Phase 7.4) so the LLM can see dimensions / primitives in the
@@ -10,8 +10,8 @@
 // are recorded as-is; their geometry is interpreted by the renderer.
 
 import Foundation
-import simd
 import OCCTSwift
+import simd
 
 public enum AnnotationsTools {
 
@@ -48,8 +48,11 @@ public enum AnnotationsTools {
                 return .init("linear dimension requires anchors.from and anchors.to.")
             }
             guard let fromSnap = await registry.snapshot(for: fromId),
-                  let toSnap = await registry.snapshot(for: toId) else {
-                return .init("Could not resolve linear anchors. Re-run select_topology if this is a fresh session.")
+                let toSnap = await registry.snapshot(for: toId)
+            else {
+                return .init(
+                    "Could not resolve linear anchors. Re-run select_topology if this is a fresh session."
+                )
             }
             let a = SIMD3(fromSnap.center[0], fromSnap.center[1], fromSnap.center[2])
             let b = SIMD3(toSnap.center[0], toSnap.center[1], toSnap.center[2])
@@ -59,24 +62,28 @@ public enum AnnotationsTools {
                 [Double(b.x), Double(b.y), Double(b.z)],
             ]
             doc.dimensions.removeAll { $0.id == dimId }
-            doc.dimensions.append(.init(
-                id: dimId, kind: "linear",
-                anchors: ["from": fromId, "to": toId],
-                value: value, label: label, anchorPoints: points
-            ))
+            doc.dimensions.append(
+                .init(
+                    id: dimId, kind: "linear",
+                    anchors: ["from": fromId, "to": toId],
+                    value: value, label: label, anchorPoints: points
+                ))
             try? sidecar.write(doc)
-            return IntrospectionTools.encode(DimensionResult(
-                dimensionId: dimId, kind: "linear", value: value, unit: "mm",
-                anchorPoints: points
-            ))
+            return IntrospectionTools.encode(
+                DimensionResult(
+                    dimensionId: dimId, kind: "linear", value: value, unit: "mm",
+                    anchorPoints: points
+                ))
 
         case .angular:
-            guard let armA = anchors["armA"], let apex = anchors["apex"], let armB = anchors["armB"] else {
+            guard let armA = anchors["armA"], let apex = anchors["apex"], let armB = anchors["armB"]
+            else {
                 return .init("angular dimension requires anchors.armA, anchors.apex, anchors.armB.")
             }
             guard let snapA = await registry.snapshot(for: armA),
-                  let snapApex = await registry.snapshot(for: apex),
-                  let snapB = await registry.snapshot(for: armB) else {
+                let snapApex = await registry.snapshot(for: apex),
+                let snapB = await registry.snapshot(for: armB)
+            else {
                 return .init("Could not resolve angular anchors.")
             }
             let pA = SIMD3(snapA.center[0], snapA.center[1], snapA.center[2])
@@ -91,16 +98,18 @@ public enum AnnotationsTools {
                 [pA.x, pA.y, pA.z], [pV.x, pV.y, pV.z], [pB.x, pB.y, pB.z],
             ]
             doc.dimensions.removeAll { $0.id == dimId }
-            doc.dimensions.append(.init(
-                id: dimId, kind: "angular",
-                anchors: ["armA": armA, "apex": apex, "armB": armB],
-                value: degrees, label: label, anchorPoints: points
-            ))
+            doc.dimensions.append(
+                .init(
+                    id: dimId, kind: "angular",
+                    anchors: ["armA": armA, "apex": apex, "armB": armB],
+                    value: degrees, label: label, anchorPoints: points
+                ))
             try? sidecar.write(doc)
-            return IntrospectionTools.encode(DimensionResult(
-                dimensionId: dimId, kind: "angular", value: degrees, unit: "deg",
-                anchorPoints: points
-            ))
+            return IntrospectionTools.encode(
+                DimensionResult(
+                    dimensionId: dimId, kind: "angular", value: degrees, unit: "deg",
+                    anchorPoints: points
+                ))
 
         case .radial:
             guard let edgeId = anchors["circularEdge"] else {
@@ -121,9 +130,11 @@ public enum AnnotationsTools {
                 centerArr = c
             } else if let lengthArc = snap.length {
                 radius = lengthArc / (2 * .pi)
-                centerArr = snap.center   // best we can do without circleCenter
+                centerArr = snap.center  // best we can do without circleCenter
             } else {
-                return .init("Could not resolve circular edge — re-run select_topology after upgrading to capture circleCenter.")
+                return .init(
+                    "Could not resolve circular edge: re-run select_topology after upgrading to capture circleCenter."
+                )
             }
             let value = showDiameter ? radius * 2 : radius
             // anchorPoints: [centre, rim]. Renderer draws a leader
@@ -131,17 +142,19 @@ public enum AnnotationsTools {
             // a marker sphere with no rim attachment.
             let points = [centerArr, [rim.x, rim.y, rim.z]]
             doc.dimensions.removeAll { $0.id == dimId }
-            doc.dimensions.append(.init(
-                id: dimId, kind: "radial",
-                anchors: ["circularEdge": edgeId],
-                value: value, label: label, anchorPoints: points
-            ))
+            doc.dimensions.append(
+                .init(
+                    id: dimId, kind: "radial",
+                    anchors: ["circularEdge": edgeId],
+                    value: value, label: label, anchorPoints: points
+                ))
             try? sidecar.write(doc)
-            return IntrospectionTools.encode(DimensionResult(
-                dimensionId: dimId, kind: showDiameter ? "diameter" : "radial",
-                value: value, unit: "mm",
-                anchorPoints: points
-            ))
+            return IntrospectionTools.encode(
+                DimensionResult(
+                    dimensionId: dimId, kind: showDiameter ? "diameter" : "radial",
+                    value: value, unit: "mm",
+                    anchorPoints: points
+                ))
         }
     }
 
@@ -169,9 +182,10 @@ public enum AnnotationsTools {
         doc.primitives.removeAll { $0.id == primId }
         doc.primitives.append(.init(id: primId, kind: kind.rawValue, params: params))
         try? sidecar.write(doc)
-        return IntrospectionTools.encode(PrimitiveResult(
-            primitiveId: primId, kind: kind.rawValue
-        ))
+        return IntrospectionTools.encode(
+            PrimitiveResult(
+                primitiveId: primId, kind: kind.rawValue
+            ))
     }
 
     // MARK: - remove_scene_annotation

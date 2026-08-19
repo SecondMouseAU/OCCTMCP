@@ -1,4 +1,4 @@
-// Paths — output directory and manifest path resolution. Mirrors the
+// Paths: output directory and manifest path resolution. Mirrors the
 // Node implementation in src/paths.ts: env override > iCloud Drive >
 // local fallback. Tests redirect via OCCTMCP_OUTPUT_DIR.
 
@@ -13,7 +13,9 @@ public enum OCCTMCPPaths {
     ///   2. iCloud Drive container if it exists
     ///      (`~/Library/Mobile Documents/com~apple~CloudDocs/OCCTSwiftScripts/output`).
     ///   3. Local fallback (`~/.occtswift-scripts/output`).
-    public static func outputDir(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
+    public static func outputDir(env: [String: String] = ProcessInfo.processInfo.environment)
+        -> String
+    {
         if let override = env[envOverrideKey], !override.isEmpty {
             return override
         }
@@ -27,7 +29,9 @@ public enum OCCTMCPPaths {
     }
 
     /// Path to manifest.json inside the resolved output directory.
-    public static func manifestPath(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
+    public static func manifestPath(env: [String: String] = ProcessInfo.processInfo.environment)
+        -> String
+    {
         return outputDir(env: env) + "/manifest.json"
     }
 }

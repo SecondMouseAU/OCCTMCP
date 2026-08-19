@@ -1,8 +1,8 @@
-// SceneTools — pure-manifest scene-mutation tools (Phase 1 in the Node
+// SceneTools: pure-manifest scene-mutation tools (Phase 1 in the Node
 // implementation). Each one reads the manifest, mutates an in-memory
 // copy, snapshots the prior state into SceneHistory, and writes the
 // manifest back. OCCTSwiftViewport's ScriptWatcher reloads on the file
-// write — that's the side effect that makes the live preview update.
+// write: that's the side effect that makes the live preview update.
 
 import Foundation
 import MCP
@@ -211,7 +211,8 @@ public enum SceneTools {
         var newColor = target.color
         var applied: [String: String] = [:]
         if let c = update.color {
-            let alpha: Float = (c.count == 4) ? c[3] : (target.color?.count == 4 ? target.color![3] : 1)
+            let alpha: Float =
+                (c.count == 4) ? c[3] : (target.color?.count == 4 ? target.color![3] : 1)
             newColor = c.count == 3 ? [c[0], c[1], c[2], alpha] : c
             applied["color"] = "\(newColor!)"
         }
@@ -254,7 +255,8 @@ public enum SceneTools {
         } catch {
             return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
         }
-        let pretty = applied
+        let pretty =
+            applied
             .sorted { $0.key < $1.key }
             .map { "  \($0.key): \($0.value)" }
             .joined(separator: "\n")
@@ -291,7 +293,8 @@ public enum SceneTools {
                 "Not enough history: requested \(since) runs back, only \(availableCount) snapshots available. Make at least \(since) state changes (execute_script or scene-mutation tools) before comparing."
             )
         }
-        let diff = diffManifests(prev: prior, curr: current, since: since, available: availableCount)
+        let diff = diffManifests(
+            prev: prior, curr: current, since: since, available: availableCount)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         do {

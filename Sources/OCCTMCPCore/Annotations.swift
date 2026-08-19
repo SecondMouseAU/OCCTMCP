@@ -1,4 +1,4 @@
-// Annotations — sidecar JSON next to manifest.json carrying the
+// Annotations: sidecar JSON next to manifest.json carrying the
 // scene-level dimensions and standard scene primitives that the v0.4
 // AIS-shaped tools produce. Manifest schema is left untouched so this
 // is a contained extension; render_preview reads the sidecar if
@@ -40,11 +40,11 @@ public struct AnnotationsSidecar: Codable, Sendable {
 
 public struct DimensionAnnotation: Codable, Sendable {
     public let id: String
-    public let kind: String                    // "linear" | "angular" | "radial"
-    public let anchors: [String: String]       // role → selectionId
-    public var value: Double?                  // computed at write-time
+    public let kind: String  // "linear" | "angular" | "radial"
+    public let anchors: [String: String]  // role → selectionId
+    public var value: Double?  // computed at write-time
     public var label: String?
-    public var anchorPoints: [[Double]]?       // resolved at write-time
+    public var anchorPoints: [[Double]]?  // resolved at write-time
     public init(
         id: String,
         kind: String,
@@ -64,7 +64,7 @@ public struct DimensionAnnotation: Codable, Sendable {
 
 public struct PrimitiveAnnotation: Codable, Sendable {
     public let id: String
-    public let kind: String                       // "trihedron" | "workPlane" | "axis" | "pointCloud"
+    public let kind: String  // "trihedron" | "workPlane" | "axis" | "pointCloud"
     public let params: [String: AnyCodable]
     public init(id: String, kind: String, params: [String: AnyCodable]) {
         self.id = id
@@ -85,12 +85,30 @@ public enum AnyCodable: Codable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
-        if c.decodeNil() { self = .null; return }
-        if let v = try? c.decode(Bool.self) { self = .bool(v); return }
-        if let v = try? c.decode(Double.self) { self = .number(v); return }
-        if let v = try? c.decode(String.self) { self = .string(v); return }
-        if let v = try? c.decode([AnyCodable].self) { self = .array(v); return }
-        if let v = try? c.decode([String: AnyCodable].self) { self = .object(v); return }
+        if c.decodeNil() {
+            self = .null
+            return
+        }
+        if let v = try? c.decode(Bool.self) {
+            self = .bool(v)
+            return
+        }
+        if let v = try? c.decode(Double.self) {
+            self = .number(v)
+            return
+        }
+        if let v = try? c.decode(String.self) {
+            self = .string(v)
+            return
+        }
+        if let v = try? c.decode([AnyCodable].self) {
+            self = .array(v)
+            return
+        }
+        if let v = try? c.decode([String: AnyCodable].self) {
+            self = .object(v)
+            return
+        }
         throw DecodingError.dataCorruptedError(
             in: c, debugDescription: "Unsupported JSON value"
         )
@@ -98,12 +116,12 @@ public enum AnyCodable: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.singleValueContainer()
         switch self {
-        case .bool(let v):    try c.encode(v)
-        case .number(let v):  try c.encode(v)
-        case .string(let v):  try c.encode(v)
-        case .array(let v):   try c.encode(v)
-        case .object(let v):  try c.encode(v)
-        case .null:           try c.encodeNil()
+        case .bool(let v): try c.encode(v)
+        case .number(let v): try c.encode(v)
+        case .string(let v): try c.encode(v)
+        case .array(let v): try c.encode(v)
+        case .object(let v): try c.encode(v)
+        case .null: try c.encodeNil()
         }
     }
 }
@@ -119,8 +137,9 @@ public struct AnnotationsStore: Sendable {
 
     public func read() -> AnnotationsSidecar {
         guard FileManager.default.fileExists(atPath: path),
-              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let decoded = try? JSONDecoder().decode(AnnotationsSidecar.self, from: data) else {
+            let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+            let decoded = try? JSONDecoder().decode(AnnotationsSidecar.self, from: data)
+        else {
             return AnnotationsSidecar()
         }
         return decoded

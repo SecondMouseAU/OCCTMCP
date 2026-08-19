@@ -1,4 +1,4 @@
-// HealingTools — heal_shape. Wraps Shape.healed() (which dispatches
+// HealingTools: heal_shape. Wraps Shape.healed() (which dispatches
 // through OCCT's ShapeFix_Shape pipeline).
 
 import Foundation
@@ -101,44 +101,50 @@ public enum HealingTools {
         )
 
         var warnings: [String] = []
-        if before.faceCount == after.faceCount &&
-            before.edgeCount == after.edgeCount &&
-            before.isValid == after.isValid {
-            warnings.append("Shape.healed() reported no structural change; before/after may be identical")
+        if before.faceCount == after.faceCount && before.edgeCount == after.edgeCount
+            && before.isValid == after.isValid
+        {
+            warnings.append(
+                "Shape.healed() reported no structural change; before/after may be identical")
         }
         if !historyRecorded {
-            warnings.append("Heal history unavailable or absorbed no records: remap_selection will fall back to the centroid heuristic for selections on this body.")
+            warnings.append(
+                "Heal history unavailable or absorbed no records: remap_selection will fall back to the centroid heuristic for selections on this body."
+            )
         }
 
         if !isInPlace, let newId = outputBodyId {
             let newFile = (outputPath as NSString).lastPathComponent
             var bodies = manifest.bodies
-            bodies.append(BodyDescriptor(
-                id: newId,
-                file: newFile,
-                format: body.format,
-                name: body.name,
-                color: body.color,
-                roughness: body.roughness,
-                metallic: body.metallic
-            ))
-            try? store.write(ScriptManifest(
-                version: manifest.version,
-                timestamp: Date(),
-                description: manifest.description,
-                bodies: bodies,
-                graphs: manifest.graphs,
-                metadata: manifest.metadata
-            ))
+            bodies.append(
+                BodyDescriptor(
+                    id: newId,
+                    file: newFile,
+                    format: body.format,
+                    name: body.name,
+                    color: body.color,
+                    roughness: body.roughness,
+                    metallic: body.metallic
+                ))
+            try? store.write(
+                ScriptManifest(
+                    version: manifest.version,
+                    timestamp: Date(),
+                    description: manifest.description,
+                    bodies: bodies,
+                    graphs: manifest.graphs,
+                    metadata: manifest.metadata
+                ))
         } else {
             try? store.write(manifest)
         }
 
-        return IntrospectionTools.encode(HealReport(
-            outputPath: outputPath,
-            before: before,
-            after: after,
-            warnings: warnings
-        ))
+        return IntrospectionTools.encode(
+            HealReport(
+                outputPath: outputPath,
+                before: before,
+                after: after,
+                warnings: warnings
+            ))
     }
 }

@@ -1,12 +1,12 @@
-// DrawingTools — generate_drawing wraps DrawingComposer.Composer.render
+// DrawingTools: generate_drawing wraps DrawingComposer.Composer.render
 // directly. The MCP tool accepts the canonical DrawingSpec JSON shape
 // and forwards it (with shape + output paths injected) to the composer.
 
+import DrawingComposer
 import Foundation
 import MCP
 import OCCTSwift
 import ScriptHarness
-import DrawingComposer
 
 public enum DrawingTools {
 
@@ -24,9 +24,11 @@ public enum DrawingTools {
         public let partCount: Int
     }
 
-    /// Render a drawing for one or more scene bodies. A single body produces a
+    /// Render a drawing for one or more scene bodies.
+    ///
+    /// A single body produces a
     /// standard multi-view part drawing (sections / dimensions honoured); several
-    /// bodies produce a general-arrangement sheet — shared views, a parts list,
+    /// bodies produce a general-arrangement sheet: shared views, a parts list,
     /// and a numbered balloon per body (OCCTSwiftScripts#50).
     public static func generateDrawing(
         bodyIds: [String],
@@ -56,7 +58,8 @@ public enum DrawingTools {
                 let shape = try Shape.loadBREP(fromPath: inputPath)
                 loaded.append((id, body.name ?? id, shape))
             } catch {
-                return .init("Failed to load BREP \(id): \(error.localizedDescription)", isError: true)
+                return .init(
+                    "Failed to load BREP \(id): \(error.localizedDescription)", isError: true)
             }
         }
 
@@ -94,18 +97,20 @@ public enum DrawingTools {
 
         var size = 0
         if let attrs = try? FileManager.default.attributesOfItem(atPath: outputPath),
-           let n = attrs[.size] as? Int {
+            let n = attrs[.size] as? Int
+        {
             size = n
         }
-        return IntrospectionTools.encode(DrawingReport(
-            outputPath: outputPath,
-            viewCount: result.viewCount,
-            sectionCount: result.sectionCount,
-            detailCount: result.detailCount,
-            scaleLabel: result.scaleLabel,
-            fileSize: size,
-            componentCount: result.componentCount,
-            partCount: result.partsList.count
-        ))
+        return IntrospectionTools.encode(
+            DrawingReport(
+                outputPath: outputPath,
+                viewCount: result.viewCount,
+                sectionCount: result.sectionCount,
+                detailCount: result.detailCount,
+                scaleLabel: result.scaleLabel,
+                fileSize: size,
+                componentCount: result.componentCount,
+                partCount: result.partsList.count
+            ))
     }
 }

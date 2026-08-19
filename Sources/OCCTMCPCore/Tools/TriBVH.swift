@@ -1,4 +1,4 @@
-// TriBVH — a minimal AABB bounding-volume hierarchy over a triangle soup,
+// TriBVH: a minimal AABB bounding-volume hierarchy over a triangle soup,
 // for ray-triangle nearest-hit queries AND exact nearest-triangle-to-point
 // queries. Backs `mesh_thickness` (Phase 2): the ray method samples up to
 // `maxSamples` surface points and casts a ray from each along its inward
@@ -29,7 +29,7 @@
 //
 // Deliberately unsophisticated per the design brief ("nothing fancy"):
 // median-split on the longest axis (re-sorting the node's own triangle
-// range by centroid each split — O(n log^2 n) build, not O(n log n), but
+// range by centroid each split: O(n log^2 n) build, not O(n log n), but
 // this runs once per tool call and n is bounded by the mesh's own triangle
 // count), leaf size ~8, no SAH, no parallel build.
 
@@ -75,24 +75,31 @@ struct TriBVH {
         self.vertices = vertices
         self.triangles = triangles
         var order = Array(0..<triangles.count)
-        guard let r = TriBVH.build(
-            indices: &order, vertices: vertices, triangles: triangles, range: 0..<order.count
-        ) else { return nil }
+        guard
+            let r = TriBVH.build(
+                indices: &order, vertices: vertices, triangles: triangles, range: 0..<order.count
+            )
+        else { return nil }
         self.root = r
     }
 
     // MARK: - Build
 
-    private static func triBounds(_ ti: Int, vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)])
+    private static func triBounds(
+        _ ti: Int, vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)]
+    )
         -> (SIMD3<Double>, SIMD3<Double>)
     {
         let (a, b, c) = triangles[ti]
-        let pa = vertices[Int(a)], pb = vertices[Int(b)], pc = vertices[Int(c)]
+        let pa = vertices[Int(a)]
+        let pb = vertices[Int(b)]
+        let pc = vertices[Int(c)]
         return (simd_min(pa, simd_min(pb, pc)), simd_max(pa, simd_max(pb, pc)))
     }
 
     private static func rangeBounds(
-        _ range: Range<Int>, order: [Int], vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)]
+        _ range: Range<Int>, order: [Int], vertices: [SIMD3<Double>],
+        triangles: [(UInt32, UInt32, UInt32)]
     ) -> (SIMD3<Double>, SIMD3<Double>) {
         var lo = SIMD3<Double>(repeating: .greatestFiniteMagnitude)
         var hi = SIMD3<Double>(repeating: -.greatestFiniteMagnitude)
@@ -105,7 +112,8 @@ struct TriBVH {
     }
 
     private static func build(
-        indices order: inout [Int], vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)],
+        indices order: inout [Int], vertices: [SIMD3<Double>],
+        triangles: [(UInt32, UInt32, UInt32)],
         range: Range<Int>
     ) -> Node? {
         guard !range.isEmpty else { return nil }
@@ -119,10 +127,13 @@ struct TriBVH {
 
         // Median-split on the longest axis of this node's own bounding box.
         let extent = hi - lo
-        let axis: Int = (extent.x >= extent.y && extent.x >= extent.z) ? 0 : (extent.y >= extent.z ? 1 : 2)
+        let axis: Int =
+            (extent.x >= extent.y && extent.x >= extent.z) ? 0 : (extent.y >= extent.z ? 1 : 2)
         func centroid(_ ti: Int) -> Double {
             let (a, b, c) = triangles[ti]
-            let pa = vertices[Int(a)], pb = vertices[Int(b)], pc = vertices[Int(c)]
+            let pa = vertices[Int(a)]
+            let pb = vertices[Int(b)]
+            let pc = vertices[Int(c)]
             return ((pa + pb + pc) / 3)[axis]
         }
         let sortedSlice = order[range].sorted { centroid($0) < centroid($1) }
@@ -131,8 +142,12 @@ struct TriBVH {
         }
 
         let mid = range.lowerBound + range.count / 2
-        node.left = build(indices: &order, vertices: vertices, triangles: triangles, range: range.lowerBound..<mid)
-        node.right = build(indices: &order, vertices: vertices, triangles: triangles, range: mid..<range.upperBound)
+        node.left = build(
+            indices: &order, vertices: vertices, triangles: triangles, range: range.lowerBound..<mid
+        )
+        node.right = build(
+            indices: &order, vertices: vertices, triangles: triangles, range: mid..<range.upperBound
+        )
         return node
     }
 
@@ -140,7 +155,9 @@ struct TriBVH {
 
     /// Nearest ray-triangle hit along `direction` (should be unit-length so
     /// `t`/`point` behave as documented) from `origin`, with `t` in
-    /// `(tMin, tMax]`. No back-face culling — a thickness ray must hit the
+    /// `(tMin, tMax]`.
+    ///
+    /// No back-face culling: a thickness ray must hit the
     /// interior surface it's cast toward regardless of that triangle's
     /// winding.
     func firstHit(
@@ -161,10 +178,12 @@ struct TriBVH {
         bestT: inout Double, best: inout Hit?,
         vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)]
     ) {
-        guard rayIntersectsAABB(
-            origin: origin, direction: direction,
-            boundsMin: node.boundsMin, boundsMax: node.boundsMax, tMin: tMin, tMax: bestT
-        ) else { return }
+        guard
+            rayIntersectsAABB(
+                origin: origin, direction: direction,
+                boundsMin: node.boundsMin, boundsMax: node.boundsMax, tMin: tMin, tMax: bestT
+            )
+        else { return }
 
         if node.isLeaf {
             for ti in node.triangleIndices {
@@ -181,10 +200,14 @@ struct TriBVH {
             return
         }
         if let l = node.left {
-            traverse(l, origin: origin, direction: direction, tMin: tMin, bestT: &bestT, best: &best, vertices: vertices, triangles: triangles)
+            traverse(
+                l, origin: origin, direction: direction, tMin: tMin, bestT: &bestT, best: &best,
+                vertices: vertices, triangles: triangles)
         }
         if let r = node.right {
-            traverse(r, origin: origin, direction: direction, tMin: tMin, bestT: &bestT, best: &best, vertices: vertices, triangles: triangles)
+            traverse(
+                r, origin: origin, direction: direction, tMin: tMin, bestT: &bestT, best: &best,
+                vertices: vertices, triangles: triangles)
         }
     }
 
@@ -204,26 +227,32 @@ struct TriBVH {
     func nearestTriangle(to p: SIMD3<Double>) -> NearestHit? {
         var bestDist = Double.infinity
         var best: NearestHit? = nil
-        TriBVH.nearestTraverse(root, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+        TriBVH.nearestTraverse(
+            root, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
         return best
     }
 
     /// The exact `k` nearest triangles (by point-to-triangle distance) to
-    /// `p`, sorted nearest-first. Rank 1 is always identical to
+    /// `p`, sorted nearest-first.
+    ///
+    /// Rank 1 is always identical to
     /// `nearestTriangle(to:)` regardless of `k`: both are exact, `k` only
     /// controls how many of the close-but-not-closest candidates come back,
     /// which is what a correspondence gate (normal compatibility, tie-band
     /// disagreement) needs beyond the single winner.
     func kNearestTriangles(to p: SIMD3<Double>, k: Int) -> [NearestHit] {
         guard k > 0 else { return [] }
-        var heap: [NearestHit] = []   // kept sorted ascending by distance, capped at k
+        var heap: [NearestHit] = []  // kept sorted ascending by distance, capped at k
         heap.reserveCapacity(k)
-        TriBVH.kNearestTraverse(root, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
+        TriBVH.kNearestTraverse(
+            root, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
         return heap
     }
 
     /// Squared distance from `p` to its closest point INSIDE the box
-    /// `[boundsMin, boundsMax]` (0 if `p` is inside). An admissible lower
+    /// `[boundsMin, boundsMax]` (0 if `p` is inside).
+    ///
+    /// An admissible lower
     /// bound on the distance from `p` to anything the box contains, which is
     /// what makes pruning by it exact rather than heuristic.
     private static func pointAABBDistanceSquared(
@@ -238,12 +267,16 @@ struct TriBVH {
         _ node: Node, p: SIMD3<Double>, bestDist: inout Double, best: inout NearestHit?,
         vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)]
     ) {
-        guard pointAABBDistanceSquared(p, boundsMin: node.boundsMin, boundsMax: node.boundsMax) <= bestDist * bestDist else { return }
+        guard
+            pointAABBDistanceSquared(p, boundsMin: node.boundsMin, boundsMax: node.boundsMax)
+                <= bestDist * bestDist
+        else { return }
 
         if node.isLeaf {
             for ti in node.triangleIndices {
                 let (a, b, c) = triangles[ti]
-                let cp = DeviationTools.closestPointOnTriangle(p, vertices[Int(a)], vertices[Int(b)], vertices[Int(c)])
+                let cp = DeviationTools.closestPointOnTriangle(
+                    p, vertices[Int(a)], vertices[Int(b)], vertices[Int(c)])
                 let d = simd_length(p - cp)
                 guard d.isFinite, d < bestDist else { continue }
                 bestDist = d
@@ -253,7 +286,9 @@ struct TriBVH {
         }
         guard let l = node.left, let r = node.right else {
             if let only = node.left ?? node.right {
-                nearestTraverse(only, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+                nearestTraverse(
+                    only, p: p, bestDist: &bestDist, best: &best, vertices: vertices,
+                    triangles: triangles)
             }
             return
         }
@@ -262,11 +297,15 @@ struct TriBVH {
         let ld = pointAABBDistanceSquared(p, boundsMin: l.boundsMin, boundsMax: l.boundsMax)
         let rd = pointAABBDistanceSquared(p, boundsMin: r.boundsMin, boundsMax: r.boundsMax)
         if ld <= rd {
-            nearestTraverse(l, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
-            nearestTraverse(r, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+            nearestTraverse(
+                l, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+            nearestTraverse(
+                r, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
         } else {
-            nearestTraverse(r, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
-            nearestTraverse(l, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+            nearestTraverse(
+                r, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
+            nearestTraverse(
+                l, p: p, bestDist: &bestDist, best: &best, vertices: vertices, triangles: triangles)
         }
     }
 
@@ -274,13 +313,17 @@ struct TriBVH {
         _ node: Node, p: SIMD3<Double>, k: Int, heap: inout [NearestHit],
         vertices: [SIMD3<Double>], triangles: [(UInt32, UInt32, UInt32)]
     ) {
-        let boxDist2 = pointAABBDistanceSquared(p, boundsMin: node.boundsMin, boundsMax: node.boundsMax)
-        if heap.count >= k, let worst = heap.last, boxDist2 > worst.distance * worst.distance { return }
+        let boxDist2 = pointAABBDistanceSquared(
+            p, boundsMin: node.boundsMin, boundsMax: node.boundsMax)
+        if heap.count >= k, let worst = heap.last, boxDist2 > worst.distance * worst.distance {
+            return
+        }
 
         if node.isLeaf {
             for ti in node.triangleIndices {
                 let (a, b, c) = triangles[ti]
-                let cp = DeviationTools.closestPointOnTriangle(p, vertices[Int(a)], vertices[Int(b)], vertices[Int(c)])
+                let cp = DeviationTools.closestPointOnTriangle(
+                    p, vertices[Int(a)], vertices[Int(b)], vertices[Int(c)])
                 let d = simd_length(p - cp)
                 guard d.isFinite else { continue }
                 if heap.count < k {
@@ -296,7 +339,8 @@ struct TriBVH {
         }
         guard let l = node.left, let r = node.right else {
             if let only = node.left ?? node.right {
-                kNearestTraverse(only, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
+                kNearestTraverse(
+                    only, p: p, k: k, heap: &heap, vertices: vertices, triangles: triangles)
             }
             return
         }
@@ -318,7 +362,8 @@ struct TriBVH {
         origin: SIMD3<Double>, direction: SIMD3<Double>,
         boundsMin: SIMD3<Double>, boundsMax: SIMD3<Double>, tMin: Double, tMax: Double
     ) -> Bool {
-        var t0 = tMin, t1 = tMax
+        var t0 = tMin
+        var t1 = tMax
         for axis in 0..<3 {
             let d = direction[axis]
             let invD = d != 0 ? 1.0 / d : (d >= 0 ? Double.infinity : -Double.infinity)
@@ -334,12 +379,14 @@ struct TriBVH {
         return true
     }
 
-    /// Möller–Trumbore ray-triangle intersection. Returns `t` (along
+    /// Möller–Trumbore ray-triangle intersection.
+    ///
+    /// Returns `t` (along
     /// `direction`, which the caller is responsible for normalising if it
     /// wants `t` to read as a true distance) when the hit lands within
     /// `[tMin, tMax]` and inside the triangle (with a small epsilon on the
     /// barycentric bounds to admit edge-on hits), else `nil`. A degenerate
-    /// (zero-area) triangle drives `det` to ~0 and is safely rejected —
+    /// (zero-area) triangle drives `det` to ~0 and is safely rejected;
     /// never reports a phantom hit.
     static func rayTriangle(
         origin: SIMD3<Double>, direction: SIMD3<Double>,
@@ -347,7 +394,8 @@ struct TriBVH {
         tMin: Double, tMax: Double
     ) -> Double? {
         let eps = 1e-12
-        let e1 = b - a, e2 = c - a
+        let e1 = b - a
+        let e2 = c - a
         let pvec = simd_cross(direction, e2)
         let det = simd_dot(e1, pvec)
         guard abs(det) > eps else { return nil }

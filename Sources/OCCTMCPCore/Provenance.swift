@@ -1,4 +1,4 @@
-// Provenance — `<output_dir>/provenance.json` sidecar that records how
+// Provenance: `<output_dir>/provenance.json` sidecar that records how
 // derived bodies were created from source bodies. Currently populated
 // only by `mirror_or_pattern` so `find_correspondences` can default
 // `transformHint` from the manifest when the LLM omits it.
@@ -29,14 +29,14 @@ public struct ProvenanceRecord: Codable, Sendable {
 
 /// Actor-isolated (#157): every mutating method used to be a plain
 /// read-modify-write cycle against `provenance.json` on a `Sendable`
-/// struct constructed fresh per call, which serializes NOTHING — two
+/// struct constructed fresh per call, which serializes NOTHING; two
 /// concurrent calls (e.g. `remove_body` racing a `mirror_or_pattern` call
 /// writing a different body's record) could both read the same starting
 /// state and silently lose whichever write happened first. Wrapping the
 /// struct in an actor alone would NOT have fixed this: a fresh instance
 /// per call has no shared isolation domain with any other fresh instance.
 /// The fix is the same shape `SelectionRegistry`/`ZoneRegistry` already
-/// use for this exact problem — one process-wide `shared` instance that
+/// use for this exact problem: one process-wide `shared` instance that
 /// every call site goes through, so the read-modify-write cycle actually
 /// serializes.
 ///
@@ -59,20 +59,25 @@ public actor ProvenanceStore {
         "\(outputDir)/provenance.json"
     }
 
-    /// Whole-file read. Returns an empty dictionary when the sidecar
-    /// doesn't exist yet — callers don't need to distinguish "no
+    /// Whole-file read.
+    ///
+    /// Returns an empty dictionary when the sidecar
+    /// doesn't exist yet; callers don't need to distinguish "no
     /// provenance recorded for this body" from "no sidecar at all".
     public func read(outputDir: String) -> [String: ProvenanceRecord] {
         let filePath = path(outputDir: outputDir)
         guard FileManager.default.fileExists(atPath: filePath),
-              let data = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
+            let data = try? Data(contentsOf: URL(fileURLWithPath: filePath))
+        else {
             return [:]
         }
         return (try? JSONDecoder().decode([String: ProvenanceRecord].self, from: data)) ?? [:]
     }
 
     /// Merge `record` for `bodyId` into the sidecar, replacing any
-    /// prior entry under the same id. Atomic write so partial state
+    /// prior entry under the same id.
+    ///
+    /// Atomic write so partial state
     /// can never be observed; actor isolation is what makes the
     /// read-modify-write cycle around that write atomic too.
     public func upsert(bodyId: String, record: ProvenanceRecord, outputDir: String) {
@@ -84,7 +89,9 @@ public actor ProvenanceStore {
         try? data.write(to: URL(fileURLWithPath: path(outputDir: outputDir)), options: .atomic)
     }
 
-    /// Drop `bodyId`'s record. No-op if not present. Used by the
+    /// Drop the record for `bodyId`.
+    ///
+    /// No-op if not present. Used by the
     /// scene-mutation tools that delete bodies.
     public func remove(bodyId: String, outputDir: String) {
         var current = read(outputDir: outputDir)
@@ -95,8 +102,10 @@ public actor ProvenanceStore {
         try? data.write(to: URL(fileURLWithPath: path(outputDir: outputDir)), options: .atomic)
     }
 
-    /// Wipe every record. Used by `clear_scene`, which removes every
-    /// body in the scene at once — cheaper than removing each id
+    /// Wipe every record.
+    ///
+    /// Used by `clear_scene`, which removes every
+    /// body in the scene at once: cheaper than removing each id
     /// individually, and correct since none of them survive.
     public func clear(outputDir: String) {
         try? FileManager.default.removeItem(atPath: path(outputDir: outputDir))

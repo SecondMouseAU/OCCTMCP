@@ -1,12 +1,12 @@
-// EngineeringTools — wall-thickness analysis and other engineering
+// EngineeringTools: wall-thickness analysis and other engineering
 // inspection algorithms that need to live in OCCTMCP itself rather than
 // in OCCTSwift's primitives. Each tool is a direct port of the
 // equivalent occtkit verb.
 
 import Foundation
-import simd
 import OCCTSwift
 import ScriptHarness
+import simd
 
 public enum EngineeringTools {
 
@@ -18,7 +18,7 @@ public enum EngineeringTools {
             switch self {
             case .coarse: return 4
             case .medium: return 8
-            case .fine:   return 16
+            case .fine: return 16
             }
         }
     }
@@ -37,7 +37,9 @@ public enum EngineeringTools {
         }
     }
 
-    /// Wall-thickness analysis. For each face, sample on a UV grid; for
+    /// Wall-thickness analysis.
+    ///
+    /// For each face, sample on a UV grid; for
     /// each sample cast a ray inward (along -normal) and record the
     /// distance to the nearest opposite-side hit. Aggregate min / max /
     /// mean and surface samples below `minAcceptable` as `thinRegions`.
@@ -72,37 +74,43 @@ public enum EngineeringTools {
                     let u = uv.uMin + (uv.uMax - uv.uMin) * Double(i) / denom
                     let v = uv.vMin + (uv.vMax - uv.vMin) * Double(j) / denom
                     guard let point = face.point(atU: u, v: v),
-                          let normal = face.normal(atU: u, v: v) else { continue }
+                        let normal = face.normal(atU: u, v: v)
+                    else { continue }
                     let n = simd_normalize(normal)
                     let inward = -n
                     let rayOrigin = point + eps * inward
                     let hits = shape.intersectLine(origin: rayOrigin, direction: inward)
-                    guard let nearest = hits
-                        .map(\.parameter)
-                        .filter({ $0 > 0 })
-                        .min() else { continue }
+                    guard
+                        let nearest =
+                            hits
+                            .map(\.parameter)
+                            .filter({ $0 > 0 })
+                            .min()
+                    else { continue }
                     let thickness = nearest
                     sampled += 1
                     sum += thickness
                     if thickness < minT { minT = thickness }
                     if thickness > maxT { maxT = thickness }
                     if let limit = minAcceptable, thickness < limit {
-                        thinRegions.append(.init(
-                            centerPoint: [point.x, point.y, point.z],
-                            thickness: thickness,
-                            faceRefs: ["face[\(faceIndex)]"]
-                        ))
+                        thinRegions.append(
+                            .init(
+                                centerPoint: [point.x, point.y, point.z],
+                                thickness: thickness,
+                                faceRefs: ["face[\(faceIndex)]"]
+                            ))
                     }
                 }
             }
         }
 
-        return IntrospectionTools.encode(ThicknessReport(
-            minThickness: sampled > 0 ? minT : nil,
-            maxThickness: sampled > 0 ? maxT : nil,
-            meanThickness: sampled > 0 ? sum / Double(sampled) : nil,
-            thinRegions: thinRegions,
-            samples: sampled
-        ))
+        return IntrospectionTools.encode(
+            ThicknessReport(
+                minThickness: sampled > 0 ? minT : nil,
+                maxThickness: sampled > 0 ? maxT : nil,
+                meanThickness: sampled > 0 ? sum / Double(sampled) : nil,
+                thinRegions: thinRegions,
+                samples: sampled
+            ))
     }
 }

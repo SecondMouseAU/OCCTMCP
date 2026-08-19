@@ -1,9 +1,9 @@
-// CoreTools — get_scene, get_script, export_model, get_api_reference.
+// CoreTools: get_scene, get_script, export_model, get_api_reference.
 // Pure file-system / process-state operations that don't need OCCTSwift.
 //
 // get_api_reference's `mcp_tools` category is supplied by Server.swift
 // (it needs the live tool registry); the OCCT API categories will be
-// regenerated from OCCTSwift sources in a follow-up — for v1 the tool
+// regenerated from OCCTSwift sources in a follow-up: for v1 the tool
 // returns a pointer to the OCCTSwift docs.
 
 import Foundation
@@ -42,7 +42,8 @@ public enum CoreTools {
         } else {
             summary = "{}"
         }
-        return .init("Current scene:\n\(summary)\n\nOutput files: \(files.sorted().joined(separator: ", "))")
+        return .init(
+            "Current scene:\n\(summary)\n\nOutput files: \(files.sorted().joined(separator: ", "))")
     }
 
     // ── get_script ─────────────────────────────────────────────────────
@@ -64,8 +65,11 @@ public enum CoreTools {
             return .init("No output directory found. Run execute_script first.")
         }
         let allFiles = (try? FileManager.default.contentsOfDirectory(atPath: outputDir)) ?? []
-        let exts: Set<String> = ["step", "stp", "brep", "stl", "obj", "json", "iges", "igs", "gltf", "glb"]
-        let modelFiles = allFiles
+        let exts: Set<String> = [
+            "step", "stp", "brep", "stl", "obj", "json", "iges", "igs", "gltf", "glb",
+        ]
+        let modelFiles =
+            allFiles
             .filter { exts.contains(($0 as NSString).pathExtension.lowercased()) }
             .sorted()
         if modelFiles.isEmpty {

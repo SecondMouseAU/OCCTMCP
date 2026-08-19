@@ -36,8 +36,8 @@
 // mistake and is now fixed the same way. Two-hop (and longer) chains absorb correctly.
 
 import Foundation
-import simd
 import OCCTSwift
+import simd
 
 public enum HistoryRegistryError: Error, CustomStringConvertible {
     case graphBuildFailed(bodyId: String)
@@ -54,8 +54,9 @@ public actor HistoryRegistry {
     public static let shared = HistoryRegistry()
 
     /// mtime + size snapshot of a body's BREP file, used to detect out-of-band rewrites
-    /// (execute_script, manual edits) between calls. Not a content hash: a heuristic guard, same
-    /// spirit as an ETag.
+    /// (execute_script, manual edits) between calls.
+    ///
+    /// Not a content hash: a heuristic guard, same spirit as an ETag.
     struct FileFingerprint: Equatable {
         let mtime: TimeInterval
         let size: Int64
@@ -84,31 +85,38 @@ public actor HistoryRegistry {
         return entries.count
     }
 
-    /// Lookup used by RemapTools' primary history rung. Unchanged contract from the pre-retention
-    /// design, now backed by the retained lineage instead of a disposable per-call graph, so it
-    /// sees history from every hop committed so far, not just the most recent one.
+    /// Lookup used by RemapTools' primary history rung.
+    ///
+    /// Unchanged contract from the pre-retention design, now backed by the retained lineage
+    /// instead of a disposable per-call graph, so it sees history from every hop committed so
+    /// far, not just the most recent one.
     public func graph(for bodyId: String) -> BRepGraph? {
         return entries[bodyId]?.graph
     }
 
-    /// The retained graph's `instanceID` for `bodyId`, if any. Diagnostic and test-only: proves
-    /// "one graph across mutations" by staying constant across a multi-hop chain.
+    /// The retained graph's `instanceID` for `bodyId`, if any.
+    ///
+    /// Diagnostic and test-only: proves "one graph across mutations" by staying constant across
+    /// a multi-hop chain.
     public func instanceID(for bodyId: String) -> UInt64? {
         return entries[bodyId]?.graph.instanceID
     }
 
     private static func fingerprint(atPath path: String) -> FileFingerprint? {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else {
+            return nil
+        }
         guard let date = attrs[.modificationDate] as? Date else { return nil }
         let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
         return FileFingerprint(mtime: date.timeIntervalSince1970, size: size)
     }
 
-    /// Resolve the Shape + retained graph to mutate for `bodyId` at `path`. Re-stats `path` (no
-    /// content read) and compares against the cached fingerprint: a match returns the cached
-    /// liveShape/graph/root with no disk I/O at all. Any mismatch (no entry yet, or the file
-    /// changed out from under the registry) loads fresh from disk and starts a brand-new graph,
-    /// caching it under `bodyId` before returning.
+    /// Resolve the Shape + retained graph to mutate for `bodyId` at `path`.
+    ///
+    /// Re-stats `path` (no content read) and compares against the cached fingerprint: a match
+    /// returns the cached liveShape/graph/root with no disk I/O at all. Any mismatch (no entry
+    /// yet, or the file changed out from under the registry) loads fresh from disk and starts a
+    /// brand-new graph, caching it under `bodyId` before returning.
     @discardableResult
     public func currentInput(
         bodyId: String,
@@ -120,7 +128,8 @@ public actor HistoryRegistry {
         }
         let shape = try Shape.loadBREP(fromPath: path)
         guard let graph = BRepGraph(shape: shape),
-              let root = Self.trackableRoot(for: shape, in: graph) else {
+            let root = Self.trackableRoot(for: shape, in: graph)
+        else {
             throw HistoryRegistryError.graphBuildFailed(bodyId: bodyId)
         }
         entries[bodyId] = LineageEntry(
@@ -139,7 +148,9 @@ public actor HistoryRegistry {
     /// change's development), so a NodeRef pointing at one can't be fed back in as a LATER add()
     /// call's `inputRoots`: the absorb runs, `add()` itself returns non-nil, but
     /// `historyRecordCount` never grows, a silent no-op that looks identical to "genuinely nothing
-    /// changed" from the caller's side. Drill down to the wrapped solid whenever the resolved node
+    /// changed" from the caller's side.
+    ///
+    /// Drill down to the wrapped solid whenever the resolved node
     /// isn't already a trackable kind; falls back to the raw (untrackable) node only if no solid
     /// child can be found at all, which keeps `currentInput`/`commit` working (degrading later
     /// chained absorbs to generation resets) rather than failing outright.
@@ -151,19 +162,22 @@ public actor HistoryRegistry {
             return raw
         default:
             guard let solid = shape.subShapes(ofType: .solid).first,
-                  let solidNode = graph.findNode(for: solid) else {
+                let solidNode = graph.findNode(for: solid)
+            else {
                 return raw
             }
             return BRepGraph.NodeRef(kind: solidNode.kind, index: solidNode.index)
         }
     }
 
-    /// Absorb `ref` into `graph` (mutates it in place) WITHOUT touching the registry. Used for the
+    /// Absorb `ref` into `graph` (mutates it in place) WITHOUT touching the registry.
+    ///
+    /// Used for the
     /// side of a shared-graph mutation whose own on-disk file is unchanged, e.g. the b-side of a
     /// two-input boolean, so its entry's liveShape/fingerprint never gets overwritten with the
     /// other side's output. Returns the added result's topology-root node (re-resolved via
-    /// `trackableRoot`, not `add()`'s raw return value; see that function's doc), or nil if the
-    /// add failed or absorbed zero records (the TShape-identity gap, see file header).
+    /// `trackableRoot`, not the raw return value from `add()`; see that function's doc), or nil
+    /// if the add failed or absorbed zero records (the TShape-identity gap, see file header).
     @discardableResult
     public func absorb(
         into graph: BRepGraph,
@@ -173,15 +187,20 @@ public actor HistoryRegistry {
         operationName: String
     ) -> BRepGraph.NodeRef? {
         let before = graph.historyRecordCount
-        guard graph.add(output, absorbing: ref, inputRoots: [root], operationName: operationName) != nil,
-              graph.historyRecordCount > before else {
+        guard
+            graph.add(output, absorbing: ref, inputRoots: [root], operationName: operationName)
+                != nil,
+            graph.historyRecordCount > before
+        else {
             return nil
         }
         return Self.trackableRoot(for: output, in: graph)
     }
 
-    /// Commit a mutation's output as `bodyId`'s new lineage state: the file at `path` now
-    /// contains `output`. Only call this for the body whose file was actually (over)written; a
+    /// Commit a mutation's output as the new lineage state for `bodyId`: the file at `path` now
+    /// contains `output`.
+    ///
+    /// Only call this for the body whose file was actually (over)written; a
     /// body sharing the same graph object but whose own file is unchanged should use `absorb`
     /// instead (see `recordBooleanHistory`).
     ///
@@ -202,17 +221,23 @@ public actor HistoryRegistry {
         let fp = Self.fingerprint(atPath: path) ?? FileFingerprint(mtime: 0, size: 0)
 
         if let ref, let prior,
-           let newRoot = absorb(into: prior.graph, root: prior.root, output: output, ref: ref, operationName: operationName) {
-            entries[bodyId] = LineageEntry(graph: prior.graph, liveShape: output, root: newRoot, fingerprint: fp)
+            let newRoot = absorb(
+                into: prior.graph, root: prior.root, output: output, ref: ref,
+                operationName: operationName)
+        {
+            entries[bodyId] = LineageEntry(
+                graph: prior.graph, liveShape: output, root: newRoot, fingerprint: fp)
             return true
         }
 
         guard let freshGraph = BRepGraph(shape: output),
-              let root = Self.trackableRoot(for: output, in: freshGraph) else {
+            let root = Self.trackableRoot(for: output, in: freshGraph)
+        else {
             entries.removeValue(forKey: bodyId)
             return false
         }
-        entries[bodyId] = LineageEntry(graph: freshGraph, liveShape: output, root: root, fingerprint: fp)
+        entries[bodyId] = LineageEntry(
+            graph: freshGraph, liveShape: output, root: root, fingerprint: fp)
         return false
     }
 
@@ -248,7 +273,11 @@ extension HistoryRegistry {
         ref: ShapeHistoryRef,
         operationName: String
     ) -> Bool {
-        absorb(into: bLineage.graph, root: bLineage.root, output: output, ref: ref, operationName: operationName)
-        return commit(bodyId: outId, path: outputPath, output: output, ref: ref, from: aLineage, operationName: operationName)
+        absorb(
+            into: bLineage.graph, root: bLineage.root, output: output, ref: ref,
+            operationName: operationName)
+        return commit(
+            bodyId: outId, path: outputPath, output: output, ref: ref, from: aLineage,
+            operationName: operationName)
     }
 }

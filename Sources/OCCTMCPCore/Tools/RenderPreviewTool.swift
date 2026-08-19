@@ -1,17 +1,17 @@
-// RenderPreviewTool — render_preview wired against the post-split Tools
+// RenderPreviewTool: render_preview wired against the post-split Tools
 // + Viewport stack. Loads each scene body's BREP, converts to
 // ViewportBody via OCCTSwiftTools' shapeToBodyAndMetadata, then runs
 // OCCTSwiftViewport's OffscreenRenderer.renderToPNG.
 //
-// Headless-safe on macOS — OffscreenRenderer creates its own MTLDevice
+// Headless-safe on macOS: OffscreenRenderer creates its own MTLDevice
 // and renders into an offscreen MTLTexture. No window/display required.
 
 import Foundation
-import simd
 import OCCTSwift
 import OCCTSwiftTools
 import OCCTSwiftViewport
 import ScriptHarness
+import simd
 
 public enum RenderPreviewTool {
 
@@ -26,8 +26,10 @@ public enum RenderPreviewTool {
         public var background: BackgroundSpec
         /// Read `<output_dir>/annotations.json` and overlay the
         /// supported primitive kinds (Trihedron / WorkPlane / Axis /
-        /// BoundingBox / DiffMarker). Default true. Dimensions and
-        /// PointClouds are silently skipped in v0.5 — no text rendering
+        /// BoundingBox / DiffMarker).
+        ///
+        /// Default true. Dimensions and
+        /// PointClouds are silently skipped in v0.5: no text rendering
         /// path on OffscreenRenderer yet.
         public var renderAnnotations: Bool
         public init(
@@ -57,43 +59,50 @@ public enum RenderPreviewTool {
         case iso, front, back, top, bottom, left, right
         var standardView: StandardView {
             switch self {
-            case .iso:    return .isometricFrontRight
-            case .front:  return .front
-            case .back:   return .back
-            case .top:    return .top
+            case .iso: return .isometricFrontRight
+            case .front: return .front
+            case .back: return .back
+            case .top: return .top
             case .bottom: return .bottom
-            case .left:   return .left
-            case .right:  return .right
+            case .left: return .left
+            case .right: return .right
             }
         }
     }
 
     public enum BackgroundSpec {
-        case light, dark, transparent, hex(String)
+        case light
+        case dark
+        case transparent
+        case hex(String)
         var color: SIMD4<Float> {
             switch self {
-            case .light:        return SIMD4(0.95, 0.95, 0.95, 1)
-            case .dark:         return SIMD4(0.10, 0.10, 0.12, 1)
-            case .transparent:  return SIMD4(0, 0, 0, 0)
-            case .hex(let s):   return Self.parseHex(s) ?? SIMD4(0.95, 0.95, 0.95, 1)
+            case .light: return SIMD4(0.95, 0.95, 0.95, 1)
+            case .dark: return SIMD4(0.10, 0.10, 0.12, 1)
+            case .transparent: return SIMD4(0, 0, 0, 0)
+            case .hex(let s): return Self.parseHex(s) ?? SIMD4(0.95, 0.95, 0.95, 1)
             }
         }
         static func parseHex(_ s: String) -> SIMD4<Float>? {
             var trimmed = s
             if trimmed.hasPrefix("#") { trimmed.removeFirst() }
             guard trimmed.count == 6 || trimmed.count == 8,
-                  let raw = UInt64(trimmed, radix: 16) else { return nil }
-            let r, g, b, a: Float
+                let raw = UInt64(trimmed, radix: 16)
+            else { return nil }
+            let r: Float
+            let g: Float
+            let b: Float
+            let a: Float
             if trimmed.count == 6 {
                 r = Float((raw >> 16) & 0xFF) / 255
-                g = Float((raw >> 8)  & 0xFF) / 255
-                b = Float(raw         & 0xFF) / 255
+                g = Float((raw >> 8) & 0xFF) / 255
+                b = Float(raw & 0xFF) / 255
                 a = 1
             } else {
                 r = Float((raw >> 24) & 0xFF) / 255
                 g = Float((raw >> 16) & 0xFF) / 255
-                b = Float((raw >> 8)  & 0xFF) / 255
-                a = Float(raw         & 0xFF) / 255
+                b = Float((raw >> 8) & 0xFF) / 255
+                a = Float(raw & 0xFF) / 255
             }
             return SIMD4(r, g, b, a)
         }
@@ -167,7 +176,8 @@ public enum RenderPreviewTool {
         }
 
         guard let renderer = OffscreenRenderer() else {
-            return .init("OffscreenRenderer init failed (no Metal device available).", isError: true)
+            return .init(
+                "OffscreenRenderer init failed (no Metal device available).", isError: true)
         }
 
         var renderOptions = OffscreenRenderOptions(
@@ -185,12 +195,14 @@ public enum RenderPreviewTool {
         )
         do {
             let size = try renderer.renderToPNG(bodies: bodies, url: url, options: renderOptions)
-            return IntrospectionTools.encode(PreviewReport(
-                outputPath: outputPath,
-                width: options.width,
-                height: options.height,
-                mimeType: "image/png"
-            )).also(extra: "\nFile size: \(size) bytes")
+            return IntrospectionTools.encode(
+                PreviewReport(
+                    outputPath: outputPath,
+                    width: options.width,
+                    height: options.height,
+                    mimeType: "image/png"
+                )
+            ).also(extra: "\nFile size: \(size) bytes")
         } catch {
             return .init("Render failed: \(error.localizedDescription)", isError: true)
         }
@@ -198,9 +210,11 @@ public enum RenderPreviewTool {
 
     // MARK: - Shape → ViewportBody (mesh-scale guard, #75)
 
-    /// Above this many edges, `shapeToBodyAndMetadata`'s full B-rep extraction
-    /// is skipped in favour of `meshDirectBody`. Historically this guarded an
-    /// O(edges²) hang (#75) — since OCCTSwift 1.10.0 / OCCTSwiftTools 1.3.1
+    /// Above this many edges, the full B-rep extraction in
+    /// `shapeToBodyAndMetadata` is skipped in favour of `meshDirectBody`.
+    ///
+    /// Historically this guarded an
+    /// O(edges²) hang (#75); since OCCTSwift 1.10.0 / OCCTSwiftTools 1.3.1
     /// both paths are linear (OCCTSwift#275), so the threshold now guards
     /// weight, not correctness: a mesh import (StlAPI_Reader = one face per
     /// facet; a 442k-tri scan is ~1.3M edges) would still pay for per-segment
@@ -209,17 +223,20 @@ public enum RenderPreviewTool {
     static let meshDirectEdgeThreshold = 10_000
 
     /// Above this many edges, `meshDirectBody` omits edge overlays outright.
+    ///
     /// Below it they come from OCCTSwift ≥1.9.0's bulk `allEdgePolylines`
-    /// (O(edges), OCCTSwift#275 — ~0.02s at 12k edges), so mid-size mesh
+    /// (O(edges), OCCTSwift#275: ~0.02s at 12k edges), so mid-size mesh
     /// imports keep their wireframe; past it, hundreds of thousands of facet
     /// edges are wireframe noise and pure memory churn.
     static let edgeOverlayCap = 100_000
 
     /// Bridge a scene shape to a renderable body, routing mesh-scale shapes
     /// (edge count above `meshDirectEdgeThreshold`) around Tools'
-    /// O(edges²) B-rep edge/vertex extraction. Mesh-scale bodies up to
+    /// O(edges²) B-rep edge/vertex extraction.
+    ///
+    /// Mesh-scale bodies up to
     /// `edgeOverlayCap` edges keep edge overlays via the linear bulk API
-    /// (dense — no per-edge pick identity, which render/raycast never used);
+    /// (dense, no per-edge pick identity, which render/raycast never used);
     /// beyond the cap they render surface-only.
     static func viewportBody(
         for shape: Shape, id: String, color: SIMD4<Float>,
@@ -228,10 +245,11 @@ public enum RenderPreviewTool {
     ) -> ViewportBody? {
         let edgeCount = shape.edgeCount
         if edgeCount > meshDirectEdgeThreshold {
-            return meshDirectBody(for: shape, id: id, color: color,
-                                  withEdgeOverlays: edgeCount <= edgeOverlayCap)
+            return meshDirectBody(
+                for: shape, id: id, color: color,
+                withEdgeOverlays: edgeCount <= edgeOverlayCap)
         }
-        // #76 step 3: B-rep bodies take Tools' direct-mesh bridge — OCCT's
+        // #76 step 3: B-rep bodies take Tools' direct-mesh bridge: OCCT's
         // per-vertex normals off a fine B-rep mesh are analytic-quality, so
         // skipping the interleave + NormalSmoothing pass changes nothing
         // visually and drops a full CPU copy per body. The one class that
@@ -244,10 +262,12 @@ public enum RenderPreviewTool {
         return vb
     }
 
-    /// Facet-shell heuristic for the sub-threshold path. Triangle soups sit at
+    /// Facet-shell heuristic for the sub-threshold path.
+    ///
+    /// Triangle soups sit at
     /// a distinctive edges-per-face ratio: ~1.5 sewn (each interior edge shared
     /// by two triangles), ~3.0 unsewn (nothing shared). Genuine B-reps at any
-    /// real face count live between — prismatic/quad-dominant faces ≈ 2.0–2.5.
+    /// real face count live between: prismatic/quad-dominant faces ≈ 2.0–2.5.
     /// Below 64 faces nothing is a scan; ratios there are meaningless (a
     /// cylinder is 3 faces / 3 edges) and analytic normals make direct safe.
     /// False positives are harmless: an interleaved body renders identically,
@@ -261,18 +281,22 @@ public enum RenderPreviewTool {
     /// Tessellation-only bridge: mesh the shape, interleave positions+normals,
     /// crease-smooth (welds the per-facet vertices STL faces don't share), and
     /// return a body whose edge overlays (when requested) come from the bulk
-    /// O(edges) `allEdgePolylines` instead of Tools' per-index loop. Linear in
+    /// O(edges) `allEdgePolylines` instead of Tools' per-index loop.
+    ///
+    /// Linear in
     /// triangle count.
     ///
     /// Deliberately NOT `ViewportBody.directMesh` (#76): the direct path uses
     /// normals verbatim, but a facet-per-face STL import needs the
-    /// `NormalSmoothing` pass here to shade smoothly — smoothing only runs on
+    /// `NormalSmoothing` pass here to shade smoothly: smoothing only runs on
     /// the interleaved layout.
     static func meshDirectBody(
         for shape: Shape, id: String, color: SIMD4<Float>,
         withEdgeOverlays: Bool = false
     ) -> ViewportBody? {
-        guard let mesh = shape.mesh(parameters: CADFileLoader.highQualityMeshParams) else { return nil }
+        guard let mesh = shape.mesh(parameters: CADFileLoader.highQualityMeshParams) else {
+            return nil
+        }
         let vertexCount = mesh.vertexCount
         let indices = mesh.indices
         guard vertexCount > 0, indices.count >= 3 else { return nil }
@@ -282,13 +306,14 @@ public enum RenderPreviewTool {
         var vertexData: [Float] = []
         vertexData.reserveCapacity(vertexCount * 6)
         for i in 0..<vertexCount {
-            let p = positions[i], n = normals[i]
+            let p = positions[i]
+            let n = normals[i]
             vertexData.append(contentsOf: [p.x, p.y, p.z, n.x, n.y, n.z])
         }
         NormalSmoothing.smoothNormals(vertexData: &vertexData, indices: indices)
 
         // Dense polylines suffice here: the offscreen renderer draws them and
-        // SceneRaycast picks triangles — nothing consumes per-edge indices.
+        // SceneRaycast picks triangles; nothing consumes per-edge indices.
         // 0.005 matches OCCTSwiftTools' defaultEdgeDeflection so the wireframe
         // reads the same as the sub-threshold Tools path.
         var edges: [[SIMD3<Float>]] = []
@@ -298,7 +323,7 @@ public enum RenderPreviewTool {
         }
 
         // `vertices` feeds combinedBoundsSphere (camera framing) and the CPU
-        // pick fallback — mesh positions serve both.
+        // pick fallback: mesh positions serve both.
         return ViewportBody(
             id: id, vertexData: vertexData, indices: indices, edges: edges,
             vertices: positions,
@@ -350,8 +375,8 @@ public enum RenderPreviewTool {
     }
 }
 
-private extension ToolText {
-    func also(extra: String) -> ToolText {
+extension ToolText {
+    fileprivate func also(extra: String) -> ToolText {
         return ToolText(self.text + extra, isError: self.isError)
     }
 }

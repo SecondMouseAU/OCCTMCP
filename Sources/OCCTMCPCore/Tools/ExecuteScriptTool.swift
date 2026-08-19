@@ -20,7 +20,9 @@ public enum ExecuteScriptTool {
 
     public static let buildTimeoutSeconds: TimeInterval = 300
 
-    /// Pin floor for OCCTSwiftScripts (provides ScriptHarness). MUST track
+    /// Pin floor for OCCTSwiftScripts (provides ScriptHarness).
+    ///
+    /// MUST track
     /// `Package.swift`'s OCCTSwiftScripts pin: they share the OCCTSwift
     /// cohort transitively, so divergence makes execute_script compile
     /// against a different (older) kernel than the server's own tools.
@@ -65,14 +67,18 @@ public enum ExecuteScriptTool {
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             if let data = try? encoder.encode(manifest),
-               let str = String(data: data, encoding: .utf8) {
+                let str = String(data: data, encoding: .utf8)
+            {
                 manifestSection = "\n\nManifest:\n\(str)"
             }
         }
         if runResult.exitCode == 0 {
-            let prefix = "Script executed successfully."
+            let prefix =
+                "Script executed successfully."
                 + (description.map { " (\($0))" } ?? "")
-            return .init("\(prefix)\n\nOutput:\n\(filtered.isEmpty ? "(no output)" : filtered)\(manifestSection)")
+            return .init(
+                "\(prefix)\n\nOutput:\n\(filtered.isEmpty ? "(no output)" : filtered)\(manifestSection)"
+            )
         }
         return .init("Script failed.\n\n\(filtered)", isError: true)
     }
@@ -87,27 +93,27 @@ public enum ExecuteScriptTool {
         )
         let packageURL = cacheDir.appendingPathComponent("Package.swift")
         let packageContent = """
-        // swift-tools-version: 6.0
-        import PackageDescription
+            // swift-tools-version: 6.0
+            import PackageDescription
 
-        let package = Package(
-            name: "OCCTMCPUserScript",
-            platforms: [.macOS(.v15)],
-            dependencies: [
-                .package(url: "https://github.com/SecondMouseAU/OCCTSwiftScripts.git", from: "\(scriptsPin)"),
-            ],
-            targets: [
-                .executableTarget(
-                    name: "Script",
-                    dependencies: [
-                        .product(name: "ScriptHarness", package: "OCCTSwiftScripts"),
-                    ],
-                    path: "Sources/Script",
-                    swiftSettings: [.swiftLanguageMode(.v6)]
-                ),
-            ]
-        )
-        """
+            let package = Package(
+                name: "OCCTMCPUserScript",
+                platforms: [.macOS(.v15)],
+                dependencies: [
+                    .package(url: "https://github.com/SecondMouseAU/OCCTSwiftScripts.git", from: "\(scriptsPin)"),
+                ],
+                targets: [
+                    .executableTarget(
+                        name: "Script",
+                        dependencies: [
+                            .product(name: "ScriptHarness", package: "OCCTSwiftScripts"),
+                        ],
+                        path: "Sources/Script",
+                        swiftSettings: [.swiftLanguageMode(.v6)]
+                    ),
+                ]
+            )
+            """
         // Only rewrite when the contents change so SPM's mtime-based
         // up-to-date checks aren't invalidated on every call.
         let existing = try? String(contentsOf: packageURL, encoding: .utf8)
@@ -145,8 +151,10 @@ public enum ExecuteScriptTool {
         }
         return try await runProcess(
             executable: "/usr/bin/swift",
-            args: ["run", "-c", "release", "--skip-build",
-                   "--package-path", cacheDir.path, "Script"]
+            args: [
+                "run", "-c", "release", "--skip-build",
+                "--package-path", cacheDir.path, "Script",
+            ]
         )
     }
 
@@ -193,8 +201,10 @@ public enum ExecuteScriptTool {
         )
     }
 
-    /// Reference-type accumulator for `drain(_:)`. `readabilityHandler`'s
-    /// dispatch source guarantees its event handler is never re-entered
+    /// Reference-type accumulator for `drain(_:)`.
+    ///
+    /// The dispatch source behind
+    /// `readabilityHandler` guarantees its event handler is never re-entered
     /// concurrently with itself, so mutating `data` across invocations is
     /// safe; it's boxed in a class (rather than a captured `var`) purely so
     /// the compiler's closure-Sendable check, which can't see that GCD
@@ -205,11 +215,13 @@ public enum ExecuteScriptTool {
 
     /// Reads a pipe's read end to EOF without blocking a Swift concurrency
     /// cooperative-pool thread for the wait (#147, see the call site comment
-    /// in `runProcess`). `readabilityHandler`'s dispatch source only invokes
-    /// the closure once the fd is actually readable, so `availableData` here
-    /// never blocks waiting on the child; it either returns already-buffered
-    /// bytes or (at EOF) empty data, at which point the handler is torn down
-    /// and the continuation resumes exactly once.
+    /// in `runProcess`).
+    ///
+    /// The dispatch source behind `readabilityHandler` only
+    /// invokes the closure once the fd is actually readable, so
+    /// `availableData` here never blocks waiting on the child; it either
+    /// returns already-buffered bytes or (at EOF) empty data, at which point
+    /// the handler is torn down and the continuation resumes exactly once.
     static func drain(_ handle: FileHandle) async -> Data {
         let box = DataBox()
         return await withCheckedContinuation { (continuation: CheckedContinuation<Data, Never>) in
@@ -228,7 +240,8 @@ public enum ExecuteScriptTool {
     // MARK: - Output filtering (mirrors src/tools.ts filterBuildOutput)
 
     static func filterBuildOutput(_ raw: String) -> String {
-        let kept = raw
+        let kept =
+            raw
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
             .filter { line in
@@ -253,7 +266,9 @@ public enum ExecuteScriptTool {
         // Pure line-number context like "  42 |"
         if line.range(of: #"^\s*\d+\s*\|\s*$"#, options: .regularExpression) != nil { return true }
         // Caret/note lines
-        if line.range(of: #"^\s*\|.*(?:warning|note):"#, options: .regularExpression) != nil { return true }
+        if line.range(of: #"^\s*\|.*(?:warning|note):"#, options: .regularExpression) != nil {
+            return true
+        }
         if line.range(of: #"^\s*\|\s*[`|]-"#, options: .regularExpression) != nil { return true }
         return false
     }
