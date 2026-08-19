@@ -19,16 +19,16 @@
 // would replace the heuristic for tools that participate.
 
 import Foundation
-import simd
 import OCCTSwift
 import ScriptHarness
+import simd
 
 public enum RemapTools {
 
     public struct RemapEntry: Encodable {
         public let originalSelectionId: String
         public let newSelectionIds: [String]
-        public let fate: String   // "preserved" | "approximate" | "lost"
+        public let fate: String  // "preserved" | "approximate" | "lost"
         public let confidenceMm: Double?  // distance from prior centroid
     }
 
@@ -59,12 +59,13 @@ public enum RemapTools {
         for (bodyId, ids) in byBody {
             guard let body = manifest.body(withId: bodyId) else {
                 for id in ids {
-                    remapped.append(.init(
-                        originalSelectionId: id,
-                        newSelectionIds: [],
-                        fate: "lost",
-                        confidenceMm: nil
-                    ))
+                    remapped.append(
+                        .init(
+                            originalSelectionId: id,
+                            newSelectionIds: [],
+                            fate: "lost",
+                            confidenceMm: nil
+                        ))
                 }
                 continue
             }
@@ -74,15 +75,17 @@ public enum RemapTools {
             // already do (OCCTSwift #943) rather than being matched against a
             // tolerance derived from a fabricated zero-size box.
             guard FileManager.default.fileExists(atPath: path),
-                  let shape = try? Shape.loadBREP(fromPath: path),
-                  let bb = shape.bounds else {
+                let shape = try? Shape.loadBREP(fromPath: path),
+                let bb = shape.bounds
+            else {
                 for id in ids {
-                    remapped.append(.init(
-                        originalSelectionId: id,
-                        newSelectionIds: [],
-                        fate: "lost",
-                        confidenceMm: nil
-                    ))
+                    remapped.append(
+                        .init(
+                            originalSelectionId: id,
+                            newSelectionIds: [],
+                            fate: "lost",
+                            confidenceMm: nil
+                        ))
                 }
                 continue
             }
@@ -102,12 +105,13 @@ public enum RemapTools {
 
             for id in ids {
                 guard let anchor = await registry.anchor(for: id) else {
-                    remapped.append(.init(
-                        originalSelectionId: id,
-                        newSelectionIds: [],
-                        fate: "lost",
-                        confidenceMm: nil
-                    ))
+                    remapped.append(
+                        .init(
+                            originalSelectionId: id,
+                            newSelectionIds: [],
+                            fate: "lost",
+                            confidenceMm: nil
+                        ))
                     continue
                 }
 
@@ -117,9 +121,12 @@ public enum RemapTools {
                 // resolve it against the retained lineage graph before
                 // falling back to the index-based rung.
                 if let graph = recordedGraph,
-                   let uid = await registry.graphUID(for: id),
-                   let entry = remapViaGraphUID(originalId: id, uid: uid, graph: graph, bodyId: bodyId) {
-                    await refreshAfterHistoryRemap(entry: entry, originalId: id, registry: registry, graph: graph)
+                    let uid = await registry.graphUID(for: id),
+                    let entry = remapViaGraphUID(
+                        originalId: id, uid: uid, graph: graph, bodyId: bodyId)
+                {
+                    await refreshAfterHistoryRemap(
+                        entry: entry, originalId: id, registry: registry, graph: graph)
                     remapped.append(entry)
                     continue
                 }
@@ -139,13 +146,15 @@ public enum RemapTools {
                 // regress `transform_body` remaps from `confidenceMm == 0`
                 // exact matches back down to rung 3's centroid heuristic.
                 if let graph = recordedGraph,
-                   let entry = remapViaHistory(
-                       originalId: id,
-                       anchor: anchor,
-                       graph: graph,
-                       bodyId: bodyId
-                   ) {
-                    await refreshAfterHistoryRemap(entry: entry, originalId: id, registry: registry, graph: graph)
+                    let entry = remapViaHistory(
+                        originalId: id,
+                        anchor: anchor,
+                        graph: graph,
+                        bodyId: bodyId
+                    )
+                {
+                    await refreshAfterHistoryRemap(
+                        entry: entry, originalId: id, registry: registry, graph: graph)
                     remapped.append(entry)
                     continue
                 }
@@ -169,7 +178,9 @@ public enum RemapTools {
         return IntrospectionTools.encode(RemapReport(remapped: remapped))
     }
 
-    /// History-based remap path. Mirrors the AIS InteractiveContext.remap
+    /// History-based remap path.
+    ///
+    /// Mirrors the AIS InteractiveContext.remap
     /// algorithm: BRepGraph.findDerivedOrSelf(of:) returns either
     /// the modification chain (touched nodes), [self] (untouched:
     /// either no record or implicit identity), or [] (explicitly
@@ -193,19 +204,26 @@ public enum RemapTools {
                 confidenceMm: 0
             )
         case .face(_, let idx):
-            kind = .face; originalIndex = idx
+            kind = .face
+            originalIndex = idx
         case .edge(_, let idx):
-            kind = .edge; originalIndex = idx
+            kind = .edge
+            originalIndex = idx
         case .vertex(_, let idx):
-            kind = .vertex; originalIndex = idx
+            kind = .vertex
+            originalIndex = idx
         }
-        return remapViaHistoryCore(originalId: originalId, kind: kind, originalIndex: originalIndex, graph: graph, bodyId: bodyId)
+        return remapViaHistoryCore(
+            originalId: originalId, kind: kind, originalIndex: originalIndex, graph: graph,
+            bodyId: bodyId)
     }
 
     /// GraphUID rung (#93): resolves the node address via `node(forUID:)`
     /// instead of trusting the selectionId's embedded literal index, so it
     /// still finds the right starting node even if the graph renumbered
-    /// indices between when the UID was minted and now. Returns nil (not
+    /// indices between when the UID was minted and now.
+    ///
+    /// Returns nil (not
     /// "lost") when the UID doesn't resolve against THIS graph at all,
     /// e.g. it was minted from a disposable graph, or a different graph
     /// instance entirely, deferring to the index-based rung rather than
@@ -217,16 +235,21 @@ public enum RemapTools {
         bodyId: String
     ) -> RemapEntry? {
         guard let resolved = graph.node(forUID: uid),
-              let kind = BRepGraph.NodeKind(rawValue: Int32(resolved.kind)) else {
+            let kind = BRepGraph.NodeKind(rawValue: Int32(resolved.kind))
+        else {
             return nil
         }
-        return remapViaHistoryCore(originalId: originalId, kind: kind, originalIndex: resolved.index, graph: graph, bodyId: bodyId)
+        return remapViaHistoryCore(
+            originalId: originalId, kind: kind, originalIndex: resolved.index, graph: graph,
+            bodyId: bodyId)
     }
 
     /// Shared history-walk core: given an already-resolved (kind, index)
     /// graph node address (from either the GraphUID rung or the anchor's
     /// embedded-index rung), walk `findDerivedOrSelf` and build the
-    /// resulting RemapEntry. Body-level picks never reach here: both
+    /// resulting RemapEntry.
+    ///
+    /// Body-level picks never reach here: both
     /// callers short-circuit those before resolving a node address.
     private static func remapViaHistoryCore(
         originalId: String,
@@ -237,10 +260,10 @@ public enum RemapTools {
     ) -> RemapEntry? {
         let kindCount: Int
         switch kind {
-        case .face:    kindCount = graph.faceCount
-        case .edge:    kindCount = graph.edgeCount
-        case .vertex:  kindCount = graph.vertexCount
-        default:       kindCount = 0
+        case .face: kindCount = graph.faceCount
+        case .edge: kindCount = graph.edgeCount
+        case .vertex: kindCount = graph.vertexCount
+        default: kindCount = 0
         }
         let derived = graph.findDerivedOrSelf(of: .init(kind: kind, index: originalIndex))
         if derived.isEmpty {
@@ -253,7 +276,8 @@ public enum RemapTools {
             )
         }
         // Filter to same-kind derivatives and clamp to the live graph.
-        let validIndices = derived
+        let validIndices =
+            derived
             .filter { $0.kind == kind && $0.index < kindCount }
             .map(\.index)
         if validIndices.isEmpty {
@@ -261,20 +285,21 @@ public enum RemapTools {
         }
         let newIds = validIndices.map { idx -> String in
             switch kind {
-            case .face:    return TopologyAnchor.face(bodyId: bodyId, index: idx).selectionId
-            case .edge:    return TopologyAnchor.edge(bodyId: bodyId, index: idx).selectionId
-            case .vertex:  return TopologyAnchor.vertex(bodyId: bodyId, index: idx).selectionId
-            default:       return ""
+            case .face: return TopologyAnchor.face(bodyId: bodyId, index: idx).selectionId
+            case .edge: return TopologyAnchor.edge(bodyId: bodyId, index: idx).selectionId
+            case .vertex: return TopologyAnchor.vertex(bodyId: bodyId, index: idx).selectionId
+            default: return ""
             }
         }
-        let fate: String = (validIndices.count == 1 && validIndices[0] == originalIndex)
+        let fate: String =
+            (validIndices.count == 1 && validIndices[0] == originalIndex)
             ? "preserved"
             : "split"
         return RemapEntry(
             originalSelectionId: originalId,
             newSelectionIds: newIds,
             fate: fate,
-            confidenceMm: 0   // history-based, no centroid distance
+            confidenceMm: 0  // history-based, no centroid distance
         )
     }
 
@@ -282,7 +307,9 @@ public enum RemapTools {
     /// snapshot under each new selectionId, and re-mint a fresh GraphUID
     /// for it from `graph`, which callers MUST pass as the retained
     /// lineage graph (`historyRegistry.graph(for:)`), never the disposable
-    /// `currentGraph` built fresh per remap_selection call. A UID minted
+    /// `currentGraph` built fresh per remap_selection call.
+    ///
+    /// A UID minted
     /// from an unretained graph is permanently unresolvable on the next
     /// remap, which would silently degrade a multi-hop remap chain back to
     /// the index-based rung (or worse, the centroid heuristic) after just
@@ -301,9 +328,9 @@ public enum RemapTools {
             }
             let kindIndex: (BRepGraph.NodeKind, Int)?
             switch newAnchor {
-            case .body:              kindIndex = nil
-            case .face(_, let idx):  kindIndex = (.face, idx)
-            case .edge(_, let idx):  kindIndex = (.edge, idx)
+            case .body: kindIndex = nil
+            case .face(_, let idx): kindIndex = (.face, idx)
+            case .edge(_, let idx): kindIndex = (.edge, idx)
             case .vertex(_, let idx): kindIndex = (.vertex, idx)
             }
             guard let (kind, index) = kindIndex else { continue }
@@ -335,9 +362,11 @@ public enum RemapTools {
             )
 
         case .face:
-            let candidates = shape.faces().enumerated().map { (i, face) -> (Int, SIMD3<Double>, Double, String) in
+            let candidates = shape.faces().enumerated().map {
+                (i, face) -> (Int, SIMD3<Double>, Double, String) in
                 let (center, _) = SelectionTools.faceCenterAndNormal(face: face)
-                let index = SelectionTools.graphIndex(for: Shape.fromFace(face), kind: .face, in: graph, fallback: i)
+                let index = SelectionTools.graphIndex(
+                    for: Shape.fromFace(face), kind: .face, in: graph, fallback: i)
                 return (index, center, face.area(), String(describing: face.surfaceType))
             }
             return await pickClosest(
@@ -369,7 +398,8 @@ public enum RemapTools {
         case .edge:
             let candidates = shape.edges().enumerated().compactMap { (i, edge) -> Candidate? in
                 guard let center = SelectionTools.edgeMidpoint(edge: edge) else { return nil }
-                let index = SelectionTools.graphIndex(for: Shape.fromEdge(edge), kind: .edge, in: graph, fallback: i)
+                let index = SelectionTools.graphIndex(
+                    for: Shape.fromEdge(edge), kind: .edge, in: graph, fallback: i)
                 return Candidate(
                     index: index,
                     center: center,
@@ -399,13 +429,16 @@ public enum RemapTools {
         case .vertex:
             // Not shape.vertices(): see the matching note in
             // SelectionTools.selectTopology (#91).
-            // #168: compactMap, not map — a vertex whose position can't be
+            // #168: compactMap, not map, a vertex whose position can't be
             // resolved is dropped from the candidate pool rather than
             // fabricated at the origin (see SelectionTools.vertexPoint).
-            let candidates = shape.subShapes(ofType: .vertex).enumerated().compactMap { (i, vShape) -> Candidate? in
+            let candidates = shape.subShapes(ofType: .vertex).enumerated().compactMap {
+                (i, vShape) -> Candidate? in
                 guard let point = SelectionTools.vertexPoint(vShape) else { return nil }
-                let index = SelectionTools.graphIndex(for: vShape, kind: .vertex, in: graph, fallback: i)
-                return Candidate(index: index, center: point, area: nil, length: nil, type: "vertex")
+                let index = SelectionTools.graphIndex(
+                    for: vShape, kind: .vertex, in: graph, fallback: i)
+                return Candidate(
+                    index: index, center: point, area: nil, length: nil, type: "vertex")
             }
             return await pickClosest(
                 originalId: originalId,
@@ -459,7 +492,8 @@ public enum RemapTools {
                 confidenceMm: nil
             )
         }
-        let scored = candidates
+        let scored =
+            candidates
             .map { ($0, simd_length($0.center - priorCenter)) }
             .sorted { $0.1 < $1.1 }
         let (best, dist) = scored[0]

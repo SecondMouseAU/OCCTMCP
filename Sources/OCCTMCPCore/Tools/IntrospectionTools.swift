@@ -1,4 +1,4 @@
-// IntrospectionTools — pure-read tools backed by direct OCCTSwift calls
+// IntrospectionTools: pure-read tools backed by direct OCCTSwift calls
 // (no occtkit subprocess). Phase 5.3a covers compute_metrics,
 // query_topology, measure_distance. Each resolves a bodyId against the
 // scene manifest, loads the body's BREP via Shape.loadBREP(fromPath:),
@@ -86,7 +86,8 @@ public enum IntrospectionTools {
         }
 
         var report = MetricsReport()
-        let inertia = (wants("volume") || wants("centerOfMass") || wants("principalAxes"))
+        let inertia =
+            (wants("volume") || wants("centerOfMass") || wants("principalAxes"))
             ? shape.volumeInertia : nil
 
         if wants("volume") { report.volume = inertia?.volume }
@@ -109,7 +110,7 @@ public enum IntrospectionTools {
         // Opt-in only (not part of default-all): AddOptimal is costlier than
         // the Bnd_Box, and most callers want the cheap footprint.
         if metrics?.contains("boundingBoxOptimal") == true, let o = shape.boundingBoxOptimal() {
-            // BRepBndLib::AddOptimal — tight extent that matches the exact
+            // BRepBndLib::AddOptimal, tight extent that matches the exact
             // surface (and the mesh) for curved geometry; equal to the
             // Bnd_Box for planar bodies. Needed for extent-vs-mesh
             // reconstruction verification (#44).
@@ -148,9 +149,12 @@ public enum IntrospectionTools {
             /// Edge start/end points (`[start, end]`, world coordinates). nil
             /// for faces/vertices (#119).
             public let endpoints: [[Double]]?
-            /// Unit tangent direction. Populated for LINE edges only (#119).
+            /// Unit tangent direction.
+            ///
+            /// Populated for LINE edges only (#119).
             public let direction: [Double]?
             /// Geometric centre of a circular edge (centre of curvature).
+            ///
             /// Populated for circular edges only (#119).
             public let circleCenter: [Double]?
             public let radius: Double?
@@ -226,13 +230,14 @@ public enum IntrospectionTools {
                 let a = face.area()
                 if let lo = filter.minArea, a < lo { continue }
                 if let hi = filter.maxArea, a > hi { continue }
-                results.append(.init(
-                    id: "face[\(i)]",
-                    surfaceType: kind,
-                    curveType: nil,
-                    area: a,
-                    boundingBox: nil
-                ))
+                results.append(
+                    .init(
+                        id: "face[\(i)]",
+                        surfaceType: kind,
+                        curveType: nil,
+                        area: a,
+                        boundingBox: nil
+                    ))
             }
         case "edge":
             for (i, edge) in shape.edges().enumerated() {
@@ -240,28 +245,30 @@ public enum IntrospectionTools {
                 let kind = String(describing: edge.curveType)
                 if let want = filter.curveType, want != kind { continue }
                 let geom = SelectionTools.edgeGeometryFields(edge: edge)
-                results.append(.init(
-                    id: "edge[\(i)]",
-                    curveType: kind,
-                    endpoints: geom.endpoints,
-                    direction: geom.direction,
-                    circleCenter: geom.circleCenter,
-                    radius: geom.radius,
-                    axis: geom.axis,
-                    startAngle: geom.startAngle,
-                    endAngle: geom.endAngle
-                ))
+                results.append(
+                    .init(
+                        id: "edge[\(i)]",
+                        curveType: kind,
+                        endpoints: geom.endpoints,
+                        direction: geom.direction,
+                        circleCenter: geom.circleCenter,
+                        radius: geom.radius,
+                        axis: geom.axis,
+                        startAngle: geom.startAngle,
+                        endAngle: geom.endAngle
+                    ))
             }
         case "vertex":
             for (i, _) in shape.vertices().enumerated() {
                 totalScanned += 1
-                results.append(.init(
-                    id: "vertex[\(i)]",
-                    surfaceType: nil,
-                    curveType: nil,
-                    area: nil,
-                    boundingBox: nil
-                ))
+                results.append(
+                    .init(
+                        id: "vertex[\(i)]",
+                        surfaceType: nil,
+                        curveType: nil,
+                        area: nil,
+                        boundingBox: nil
+                    ))
             }
         default:
             return .init("Unknown entity '\(entity)'. Expected one of: face, edge, vertex.")
@@ -270,12 +277,13 @@ public enum IntrospectionTools {
         let truncated = limit.map { results.count > $0 } ?? false
         if let n = limit { results = Array(results.prefix(n)) }
 
-        return encode(QueryReport(
-            entity: entity,
-            results: results,
-            total: totalScanned,
-            truncated: truncated
-        ))
+        return encode(
+            QueryReport(
+                entity: entity,
+                results: results,
+                total: totalScanned,
+                truncated: truncated
+            ))
     }
 
     // ── measure_distance ───────────────────────────────────────────────

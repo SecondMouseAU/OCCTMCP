@@ -1,10 +1,10 @@
-// HeatmapTools — visual deviation diagnostics (#63).
+// HeatmapTools: visual deviation diagnostics (#63).
 //
-//  • signed_deviation_heatmap — per-triangle SIGNED distance from one body to a
+//  • signed_deviation_heatmap: per-triangle SIGNED distance from one body to a
 //    reference, mapped through a diverging colormap and rendered as a shaded
 //    surface. OffscreenRenderer only colours the *point* pass per-vertex and has
 //    no per-triangle style pass, so a true coloured SURFACE is built as one
-//    flat-coloured ViewportBody per signed-distance band — the band's triangles
+//    flat-coloured ViewportBody per signed-distance band, the band's triangles
 //    grouped and tinted with the band colour. A colorbar legend is composited
 //    onto the PNG so + (proud / red) and − (shy / blue) read at a glance.
 //
@@ -12,8 +12,8 @@
 //    whose outer skin and inner wall are a wall-thickness apart) the nearest
 //    reference triangle is not always the surface a sample corresponds to. A
 //    flank sitting 4.5mm inside a 2mm wall is only 2.5mm from the INNER surface,
-//    so that surface wins on proximity and — its outward normal facing the
-//    cavity — renders the flank confidently +2.5 proud/red when the truth is
+//    so that surface wins on proximity and, its outward normal facing the
+//    cavity, renders the flank confidently +2.5 proud/red when the truth is
 //    −4.5 shy/blue. Nothing ties, so no coin-flip check catches it.
 //    `signMode: .robust` (the default) gates the correspondence on normal
 //    agreement: a reference triangle whose outward normal opposes the sampled
@@ -23,11 +23,11 @@
 //    candidates still disagree, the triangle renders GREY and is counted in
 //    `ambiguousTriangles`/`ambiguousFraction` (and excluded from signedMin/Max/
 //    Mean) rather than guessed. A mostly-grey render means the sign channel
-//    isn't meaningful for this pair — trust the magnitude, or
+//    isn't meaningful for this pair, trust the magnitude, or
 //    `cross_section_compare`'s overlap-robust comparison. `signMode: .nearest`
 //    restores the raw nearest-triangle sign.
 //
-//  • overlay_render — the reference mesh drawn semi-transparent over the opaque
+//  • overlay_render: the reference mesh drawn semi-transparent over the opaque
 //    candidate solid, so you can see in 3D exactly where the reconstruction
 //    departs from the source. OffscreenRenderer's transparent pass kicks in for
 //    any body whose effective opacity < 1.
@@ -35,10 +35,10 @@
 // Both reuse RenderPreviewTool's camera framing helpers.
 
 import Foundation
-import simd
 import OCCTSwift
 import OCCTSwiftTools
 import OCCTSwiftViewport
+import simd
 
 public enum HeatmapTools {
 
@@ -53,15 +53,17 @@ public enum HeatmapTools {
         public let clamp: Double
         public let triangles: Int
         /// Signed extremes / mean over the COLOURED (sign-reliable) triangles.
-        /// nil when every triangle rendered grey — there's no signed statistic to
+        /// nil when every triangle rendered grey, there's no signed statistic to
         /// report, and 0 would read as a dead-centre model.
         public let signedMin: Double?
         public let signedMax: Double?
         public let signedMean: Double?
         /// Triangles whose sign disagreed with a comparably-close candidate on
-        /// the reference surface (#72) — rendered grey, excluded from the
-        /// red/blue bands. A high fraction means the reference is open/thin-
-        /// walled and the SIGN channel (not the magnitude) isn't trustworthy here.
+        /// the reference surface (#72), rendered grey, excluded from the
+        /// red/blue bands.
+        ///
+        /// A high fraction means the reference is open/thin-walled and the
+        /// SIGN channel (not the magnitude) isn't trustworthy here.
         public let ambiguousTriangles: Int
         public let ambiguousFraction: Double
         /// Which correspondence rule chose each triangle's reference triangle.
@@ -81,7 +83,8 @@ public enum HeatmapTools {
         options: RenderPreviewTool.Options = .init(),
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
-        let fromShape: Shape, refShape: Shape
+        let fromShape: Shape
+        let refShape: Shape
         do {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             refShape = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store).shape
@@ -104,13 +107,15 @@ public enum HeatmapTools {
         let verts = mesh.vertices
         let normals = mesh.normals
         let idx = mesh.indices
-        guard idx.count >= 3 else { return .init("Body '\(fromBodyId)' has no triangles to colour.", isError: true) }
+        guard idx.count >= 3 else {
+            return .init("Body '\(fromBodyId)' has no triangles to colour.", isError: true)
+        }
         let hasNormals = normals.count == verts.count
 
         // Per-triangle signed distance, sampled at the centroid. Each centroid
         // carries its own triangle's outward normal (from the winding, matching
         // the convention TriMesh.faceNormal reads on the reference side) so
-        // `.robust` can reject the far side of a thin wall as its counterpart —
+        // `.robust` can reject the far side of a thin wall as its counterpart,
         // otherwise a flank that sits inside an open reference's wall corresponds
         // to the inner surface and renders confidently proud when it's shy (#72).
         let triCount = idx.count / 3
@@ -119,14 +124,17 @@ public enum HeatmapTools {
         centroids.reserveCapacity(triCount)
         triNormals.reserveCapacity(triCount)
         for t in 0..<triCount {
-            let a = verts[Int(idx[t * 3])], b = verts[Int(idx[t * 3 + 1])], c = verts[Int(idx[t * 3 + 2])]
+            let a = verts[Int(idx[t * 3])]
+            let b = verts[Int(idx[t * 3 + 1])]
+            let c = verts[Int(idx[t * 3 + 2])]
             let ctr = (a + b + c) / 3
             centroids.append(SIMD3<Double>(Double(ctr.x), Double(ctr.y), Double(ctr.z)))
             let n = simd_cross(b - a, c - a)
             let len = simd_length(n)
-            triNormals.append(len > 1e-12
-                ? SIMD3<Double>(Double(n.x), Double(n.y), Double(n.z)) / Double(len)
-                : SIMD3<Double>(0, 0, 0))
+            triNormals.append(
+                len > 1e-12
+                    ? SIMD3<Double>(Double(n.x), Double(n.y), Double(n.z)) / Double(len)
+                    : SIMD3<Double>(0, 0, 0))
         }
         let hits = DeviationTools.signedDistances(
             of: centroids, normals: triNormals, to: refTris, signMode: signMode)
@@ -144,12 +152,14 @@ public enum HeatmapTools {
         let ambiguousFraction = hits.isEmpty ? 0 : Double(ambiguousCount) / Double(hits.count)
 
         // Colormap bound: explicit clamp, else robust p95 of |signed| over the
-        // reliable samples — the ones that actually get a colour. Falls back to
+        // reliable samples, the ones that actually get a colour. Falls back to
         // every sample's magnitude when none are reliable, so an all-grey render
         // still gets a sane legend.
-        let absSorted = (reliable.isEmpty ? hits.map { $0.nearest } : reliable.map { abs($0) }).sorted()
+        let absSorted = (reliable.isEmpty ? hits.map { $0.nearest } : reliable.map { abs($0) })
+            .sorted()
         let autoClamp = DeviationTools.percentile(absSorted, 0.95)
-        let bound = (clamp ?? autoClamp) > 1e-12 ? (clamp ?? autoClamp) : max(1e-9, absSorted.last ?? 1)
+        let bound =
+            (clamp ?? autoClamp) > 1e-12 ? (clamp ?? autoClamp) : max(1e-9, absSorted.last ?? 1)
 
         // Bucket triangles into bands across [-bound, +bound]; sign-ambiguous
         // triangles are set aside into their own grey group instead of being
@@ -158,9 +168,12 @@ public enum HeatmapTools {
         var bandTris = [[Int]](repeating: [], count: nb)
         var ambiguousTris: [Int] = []
         for t in 0..<triCount {
-            guard !hits[t].ambiguous else { ambiguousTris.append(t); continue }
-            let norm = max(-1.0, min(1.0, hits[t].signed / bound))     // -1..1
-            var b = Int((norm + 1) / 2 * Double(nb))              // 0..nb
+            guard !hits[t].ambiguous else {
+                ambiguousTris.append(t)
+                continue
+            }
+            let norm = max(-1.0, min(1.0, hits[t].signed / bound))  // -1..1
+            var b = Int((norm + 1) / 2 * Double(nb))  // 0..nb
             if b >= nb { b = nb - 1 }
             if b < 0 { b = 0 }
             bandTris[b].append(t)
@@ -168,7 +181,7 @@ public enum HeatmapTools {
 
         // Build one flat-coloured direct-mesh ViewportBody per non-empty group
         // (OCCTSwiftViewport ≥1.1.23, #76): positions/bnormals are de-interleaved
-        // arrays the renderer uploads as separate GPU buffers — no stride-6 zip
+        // arrays the renderer uploads as separate GPU buffers, no stride-6 zip
         // pass, no duplicate copy. Normals are used verbatim (no NormalSmoothing),
         // which is what a heatmap wants: the per-group normals are already correct.
         func buildBody(id: String, tris: [Int], color: SIMD4<Float>) -> ViewportBody {
@@ -179,8 +192,12 @@ public enum HeatmapTools {
             bnormals.reserveCapacity(tris.count * 9)
             indices.reserveCapacity(tris.count * 3)
             for t in tris {
-                let ia = Int(idx[t * 3]), ib = Int(idx[t * 3 + 1]), ic = Int(idx[t * 3 + 2])
-                let pa = verts[ia], pb = verts[ib], pc = verts[ic]
+                let ia = Int(idx[t * 3])
+                let ib = Int(idx[t * 3 + 1])
+                let ic = Int(idx[t * 3 + 2])
+                let pa = verts[ia]
+                let pb = verts[ib]
+                let pc = verts[ic]
                 let fn: SIMD3<Float>
                 if hasNormals {
                     fn = SIMD3<Float>(0, 0, 0)  // use per-vertex below
@@ -189,17 +206,24 @@ public enum HeatmapTools {
                     // above; it's the same cross product. Zero means degenerate,
                     // where the renderer still needs *some* direction.
                     let n = triNormals[t]
-                    fn = simd_length(n) > 1e-12
+                    fn =
+                        simd_length(n) > 1e-12
                         ? SIMD3<Float>(Float(n.x), Float(n.y), Float(n.z))
                         : SIMD3<Float>(0, 0, 1)
                 }
                 for (vi, p) in [(ia, pa), (ib, pb), (ic, pc)] {
-                    positions.append(p.x); positions.append(p.y); positions.append(p.z)
+                    positions.append(p.x)
+                    positions.append(p.y)
+                    positions.append(p.z)
                     let nrm = hasNormals ? normals[vi] : fn
-                    bnormals.append(nrm.x); bnormals.append(nrm.y); bnormals.append(nrm.z)
+                    bnormals.append(nrm.x)
+                    bnormals.append(nrm.y)
+                    bnormals.append(nrm.z)
                 }
                 let base = UInt32(indices.count)
-                indices.append(base); indices.append(base + 1); indices.append(base + 2)
+                indices.append(base)
+                indices.append(base + 1)
+                indices.append(base + 2)
             }
             return ViewportBody.directMesh(
                 id: id, positions: positions, normals: bnormals, indices: indices, color: color)
@@ -207,21 +231,26 @@ public enum HeatmapTools {
 
         var bodies: [ViewportBody] = []
         for b in 0..<nb where !bandTris[b].isEmpty {
-            let bandCenter = (Double(b) + 0.5) / Double(nb) * 2 - 1   // -1..1
-            bodies.append(buildBody(id: "\(fromBodyId)#band\(b)", tris: bandTris[b], color: ChartRenderer.divergingColor(bandCenter)))
+            let bandCenter = (Double(b) + 0.5) / Double(nb) * 2 - 1  // -1..1
+            bodies.append(
+                buildBody(
+                    id: "\(fromBodyId)#band\(b)", tris: bandTris[b],
+                    color: ChartRenderer.divergingColor(bandCenter)))
         }
         if !ambiguousTris.isEmpty {
             let grey = SIMD4<Float>(0.55, 0.55, 0.55, 1)
-            bodies.append(buildBody(id: "\(fromBodyId)#ambiguous", tris: ambiguousTris, color: grey))
+            bodies.append(
+                buildBody(id: "\(fromBodyId)#ambiguous", tris: ambiguousTris, color: grey))
         }
         guard !bodies.isEmpty else { return .init("No coloured surface produced.", isError: true) }
 
         guard let renderer = OffscreenRenderer() else {
-            return .init("OffscreenRenderer init failed (no Metal device available).", isError: true)
+            return .init(
+                "OffscreenRenderer init failed (no Metal device available).", isError: true)
         }
         var ro = OffscreenRenderOptions(
             width: options.width, height: options.height,
-            displayMode: .shaded,                       // edges off — bands read cleaner
+            displayMode: .shaded,  // edges off, bands read cleaner
             backgroundColor: options.background.color
         )
         ro.cameraState = RenderPreviewTool.makeCameraState(options: options, bodies: bodies)
@@ -234,15 +263,17 @@ public enum HeatmapTools {
         }
         // Composite the colorbar legend onto the render.
         let barLabel = ambiguousTris.isEmpty ? "signed mm" : "signed mm  (grey = sign-ambiguous)"
-        try? ChartRenderer.overlayColorbar(on: url, minValue: -bound, maxValue: bound, label: barLabel)
+        try? ChartRenderer.overlayColorbar(
+            on: url, minValue: -bound, maxValue: bound, label: barLabel)
 
-        return IntrospectionTools.encode(HeatmapReport(
-            outputPath: outputPath, width: options.width, height: options.height,
-            bands: nb, clamp: bound, triangles: triCount,
-            signedMin: signedMin, signedMax: signedMax, signedMean: signedMean,
-            ambiguousTriangles: ambiguousCount, ambiguousFraction: ambiguousFraction,
-            signMode: signMode.rawValue, mimeType: "image/png"
-        ))
+        return IntrospectionTools.encode(
+            HeatmapReport(
+                outputPath: outputPath, width: options.width, height: options.height,
+                bands: nb, clamp: bound, triangles: triCount,
+                signedMin: signedMin, signedMax: signedMax, signedMean: signedMean,
+                ambiguousTriangles: ambiguousCount, ambiguousFraction: ambiguousFraction,
+                signMode: signMode.rawValue, mimeType: "image/png"
+            ))
     }
 
     // MARK: - overlay_render
@@ -266,7 +297,8 @@ public enum HeatmapTools {
         options: RenderPreviewTool.Options = .init(),
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
-        let solidShape: Shape, meshShape: Shape
+        let solidShape: Shape
+        let meshShape: Shape
         do {
             solidShape = try IntrospectionTools.loadShape(bodyId: solidBodyId, store: store).shape
             meshShape = try IntrospectionTools.loadShape(bodyId: meshBodyId, store: store).shape
@@ -288,12 +320,16 @@ public enum HeatmapTools {
         }
         // Force the reference body translucent on whichever material path is live.
         meshVB.color.w = alpha
-        if var m = meshVB.material { m.opacity = alpha; meshVB.material = m }
+        if var m = meshVB.material {
+            m.opacity = alpha
+            meshVB.material = m
+        }
         solidVB.color.w = 1
 
         let bodies = [solidVB, meshVB]
         guard let renderer = OffscreenRenderer() else {
-            return .init("OffscreenRenderer init failed (no Metal device available).", isError: true)
+            return .init(
+                "OffscreenRenderer init failed (no Metal device available).", isError: true)
         }
         var ro = OffscreenRenderOptions(
             width: options.width, height: options.height,
@@ -308,10 +344,11 @@ public enum HeatmapTools {
         } catch {
             return .init("Render failed: \(error.localizedDescription)", isError: true)
         }
-        return IntrospectionTools.encode(OverlayReport(
-            outputPath: outputPath, width: options.width, height: options.height,
-            solidBodyId: solidBodyId, meshBodyId: meshBodyId,
-            transparency: Double(alpha), mimeType: "image/png"
-        ))
+        return IntrospectionTools.encode(
+            OverlayReport(
+                outputPath: outputPath, width: options.width, height: options.height,
+                solidBodyId: solidBodyId, meshBodyId: meshBodyId,
+                transparency: Double(alpha), mimeType: "image/png"
+            ))
     }
 }

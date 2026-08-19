@@ -17,11 +17,11 @@
 // it is written here, from OCCTSwiftMesh primitives only.
 
 import Foundation
-import simd
 import OCCTSwift
 import OCCTSwiftMesh
 import OCCTSwiftViewport
 import ScriptHarness
+import simd
 
 public enum ZoneSweepTool {
 
@@ -33,7 +33,10 @@ public enum ZoneSweepTool {
         public let profileRmsMm: Double
         public let profileMaxMm: Double
         public let arcLengthDeltaMm: Double
-        public init(lateralOffsetMm: Double, profileRmsMm: Double, profileMaxMm: Double, arcLengthDeltaMm: Double) {
+        public init(
+            lateralOffsetMm: Double, profileRmsMm: Double, profileMaxMm: Double,
+            arcLengthDeltaMm: Double
+        ) {
             self.lateralOffsetMm = lateralOffsetMm
             self.profileRmsMm = profileRmsMm
             self.profileMaxMm = profileMaxMm
@@ -45,8 +48,8 @@ public enum ZoneSweepTool {
 
     public struct RunInterval: Sendable {
         public let startIndex: Int
-        public let endIndex: Int      // inclusive, always a non-missed station
-        public let kind: String       // "constant" | "deviation"
+        public let endIndex: Int  // inclusive, always a non-missed station
+        public let kind: String  // "constant" | "deviation"
     }
 
     /// Greedy run-building over station indices `0..<stationCount`.
@@ -91,16 +94,22 @@ public enum ZoneSweepTool {
 
         var i = first + 1
         while i < stationCount {
-            if missed(i) { verdicts[i] = .missed; i += 1; continue }
+            if missed(i) {
+                verdicts[i] = .missed
+                i += 1
+                continue
+            }
             let ok: Bool
             if let s = signals(reference, i) {
                 ok = within(s)
             } else {
-                ok = false   // incomparable pair: treat conservatively, never silently constant
+                ok = false  // incomparable pair: treat conservatively, never silently constant
             }
             if ok {
                 if inDeviation {
-                    runs.append(RunInterval(startIndex: deviationStart, endIndex: prevIndex, kind: "deviation"))
+                    runs.append(
+                        RunInterval(
+                            startIndex: deviationStart, endIndex: prevIndex, kind: "deviation"))
                     inDeviation = false
                     runStart = i
                     reference = i
@@ -108,7 +117,8 @@ public enum ZoneSweepTool {
                 verdicts[i] = .constant
             } else {
                 if !inDeviation {
-                    runs.append(RunInterval(startIndex: runStart, endIndex: prevIndex, kind: "constant"))
+                    runs.append(
+                        RunInterval(startIndex: runStart, endIndex: prevIndex, kind: "constant"))
                     inDeviation = true
                     deviationStart = i
                 }
@@ -118,7 +128,8 @@ public enum ZoneSweepTool {
             i += 1
         }
         if inDeviation {
-            runs.append(RunInterval(startIndex: deviationStart, endIndex: prevIndex, kind: "deviation"))
+            runs.append(
+                RunInterval(startIndex: deviationStart, endIndex: prevIndex, kind: "deviation"))
         } else {
             runs.append(RunInterval(startIndex: runStart, endIndex: prevIndex, kind: "constant"))
         }
@@ -126,16 +137,22 @@ public enum ZoneSweepTool {
     }
 
     /// Slippage kinds (#109, OCCTSwiftMesh#26/#31) whose `axisDirection` is a
-    /// valid SWEEP direction. Plane's axis is the surface NORMAL: sweeping
+    /// valid SWEEP direction.
+    ///
+    /// Plane's axis is the surface NORMAL: sweeping
     /// along it is exactly wrong, not merely unhelpful. Sphere has no
     /// preferred axis at all, and freeform has neither; both are excluded by
     /// construction (their `ZoneSlippage.axisDirection` is `nil`), but kept
     /// out of this set explicitly too, defense in depth against a future
     /// upstream change populating it.
-    static let axisEligibleSlippageKinds: Set<String> = ["cylinder", "extrusion", "revolution", "helix"]
+    static let axisEligibleSlippageKinds: Set<String> = [
+        "cylinder", "extrusion", "revolution", "helix",
+    ]
 
     /// Confidence floor below which a slippage classification is too
-    /// uncertain to default the sweep axis to. Mirrors the upstream
+    /// uncertain to default the sweep axis to.
+    ///
+    /// Mirrors the upstream
     /// semantics of `SlippageResult.confidence` (a spectral-gap diagnostic,
     /// not a probability, docs/algorithms/slippage.md, OCCTSwiftMesh#26/
     /// #31): a gap barely past the detection floor means the classification
@@ -148,13 +165,13 @@ public enum ZoneSweepTool {
     /// can report `axisSource` faithfully.
     public struct AxisSelection: Sendable {
         public let axis: SIMD3<Double>?
-        public let source: String   // "explicit" | "slippage" | "pca"
+        public let source: String  // "explicit" | "slippage" | "pca"
         public let warning: String?
     }
 
-    /// Picks the sweep axis in priority order: pure and geometry-free (the
+    /// Picks the sweep axis in priority order (pure and geometry-free: the
     /// actual PCA computation, when this returns `axis: nil`, is the
-    /// caller's job; this only decides WHETHER to use it):
+    /// caller's job; this only decides WHETHER to use it).
     ///
     /// 1. An explicit caller-supplied axis always wins outright.
     /// 2. Otherwise, a zoneId-scoped sweep (`record` non-nil) whose stored
@@ -181,19 +198,22 @@ public enum ZoneSweepTool {
             return AxisSelection(axis: nil, source: "pca", warning: nil)
         }
         guard axisEligibleSlippageKinds.contains(slip.kind),
-              let dir = slip.axisDirection, dir.count == 3 else {
+            let dir = slip.axisDirection, dir.count == 3
+        else {
             return AxisSelection(axis: nil, source: "pca", warning: nil)
         }
         guard slip.confidence >= slippageAxisConfidenceFloor else {
             return AxisSelection(
                 axis: nil, source: "pca",
-                warning: "zone has a low-confidence slippage classification (\(slip.kind), confidence \(slip.confidence)); sweep axis fell back to PCA"
+                warning:
+                    "zone has a low-confidence slippage classification (\(slip.kind), confidence \(slip.confidence)); sweep axis fell back to PCA"
             )
         }
         guard !slip.erosionSkipped else {
             return AxisSelection(
                 axis: nil, source: "pca",
-                warning: "zone's slippage classification skipped boundary erosion (too small/thin to erode) and may be confidently wrong (\(slip.kind), confidence \(slip.confidence)); sweep axis fell back to PCA"
+                warning:
+                    "zone's slippage classification skipped boundary erosion (too small/thin to erode) and may be confidently wrong (\(slip.kind), confidence \(slip.confidence)); sweep axis fell back to PCA"
             )
         }
         return AxisSelection(axis: SIMD3(dir[0], dir[1], dir[2]), source: "slippage", warning: nil)
@@ -201,7 +221,9 @@ public enum ZoneSweepTool {
 
     /// Dominant eigenvector of a point cloud's covariance (power iteration,
     /// ~50 steps: cheap and sufficient for a station axis, no Accelerate
-    /// dependency needed). Sign is arbitrary (a flipped axis just reverses
+    /// dependency needed).
+    ///
+    /// Sign is arbitrary (a flipped axis just reverses
     /// station order; still a correct sweep). Falls back to +Z for a
     /// degenerate (empty / all-coincident) input.
     static func principalAxis(of points: [SIMD3<Double>]) -> SIMD3<Double> {
@@ -210,11 +232,20 @@ public enum ZoneSweepTool {
         for p in points { mean += p }
         mean /= Double(points.count)
 
-        var cxx = 0.0, cxy = 0.0, cxz = 0.0, cyy = 0.0, cyz = 0.0, czz = 0.0
+        var cxx = 0.0
+        var cxy = 0.0
+        var cxz = 0.0
+        var cyy = 0.0
+        var cyz = 0.0
+        var czz = 0.0
         for p in points {
             let d = p - mean
-            cxx += d.x * d.x; cxy += d.x * d.y; cxz += d.x * d.z
-            cyy += d.y * d.y; cyz += d.y * d.z; czz += d.z * d.z
+            cxx += d.x * d.x
+            cxy += d.x * d.y
+            cxz += d.x * d.z
+            cyy += d.y * d.y
+            cyz += d.y * d.z
+            czz += d.z * d.z
         }
         var v = SIMD3<Double>(1, 1, 1)
         for _ in 0..<50 {
@@ -252,15 +283,18 @@ public enum ZoneSweepTool {
         var description: String {
             switch self {
             case .unknownZoneId(let id):
-                return "Unknown zoneId \"\(id)\". Run segment_mesh_zones first, or list_zones to see what's registered."
+                return
+                    "Unknown zoneId \"\(id)\". Run segment_mesh_zones first, or list_zones to see what's registered."
             case .zoneBodyMismatch(let zoneId, let ownerBodyId, let requestedBodyId):
-                return "zoneId \"\(zoneId)\" belongs to body \"\(ownerBodyId)\", not \"\(requestedBodyId)\"."
+                return
+                    "zoneId \"\(zoneId)\" belongs to body \"\(ownerBodyId)\", not \"\(requestedBodyId)\"."
             case .nonPositiveDeflection:
                 return "deflection must be positive."
             case .tessellationFailed(let bodyId):
                 return "Failed to tessellate '\(bodyId)'."
             case .staleZone(let zoneId, let bodyId):
-                return "Zone \"\(zoneId)\" is stale: body \"\(bodyId)\"'s mesh no longer matches the mesh it was segmented from (triangle count / bounding box changed). Re-run segment_mesh_zones."
+                return
+                    "Zone \"\(zoneId)\" is stale: body \"\(bodyId)\"'s mesh no longer matches the mesh it was segmented from (triangle count / bounding box changed). Re-run segment_mesh_zones."
             case .subMeshExtractionFailed(let zoneId):
                 return "Failed to extract zone \"\(zoneId)\"'s triangles from the current mesh."
             case .noBoundingBox(let bodyId):
@@ -272,7 +306,9 @@ public enum ZoneSweepTool {
     /// Resolve `bodyId`/`zoneId` to a mesh, re-meshing at the zone's own
     /// stored deflection when `zoneId` is given (never a caller-supplied
     /// one, since `triangleIndices` only lines up with a mesh built at that
-    /// exact deflection). Was independently duplicated between
+    /// exact deflection).
+    ///
+    /// Was independently duplicated between
     /// `zone_continuity_sweep` and `fit_primitives` (#134, the same
     /// copy-paste-recipe failure #125 fixed for `MeshParameters`); this is
     /// the single copy both call.
@@ -302,12 +338,15 @@ public enum ZoneSweepTool {
                 throw ZoneMeshResolutionError.unknownZoneId(zid)
             }
             guard rec.bodyId == bodyId else {
-                throw ZoneMeshResolutionError.zoneBodyMismatch(zoneId: zid, ownerBodyId: rec.bodyId, requestedBodyId: bodyId)
+                throw ZoneMeshResolutionError.zoneBodyMismatch(
+                    zoneId: zid, ownerBodyId: rec.bodyId, requestedBodyId: bodyId)
             }
             zoneRecord = rec
             meshDeflection = rec.params.deflection
             if let requested = deflection, abs(requested - rec.params.deflection) > 1e-12 {
-                warnings.append("deflection argument (\(requested)) ignored for a zoneId-scoped \(verb): re-meshing at the zone's own segmentation deflection (\(rec.params.deflection)) so triangleIndices stay valid.")
+                warnings.append(
+                    "deflection argument (\(requested)) ignored for a zoneId-scoped \(verb): re-meshing at the zone's own segmentation deflection (\(rec.params.deflection)) so triangleIndices stay valid."
+                )
             }
         }
         guard meshDeflection > 0 else { throw ZoneMeshResolutionError.nonPositiveDeflection }
@@ -419,7 +458,9 @@ public enum ZoneSweepTool {
 
         // ── axis + station placement (mirrors CrossSectionCompareTool) ──
         let sliceVerts = sliceMesh.vertices
-        guard !sliceVerts.isEmpty else { return .init("Zone/body has no triangles to sweep.", isError: true) }
+        guard !sliceVerts.isEmpty else {
+            return .init("Zone/body has no triangles to sweep.", isError: true)
+        }
 
         // Axis resolution: explicit > zone's own slippage axis (cylinder/
         // extrusion/revolution/helix only, confidence-gated) > PCA. See
@@ -432,7 +473,9 @@ public enum ZoneSweepTool {
         let axisSource: String
         let axisUnit: SIMD3<Double>
         if let a = selection.axis {
-            guard simd_length(a) > 1e-12 else { return .init("axis must be non-zero.", isError: true) }
+            guard simd_length(a) > 1e-12 else {
+                return .init("axis must be non-zero.", isError: true)
+            }
             axisUnit = simd_normalize(a)
             axisSource = selection.source
         } else {
@@ -447,11 +490,16 @@ public enum ZoneSweepTool {
         meanV /= Float(sliceVerts.count)
         let through = SIMD3<Double>(Double(meanV.x), Double(meanV.y), Double(meanV.z))
 
-        let (loF, hiF) = CrossSectionCompareTool.projectRange(sliceVerts, origin: meanV, axis: axisF)
-        let lo = Double(loF), hi = Double(hiF)
-        guard hi - lo > 1e-9 else { return .init("Zone/body has no extent along the sweep axis.", isError: true) }
+        let (loF, hiF) = CrossSectionCompareTool.projectRange(
+            sliceVerts, origin: meanV, axis: axisF)
+        let lo = Double(loF)
+        let hi = Double(hiF)
+        guard hi - lo > 1e-9 else {
+            return .init("Zone/body has no extent along the sweep axis.", isError: true)
+        }
         let margin = (hi - lo) * 0.02
-        let start = lo + margin, end = hi - margin
+        let start = lo + margin
+        let end = hi - margin
         let span = max(1e-9, end - start)
         let step = span / Double(stations - 1)
         let axisBase = simd_dot(through, axisUnit)
@@ -464,7 +512,8 @@ public enum ZoneSweepTool {
             let t = start + Double(s) * step
             let plane = CutPlane(point: through + axisUnit * t, normal: axisUnit)
             let sec = sliceMesh.crossSection(plane: plane)
-            let profile = ProfileMath.mainProfile(closed: sec?.contours ?? [], open: sec?.openPaths ?? [])
+            let profile = ProfileMath.mainProfile(
+                closed: sec?.contours ?? [], open: sec?.openPaths ?? [])
             profiles.append(profile?.usable == true ? profile : nil)
             stationAxisCoords.append(axisBase + t)
             stationOffsets.append(t - lo)
@@ -472,7 +521,9 @@ public enum ZoneSweepTool {
 
         let missedCount = profiles.filter { $0 == nil }.count
         if missedCount > 0 {
-            warnings.append("\(missedCount)/\(stations) stations missed the zone/body entirely (no profile at that plane); excluded from runs.")
+            warnings.append(
+                "\(missedCount)/\(stations) stations missed the zone/body entirely (no profile at that plane); excluded from runs."
+            )
         }
 
         let (verdicts, runs) = detectRunsAndDeviations(
@@ -480,9 +531,11 @@ public enum ZoneSweepTool {
             missed: { profiles[$0] == nil },
             signals: { ref, cand in
                 guard let r = profiles[ref], let c = profiles[cand],
-                      let d = ProfileMath.profileDelta(reference: r, candidate: c) else { return nil }
-                return Signals(lateralOffsetMm: d.lateralOffsetMm, profileRmsMm: d.rmsMm,
-                               profileMaxMm: d.maxMm, arcLengthDeltaMm: d.arcLengthDeltaMm)
+                    let d = ProfileMath.profileDelta(reference: r, candidate: c)
+                else { return nil }
+                return Signals(
+                    lateralOffsetMm: d.lateralOffsetMm, profileRmsMm: d.rmsMm,
+                    profileMaxMm: d.maxMm, arcLengthDeltaMm: d.arcLengthDeltaMm)
             },
             toleranceMm: toleranceMm, lateralToleranceMm: lateralTol
         )
@@ -501,39 +554,52 @@ public enum ZoneSweepTool {
         for run in runs {
             if run.kind == "constant" { lastConstantStart = run.startIndex }
             let ref = run.kind == "constant" ? run.startIndex : lastConstantStart
-            for s in run.startIndex...run.endIndex where profiles[s] != nil { referenceForStation[s] = ref }
+            for s in run.startIndex...run.endIndex where profiles[s] != nil {
+                referenceForStation[s] = ref
+            }
         }
 
         var stationEntries: [SweepReport.StationEntry] = []
         stationEntries.reserveCapacity(stations)
         for s in 0..<stations {
             guard let profile = profiles[s] else {
-                stationEntries.append(.init(
-                    index: s, axisCoord: stationAxisCoords[s], offset: stationOffsets[s],
-                    lateralOffsetMm: nil, profileRmsMm: nil, profileMaxMm: nil, arcLengthDeltaMm: nil,
-                    openProfile: false, verdict: Verdict.missed.rawValue
-                ))
+                stationEntries.append(
+                    .init(
+                        index: s, axisCoord: stationAxisCoords[s], offset: stationOffsets[s],
+                        lateralOffsetMm: nil, profileRmsMm: nil, profileMaxMm: nil,
+                        arcLengthDeltaMm: nil,
+                        openProfile: false, verdict: Verdict.missed.rawValue
+                    ))
                 continue
             }
             let ref = referenceForStation[s]
-            let d = ref >= 0 ? profiles[ref].flatMap { ProfileMath.profileDelta(reference: $0, candidate: profile) } : nil
-            stationEntries.append(.init(
-                index: s, axisCoord: stationAxisCoords[s], offset: stationOffsets[s],
-                lateralOffsetMm: d?.lateralOffsetMm ?? 0, profileRmsMm: d?.rmsMm ?? 0,
-                profileMaxMm: d?.maxMm ?? 0, arcLengthDeltaMm: d?.arcLengthDeltaMm ?? 0,
-                openProfile: !profile.closed, verdict: verdicts[s].rawValue
-            ))
+            let d =
+                ref >= 0
+                ? profiles[ref].flatMap {
+                    ProfileMath.profileDelta(reference: $0, candidate: profile)
+                } : nil
+            stationEntries.append(
+                .init(
+                    index: s, axisCoord: stationAxisCoords[s], offset: stationOffsets[s],
+                    lateralOffsetMm: d?.lateralOffsetMm ?? 0, profileRmsMm: d?.rmsMm ?? 0,
+                    profileMaxMm: d?.maxMm ?? 0, arcLengthDeltaMm: d?.arcLengthDeltaMm ?? 0,
+                    openProfile: !profile.closed, verdict: verdicts[s].rawValue
+                ))
         }
 
         let runEntries: [SweepReport.RunEntry] = runs.map { run in
-            var maxRms = 0.0, maxLateral = 0.0
+            var maxRms = 0.0
+            var maxLateral = 0.0
             for s in run.startIndex...run.endIndex {
-                guard let e = stationEntries[safe: s], let rms = e.profileRmsMm, let lateral = e.lateralOffsetMm else { continue }
+                guard let e = stationEntries[safe: s], let rms = e.profileRmsMm,
+                    let lateral = e.lateralOffsetMm
+                else { continue }
                 maxRms = max(maxRms, abs(rms))
                 maxLateral = max(maxLateral, abs(lateral))
             }
             return SweepReport.RunEntry(
-                startAxisCoord: stationAxisCoords[run.startIndex], endAxisCoord: stationAxisCoords[run.endIndex],
+                startAxisCoord: stationAxisCoords[run.startIndex],
+                endAxisCoord: stationAxisCoords[run.endIndex],
                 stationCount: run.endIndex - run.startIndex + 1, kind: run.kind,
                 maxProfileRmsMm: maxRms, maxLateralOffsetMm: maxLateral
             )
@@ -542,7 +608,9 @@ public enum ZoneSweepTool {
         // ── optional render: zone/body triangles colored by nearest-station verdict ──
         var writtenRenderPath: String? = nil
         if render {
-            let path = renderPath ?? "\(outputDir)/\(bodyId)\(zoneId.map { "_" + $0.replacingOccurrences(of: ":", with: "_").replacingOccurrences(of: "#", with: "_") } ?? "")_sweep.png"
+            let path =
+                renderPath
+                ?? "\(outputDir)/\(bodyId)\(zoneId.map { "_" + $0.replacingOccurrences(of: ":", with: "_").replacingOccurrences(of: "#", with: "_") } ?? "")_sweep.png"
             if let err = renderVerdicts(
                 mesh: sliceMesh, axis: axisUnit,
                 stationAxisCoords: stationAxisCoords,
@@ -565,7 +633,8 @@ public enum ZoneSweepTool {
             do {
                 try ChartRenderer.stripChart(
                     stations: series, tolerance: toleranceMm,
-                    title: "profileRmsMm vs axisCoord (\(zoneId ?? bodyId))", yLabel: "profileRmsMm",
+                    title: "profileRmsMm vs axisCoord (\(zoneId ?? bodyId))",
+                    yLabel: "profileRmsMm",
                     to: URL(fileURLWithPath: path)
                 )
                 writtenChartPath = path
@@ -574,11 +643,13 @@ public enum ZoneSweepTool {
             }
         }
 
-        return IntrospectionTools.encode(SweepReport(
-            bodyId: bodyId, zoneId: zoneId, axis: [axisUnit.x, axisUnit.y, axisUnit.z], axisSource: axisSource,
-            overlap: [lo, hi], stations: stationEntries, runs: runEntries, warnings: warnings,
-            renderPath: writtenRenderPath, chartPath: writtenChartPath
-        ))
+        return IntrospectionTools.encode(
+            SweepReport(
+                bodyId: bodyId, zoneId: zoneId, axis: [axisUnit.x, axisUnit.y, axisUnit.z],
+                axisSource: axisSource,
+                overlap: [lo, hi], stations: stationEntries, runs: runEntries, warnings: warnings,
+                renderPath: writtenRenderPath, chartPath: writtenChartPath
+            ))
     }
 
     // MARK: - Rendering (band-group trick, mirrors HeatmapTools/MeshZoneTools)
@@ -603,15 +674,22 @@ public enum ZoneSweepTool {
             var bestDist = Double.greatestFiniteMagnitude
             for (i, c) in stationAxisCoords.enumerated() {
                 let d = abs(c - coord)
-                if d < bestDist { bestDist = d; bestIdx = i }
+                if d < bestDist {
+                    bestDist = d
+                    bestIdx = i
+                }
             }
             return verdicts[bestIdx]
         }
 
         var groups: [Verdict: [Int]] = [.constant: [], .deviating: [], .missed: []]
         for t in 0..<triCount {
-            let a = verts[Int(idx[t * 3])], b = verts[Int(idx[t * 3 + 1])], c = verts[Int(idx[t * 3 + 2])]
-            let centroid = SIMD3<Double>(Double((a.x + b.x + c.x) / 3), Double((a.y + b.y + c.y) / 3), Double((a.z + b.z + c.z) / 3))
+            let a = verts[Int(idx[t * 3])]
+            let b = verts[Int(idx[t * 3 + 1])]
+            let c = verts[Int(idx[t * 3 + 2])]
+            let centroid = SIMD3<Double>(
+                Double((a.x + b.x + c.x) / 3), Double((a.y + b.y + c.y) / 3),
+                Double((a.z + b.z + c.z) / 3))
             groups[nearestVerdict(centroid), default: []].append(t)
         }
 
@@ -620,36 +698,50 @@ public enum ZoneSweepTool {
             var bnormals: [Float] = []
             var indices: [UInt32] = []
             for t in tris {
-                let ia = Int(idx[t * 3]), ib = Int(idx[t * 3 + 1]), ic = Int(idx[t * 3 + 2])
-                let pa = verts[ia], pb = verts[ib], pc = verts[ic]
+                let ia = Int(idx[t * 3])
+                let ib = Int(idx[t * 3 + 1])
+                let ic = Int(idx[t * 3 + 2])
+                let pa = verts[ia]
+                let pb = verts[ib]
+                let pc = verts[ic]
                 let fn = faceNormals[t]
                 for (vi, p) in [(ia, pa), (ib, pb), (ic, pc)] {
-                    positions.append(p.x); positions.append(p.y); positions.append(p.z)
+                    positions.append(p.x)
+                    positions.append(p.y)
+                    positions.append(p.z)
                     let nrm = hasNormals ? normals[vi] : fn
-                    bnormals.append(nrm.x); bnormals.append(nrm.y); bnormals.append(nrm.z)
+                    bnormals.append(nrm.x)
+                    bnormals.append(nrm.y)
+                    bnormals.append(nrm.z)
                 }
                 let base = UInt32(indices.count)
-                indices.append(base); indices.append(base + 1); indices.append(base + 2)
+                indices.append(base)
+                indices.append(base + 1)
+                indices.append(base + 2)
             }
-            return ViewportBody.directMesh(id: id, positions: positions, normals: bnormals, indices: indices, color: color)
+            return ViewportBody.directMesh(
+                id: id, positions: positions, normals: bnormals, indices: indices, color: color)
         }
 
         let colors: [Verdict: SIMD4<Float>] = [
-            .constant: SIMD4(0.20, 0.42, 0.86, 1),    // blue
-            .deviating: SIMD4(0.86, 0.20, 0.18, 1),   // red
-            .missed: SIMD4(0.55, 0.55, 0.55, 1),      // grey
+            .constant: SIMD4(0.20, 0.42, 0.86, 1),  // blue
+            .deviating: SIMD4(0.86, 0.20, 0.18, 1),  // red
+            .missed: SIMD4(0.55, 0.55, 0.55, 1),  // grey
         ]
         var bodies: [ViewportBody] = []
         for verdict in [Verdict.constant, .deviating, .missed] {
             guard let tris = groups[verdict], !tris.isEmpty else { continue }
-            bodies.append(buildBody(id: "sweep#\(verdict.rawValue)", tris: tris, color: colors[verdict]!))
+            bodies.append(
+                buildBody(id: "sweep#\(verdict.rawValue)", tris: tris, color: colors[verdict]!))
         }
         guard !bodies.isEmpty else { return "no coloured surface produced" }
 
         guard let renderer = OffscreenRenderer() else {
             return "OffscreenRenderer init failed (no Metal device available)."
         }
-        var ro = OffscreenRenderOptions(width: options.width, height: options.height, displayMode: .shaded, backgroundColor: options.background.color)
+        var ro = OffscreenRenderOptions(
+            width: options.width, height: options.height, displayMode: .shaded,
+            backgroundColor: options.background.color)
         ro.cameraState = RenderPreviewTool.makeCameraState(options: options, bodies: bodies)
         let url = URL(fileURLWithPath: outputPath)
         do {
@@ -658,15 +750,16 @@ public enum ZoneSweepTool {
             return error.localizedDescription
         }
         let legend: [(label: String, color: SIMD4<Float>)] = [
-            ("constant", colors[.constant]!), ("deviating", colors[.deviating]!), ("missed/sparse", colors[.missed]!),
+            ("constant", colors[.constant]!), ("deviating", colors[.deviating]!),
+            ("missed/sparse", colors[.missed]!),
         ]
         try? ChartRenderer.overlayZoneLegend(on: url, entries: legend)
         return nil
     }
 }
 
-private extension Array {
-    subscript(safe index: Int) -> Element? {
+extension Array {
+    fileprivate subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
 }

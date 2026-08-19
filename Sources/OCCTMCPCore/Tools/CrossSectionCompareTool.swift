@@ -1,4 +1,4 @@
-// CrossSectionCompareTool — `cross_section_compare` (#61). The highest-leverage
+// CrossSectionCompareTool: `cross_section_compare` (#61). The highest-leverage
 // detector for the failure that motivated #61/#62/#63: a reconstruction whose
 // cross-section is the WRONG SHAPE everywhere, yet whose 3D mean deviation looks
 // fine because the correct faces dominate the samples and the wrong arc averages
@@ -57,22 +57,26 @@ public enum CrossSectionCompareTool {
         /// Offset of the cut plane along the axis from the overlap-range start.
         public let offset: Double
         /// World coordinate of the cut plane ALONG the axis (signed projection of
-        /// the plane point onto the axis direction). For a Z sweep through a body
-        /// centred near the origin this is the plane's z — so "worst at z=+54"
+        /// the plane point onto the axis direction).
+        ///
+        /// For a Z sweep through a body
+        /// centred near the origin this is the plane's z, so "worst at z=+54"
         /// needs no mental math (#70).
         public let axisCoord: Double
         /// Closed loops the plane cut in each body.
         public let fromContours: Int
         public let referenceContours: Int
         /// Open polylines the plane cut (an open shell / raw scan section yields
-        /// these instead of a closed contour). A station with a non-zero open
-        /// count but zero closed count still slices the body — it just isn't
+        /// these instead of a closed contour).
+        ///
+        /// A station with a non-zero open
+        /// count but zero closed count still slices the body, it just isn't
         /// closed. Counting only `*Contours` is what made open reference meshes
         /// look un-sliced (#66).
         public let fromOpenPaths: Int
         public let referenceOpenPaths: Int
         /// True when exactly ONE body yielded any section (closed or open) at
-        /// this station — a registration / axis-extent smell.
+        /// this station, a registration / axis-extent smell.
         public let registrationSmell: Bool
         /// True when the comparison profile used at this station was an open
         /// polyline (so signedMean uses the radial-from-centroid sign convention
@@ -83,16 +87,20 @@ public enum CrossSectionCompareTool {
         public let areaRatio: Double
         /// Distance between the two main loops' centroids, in the plane.
         public let centroidOffset: Double
-        /// Signed mean deviation (+ = from is proud / outside the reference). In
+        /// Signed mean deviation (+ = from is proud / outside the reference).
+        ///
+        /// In
         /// the default `envelope` mode this is candidate-vs-reference OUTER
         /// boundary per angular direction, so inner window-return / frame paths
         /// don't pollute it (#70); in `profile` mode it's point-to-main-loop.
         public let signedMean: Double
         public let rms: Double
         public let maxAbs: Double
-        /// Pose-robust radial-signature L2 (0 = same shape). Independent of size
+        /// Pose-robust radial-signature L2 (0 = same shape).
+        ///
+        /// Independent of size
         /// and centre. In `envelope` mode it is defined for OPEN profiles too
-        /// (the outer-envelope radial function needs no closed ring — #70).
+        /// (the outer-envelope radial function needs no closed ring, #70).
         public let shapeL2: Double
         public let imagePath: String?
     }
@@ -104,11 +112,13 @@ public enum CrossSectionCompareTool {
         public let deflection: Double
         public let stations: Int
         /// Shared axis-extent overlap `[lo, hi]` (signed distance from `through`
-        /// along the axis) that the stations were placed across — both bodies
+        /// along the axis) that the stations were placed across, both bodies
         /// span this range, so every station should cut both.
         public let overlap: [Double]
-        /// Mean of the per-section signedMean — a non-zero value across the whole
-        /// stack is the systematic-offset fingerprint. Averaged over stations that
+        /// Mean of the per-section signedMean, a non-zero value across the whole
+        /// stack is the systematic-offset fingerprint.
+        ///
+        /// Averaged over stations that
         /// actually produced a comparison.
         public let meanSignedAcrossSections: Double
         public let maxAbsSignedSection: Double
@@ -116,9 +126,9 @@ public enum CrossSectionCompareTool {
         /// World axis coordinate of `worstStation` (see `SectionResult.axisCoord`).
         public let worstAxisCoord: Double
         /// Which comparison basis was used: `"envelope"` (outer boundary per
-        /// angular direction — default) or `"profile"` (point-to-main-loop).
+        /// angular direction, default) or `"profile"` (point-to-main-loop).
         public let referenceMode: String
-        /// Human-readable warnings — e.g. stations where only one body sliced
+        /// Human-readable warnings, e.g. stations where only one body sliced
         /// (a registration smell), so the caller doesn't trust an aggregate that
         /// a handful of one-sided stations skewed (#66).
         public let warnings: [String]
@@ -142,7 +152,8 @@ public enum CrossSectionCompareTool {
         }
         guard stations >= 1 else { return .init("stations must be ≥ 1.", isError: true) }
 
-        let fromShape: Shape, refShape: Shape
+        let fromShape: Shape
+        let refShape: Shape
         do {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             refShape = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store).shape
@@ -173,16 +184,19 @@ public enum CrossSectionCompareTool {
         // both bodies.
         let (loA, hiA) = projectRange(fromMesh.vertices, origin: ptf, axis: nf)
         let (loB, hiB) = projectRange(refMesh.vertices, origin: ptf, axis: nf)
-        let lo = Double(max(loA, loB)), hi = Double(min(hiA, hiB))
+        let lo = Double(max(loA, loB))
+        let hi = Double(min(hiA, hiB))
         guard hi - lo > 1e-9 else {
-            return .init("Bodies do not overlap along the given axis — no shared sections.", isError: true)
+            return .init(
+                "Bodies do not overlap along the given axis, no shared sections.", isError: true)
         }
         let margin = (hi - lo) * 0.02
-        let start = lo + margin, end = hi - margin
+        let start = lo + margin
+        let end = hi - margin
         let span = max(1e-9, end - start)
         let step = stations > 1 ? span / Double(stations - 1) : 0
 
-        let axisBase = simd_dot(pt, n)   // world axis coord of `through`
+        let axisBase = simd_dot(pt, n)  // world axis coord of `through`
 
         var results: [SectionResult] = []
         for s in 0..<stations {
@@ -211,8 +225,13 @@ public enum CrossSectionCompareTool {
                 do {
                     try ChartRenderer.profileOverlay(
                         layers: [
-                            .init(loops: refLoops, openPaths: refOpen, color: SIMD4(0.18, 0.42, 0.86, 1), label: "reference (\(referenceBodyId))"),
-                            .init(loops: fromLoops, openPaths: fromOpen, color: SIMD4(0.86, 0.20, 0.18, 1), label: "from (\(fromBodyId))"),
+                            .init(
+                                loops: refLoops, openPaths: refOpen,
+                                color: SIMD4(0.18, 0.42, 0.86, 1),
+                                label: "reference (\(referenceBodyId))"),
+                            .init(
+                                loops: fromLoops, openPaths: fromOpen,
+                                color: SIMD4(0.86, 0.20, 0.18, 1), label: "from (\(fromBodyId))"),
                         ],
                         title: "station \(s)  offset \(String(format: "%.3g", t - lo))",
                         to: URL(fileURLWithPath: path)
@@ -227,7 +246,10 @@ public enum CrossSectionCompareTool {
             // Numeric comparison needs a usable profile from BOTH bodies (a closed
             // loop ≥3 pts, or an open polyline ≥2 pts).
             if let fromMain, let refMain, fromMain.usable, refMain.usable {
-                let signedMean: Double, rms: Double, maxAbs: Double, shapeL2: Double
+                let signedMean: Double
+                let rms: Double
+                let maxAbs: Double
+                let shapeL2: Double
                 if outerEnvelope {
                     // Compare against the reference's OUTER boundary per angular
                     // direction: inner window-return / frame / bore paths (smaller
@@ -236,54 +258,69 @@ public enum CrossSectionCompareTool {
                     // drop implicitly: that only holds at dense tessellation (see
                     // ProfileMath.outerEnvelopePoints for the sparse-bin failure mode
                     // this replaced).
-                    let candPts = ProfileMath.outerEnvelopePoints(contours: fromSec?.contours ?? [], open: fromOpen)
-                    let refPts = ProfileMath.outerEnvelopePoints(contours: refSec?.contours ?? [], open: refOpen)
+                    let candPts = ProfileMath.outerEnvelopePoints(
+                        contours: fromSec?.contours ?? [], open: fromOpen)
+                    let refPts = ProfileMath.outerEnvelopePoints(
+                        contours: refSec?.contours ?? [], open: refOpen)
                     let e = ProfileMath.envelopeDeviation(candidate: candPts, reference: refPts)
                     (signedMean, rms, maxAbs, shapeL2) = (e.signedMean, e.rms, e.maxAbs, e.shapeL2)
                 } else {
                     (signedMean, rms, maxAbs) = ProfileMath.signedProfileDeviation(
-                        from: fromMain.points, reference: refMain.points, referenceClosed: refMain.closed)
-                    shapeL2 = (fromMain.closed && refMain.closed)
-                        ? ProfileMath.radialShapeL2(fromMain.points, refMain.points, samples: 180) : 0
+                        from: fromMain.points, reference: refMain.points,
+                        referenceClosed: refMain.closed)
+                    shapeL2 =
+                        (fromMain.closed && refMain.closed)
+                        ? ProfileMath.radialShapeL2(fromMain.points, refMain.points, samples: 180)
+                        : 0
                 }
                 let fa = fromMain.closed ? abs(ProfileMath.shoelace(fromMain.points)) : 0
                 let ra = refMain.closed ? abs(ProfileMath.shoelace(refMain.points)) : 0
-                let cFrom = ProfileMath.centroid(fromMain.points), cRef = ProfileMath.centroid(refMain.points)
-                results.append(SectionResult(
-                    station: s, offset: t - lo, axisCoord: axisBase + t,
-                    fromContours: fromLoops.count, referenceContours: refLoops.count,
-                    fromOpenPaths: fromOpen.count, referenceOpenPaths: refOpen.count,
-                    registrationSmell: smell,
-                    openProfile: !(fromMain.closed && refMain.closed),
-                    fromArea: fa, referenceArea: ra,
-                    areaRatio: ra > 1e-12 ? fa / ra : 0,
-                    centroidOffset: simd_distance(cFrom, cRef),
-                    signedMean: signedMean, rms: rms, maxAbs: maxAbs,
-                    shapeL2: shapeL2, imagePath: imagePath
-                ))
+                let cFrom = ProfileMath.centroid(fromMain.points)
+                let cRef = ProfileMath.centroid(refMain.points)
+                results.append(
+                    SectionResult(
+                        station: s, offset: t - lo, axisCoord: axisBase + t,
+                        fromContours: fromLoops.count, referenceContours: refLoops.count,
+                        fromOpenPaths: fromOpen.count, referenceOpenPaths: refOpen.count,
+                        registrationSmell: smell,
+                        openProfile: !(fromMain.closed && refMain.closed),
+                        fromArea: fa, referenceArea: ra,
+                        areaRatio: ra > 1e-12 ? fa / ra : 0,
+                        centroidOffset: simd_distance(cFrom, cRef),
+                        signedMean: signedMean, rms: rms, maxAbs: maxAbs,
+                        shapeL2: shapeL2, imagePath: imagePath
+                    ))
             } else {
-                results.append(SectionResult(
-                    station: s, offset: t - lo, axisCoord: axisBase + t,
-                    fromContours: fromLoops.count, referenceContours: refLoops.count,
-                    fromOpenPaths: fromOpen.count, referenceOpenPaths: refOpen.count,
-                    registrationSmell: smell, openProfile: false,
-                    fromArea: 0, referenceArea: 0, areaRatio: 0, centroidOffset: 0,
-                    signedMean: 0, rms: 0, maxAbs: 0, shapeL2: 0, imagePath: imagePath
-                ))
+                results.append(
+                    SectionResult(
+                        station: s, offset: t - lo, axisCoord: axisBase + t,
+                        fromContours: fromLoops.count, referenceContours: refLoops.count,
+                        fromOpenPaths: fromOpen.count, referenceOpenPaths: refOpen.count,
+                        registrationSmell: smell, openProfile: false,
+                        fromArea: 0, referenceArea: 0, areaRatio: 0, centroidOffset: 0,
+                        signedMean: 0, rms: 0, maxAbs: 0, shapeL2: 0, imagePath: imagePath
+                    ))
             }
         }
 
         let valid = results.filter { $0.rms > 0 || $0.maxAbs > 0 }
-        let meanSigned = valid.isEmpty ? 0 : valid.reduce(0) { $0 + $1.signedMean } / Double(valid.count)
-        let worst = results.enumerated().max(by: { abs($0.element.signedMean) < abs($1.element.signedMean) })
+        let meanSigned =
+            valid.isEmpty ? 0 : valid.reduce(0) { $0 + $1.signedMean } / Double(valid.count)
+        let worst = results.enumerated().max(by: {
+            abs($0.element.signedMean) < abs($1.element.signedMean)
+        })
 
         var warnings: [String] = []
         let smellStations = results.filter { $0.registrationSmell }.map { $0.station }
         if !smellStations.isEmpty {
-            warnings.append("\(smellStations.count)/\(results.count) stations sliced only one body (stations \(smellStations.map(String.init).joined(separator: ","))) — possible mis-registration or the bodies' axis-extents differ; aggregates exclude them.")
+            warnings.append(
+                "\(smellStations.count)/\(results.count) stations sliced only one body (stations \(smellStations.map(String.init).joined(separator: ","))), possible mis-registration or the bodies' axis-extents differ; aggregates exclude them."
+            )
         }
         if valid.count < results.count {
-            warnings.append("\(results.count - valid.count)/\(results.count) stations lacked a comparable profile in both bodies; aggregates are over the \(valid.count) that did.")
+            warnings.append(
+                "\(results.count - valid.count)/\(results.count) stations lacked a comparable profile in both bodies; aggregates are over the \(valid.count) that did."
+            )
         }
 
         let report = CompareReport(
@@ -308,14 +345,17 @@ public enum CrossSectionCompareTool {
         return shape.mesh(parameters: params)
     }
 
-    /// The centre of `shape`'s bounding box, or nil when it has none.
+    /// The centre of the bounding box of `shape`, or nil when it has none.
     static func midpoint(of shape: Shape) -> SIMD3<Double>? {
         guard let b = shape.bounds else { return nil }
         return (b.min + b.max) * 0.5
     }
 
-    static func projectRange(_ verts: [SIMD3<Float>], origin: SIMD3<Float>, axis: SIMD3<Float>) -> (Float, Float) {
-        var lo = Float.greatestFiniteMagnitude, hi = -Float.greatestFiniteMagnitude
+    static func projectRange(_ verts: [SIMD3<Float>], origin: SIMD3<Float>, axis: SIMD3<Float>) -> (
+        Float, Float
+    ) {
+        var lo = Float.greatestFiniteMagnitude
+        var hi = -Float.greatestFiniteMagnitude
         for v in verts {
             let d = simd_dot(v - origin, axis)
             if d < lo { lo = d }

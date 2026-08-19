@@ -1,25 +1,25 @@
-// MeshCurvatureTools — `mesh_curvature`. Phase 3 of the mesh-analysis expansion
+// MeshCurvatureTools: `mesh_curvature`. Phase 3 of the mesh-analysis expansion
 // (`.claude/plans/2026-07-21-mesh-analysis-expansion.md`): the single-body
 // curvature render mode deferred from #101, plus LLM-grade curvature
-// statistics. No reference body needed — this is a property of one mesh.
+// statistics. No reference body needed, this is a property of one mesh.
 //
 // Phase 3's other primitives (slippage classification, RANSAC segmentation,
 // crease-edge detection, curvature-ordered segmentation seeding, generalized
 // winding number) belong upstream in OCCTSwiftMesh per the ecosystem's
 // factoring rule (OCCTMCP wraps, never implements mesh algorithms) and are
-// tracked as filed issues rather than implemented here — see
+// tracked as filed issues rather than implemented here, see
 // SecondMouseAU/OCCTSwiftMesh#26/#27/#28/#29/#30 and the OCCTMCP tracking
 // issues #107/#108/#109. This tool ships because its one primitive,
 // `OCCTSwiftMesh.Mesh.vertexCurvatures()` (v1.4.0, OCCTSwiftMesh#23/#24), is
 // already released and pinned (Package.swift already floors OCCTSwiftMesh at
-// 1.5.0 for align_bodies) — no repin needed.
+// 1.5.0 for align_bodies), no repin needed.
 //
-// PIPELINE — loadShape -> mesh (the standard MeshParameters recipe shared
+// PIPELINE: loadShape -> mesh (the standard MeshParameters recipe shared
 // with DeviationTools/MeshZoneTools/MeshDiagnoseTools/AlignTools) ->
 // `mesh.welded()` -> `welded.vertexCurvatures()`. Welding is MANDATORY:
 // `vertexCurvatures()`'s own precondition is a WELDED mesh (per-face tensors
 // are averaged onto each vertex over every triangle sharing that vertex's
-// WELDED index) — on unwelded input every vertex touches exactly one
+// WELDED index), on unwelded input every vertex touches exactly one
 // triangle, so the result degrades to that triangle's own unaveraged
 // curvature. Both the render and the stats below are computed entirely on
 // `welded` (never `mesh`), so there's no triangle-index correspondence
@@ -27,49 +27,49 @@
 // (which needs adjacency on a SEPARATE weld pass while its own
 // `triangleIndices` stay indexed against the unwelded mesh).
 //
-// UNITS — k1/k2/mean are in 1/mm (curvature = 1/radius of curvature).
-// `gaussian = k1 * k2` is in 1/mm-squared, NOT 1/mm — a real unit, kept in
+// UNITS: k1/k2/mean are in 1/mm (curvature = 1/radius of curvature).
+// `gaussian = k1 * k2` is in 1/mm-squared, NOT 1/mm, a real unit, kept in
 // mind below: `highCurvatureFraction`'s clamp is always computed from the
 // SAME channel selected by `colorBy` (never cross-compared against a
 // different channel's clamp), so this never creates a unit mismatch even
 // though `gaussian`'s numbers are on a different scale than the other three.
 //
-// COLOR-BY SEMANTICS — `clampPercentile` (default 0.95) computes a clamp
+// COLOR-BY SEMANTICS: `clampPercentile` (default 0.95) computes a clamp
 // value from the p-th percentile of |colorBy channel value| over all welded
 // vertices; the diverging colormap (ChartRenderer.divergingColor, the same
 // one HeatmapTools uses) is clamped symmetrically at that value for the 3
 // signed channels (mean/gaussian/k1), or 0..clamp using just the positive
 // (white->red) half of the same map for the unsigned `maxAbs` channel
 // (= max(|k1|, |k2|)). `highCurvatureFraction` reports the fraction of
-// vertices whose |colorBy value| exceeds that SAME clamp — by construction
+// vertices whose |colorBy value| exceeds that SAME clamp, by construction
 // close to `1 - clampPercentile` (not a coincidence: it's exactly what
 // "clamped for color" means), which is what lets `clampPercentile: 1.0`
 // (no clamp at all) drive it to 0 and is exercised directly by
 // MeshCurvatureToolsTests' clampPercentile-semantics test.
 //
-// FLATNESS — `flatFraction` is independent of `colorBy`: a vertex is "flat"
-// when max(|k1|, |k2|) is below `0.1 / bboxDiag` (1/mm) — a curvature radius
+// FLATNESS: `flatFraction` is independent of `colorBy`: a vertex is "flat"
+// when max(|k1|, |k2|) is below `0.1 / bboxDiag` (1/mm), a curvature radius
 // past ~10x the body's own bounding-box diagonal reads as flat at model
 // scale. This is deliberately an absolute-ish heuristic (not a percentile of
 // the sample itself, unlike highCurvatureFraction) so it means the same
 // thing regardless of how curved or flat the rest of the body happens to be.
 //
-// UNWELDABLE-SOUP WARNING — per vertexCurvatures()'s own docs, unwelded
+// UNWELDABLE-SOUP WARNING: per vertexCurvatures()'s own docs, unwelded
 // input (or input that welds to nothing, i.e. every triangle owns its own 3
 // unique vertices even after welding) degrades to zero curvature everywhere.
 // A GENUINE flat body (a box, away from its edges) is also mostly zero
 // curvature, so "curvature reads near-zero" can't itself be the warning
 // trigger. Instead this tool warns only when the WELD demonstrably failed to
-// merge anything (`welded.vertexCount == welded.triangleCount * 3`) — a
+// merge anything (`welded.vertexCount == welded.triangleCount * 3`), a
 // mesh-topology fact, not a curvature-value heuristic, so it can't
 // false-positive on a genuinely flat part.
 
 import Foundation
-import simd
 import OCCTSwift
 import OCCTSwiftMesh
 import OCCTSwiftViewport
 import ScriptHarness
+import simd
 
 public enum MeshCurvatureTools {
 
@@ -92,7 +92,7 @@ public enum MeshCurvatureTools {
         public let k2: Stat
         /// 1/mm.
         public let mean: Stat
-        /// 1/mm^2 (k1 * k2) — NOT the same unit as the other three.
+        /// 1/mm^2 (k1 * k2), NOT the same unit as the other three.
         public let gaussian: Stat
         public let flatFraction: Double
         public let highCurvatureFraction: Double
@@ -111,7 +111,7 @@ public enum MeshCurvatureTools {
 
     static let bands = 11
     /// A vertex with max(|k1|,|k2|) under `flatCurvatureBboxFraction / bboxDiag` (1/mm) reads
-    /// flat — see the file header.
+    /// flat, see the file header.
     static let flatCurvatureBboxFraction = 0.1
 
     @MainActor
@@ -171,7 +171,10 @@ public enum MeshCurvatureTools {
         let bboxDiag = Double(simd_length(bb.max - bb.min))
         let flatThreshold = flatCurvatureBboxFraction / max(bboxDiag, 1e-9)
 
-        var k1s = [Double](); var k2s = [Double](); var means = [Double](); var gaussians = [Double]()
+        var k1s = [Double]()
+        var k2s = [Double]()
+        var means = [Double]()
+        var gaussians = [Double]()
         var maxAbsK = [Double]()
         k1s.reserveCapacity(curvatures.count)
         k2s.reserveCapacity(curvatures.count)
@@ -191,15 +194,16 @@ public enum MeshCurvatureTools {
 
         let colorByValues: [Double]
         switch colorBy {
-        case .mean:     colorByValues = means
+        case .mean: colorByValues = means
         case .gaussian: colorByValues = gaussians
-        case .k1:       colorByValues = k1s
-        case .maxAbs:   colorByValues = maxAbsK
+        case .k1: colorByValues = k1s
+        case .maxAbs: colorByValues = maxAbsK
         }
         let absSorted = colorByValues.map { abs($0) }.sorted()
         let clampValue = max(1e-12, DeviationTools.percentile(absSorted, clampPercentile))
         let highCount = colorByValues.filter { abs($0) > clampValue }.count
-        let highCurvatureFraction = colorByValues.isEmpty ? 0 : Double(highCount) / Double(colorByValues.count)
+        let highCurvatureFraction =
+            colorByValues.isEmpty ? 0 : Double(highCount) / Double(colorByValues.count)
         if clampPercentile < 1.0, highCount > 0 {
             let phrase = colorBy == .maxAbs ? "above" : "beyond \u{b1}"
             warnings.append(
@@ -284,7 +288,9 @@ public enum MeshCurvatureTools {
         // Per-triangle value = mean of its 3 (welded) corner values.
         var bandTris = [[Int]](repeating: [], count: bands)
         for t in 0..<triCount {
-            let ia = Int(idx[t * 3]), ib = Int(idx[t * 3 + 1]), ic = Int(idx[t * 3 + 2])
+            let ia = Int(idx[t * 3])
+            let ib = Int(idx[t * 3 + 1])
+            let ic = Int(idx[t * 3 + 2])
             let v = (values[ia] + values[ib] + values[ic]) / 3
             bandTris[bandIndex(for: v, colorBy: colorBy, clamp: clampValue)].append(t)
         }
@@ -297,8 +303,12 @@ public enum MeshCurvatureTools {
             bnormals.reserveCapacity(tris.count * 9)
             indices.reserveCapacity(tris.count * 3)
             for t in tris {
-                let ia = Int(idx[t * 3]), ib = Int(idx[t * 3 + 1]), ic = Int(idx[t * 3 + 2])
-                let pa = verts[ia], pb = verts[ib], pc = verts[ic]
+                let ia = Int(idx[t * 3])
+                let ib = Int(idx[t * 3 + 1])
+                let ic = Int(idx[t * 3 + 2])
+                let pa = verts[ia]
+                let pb = verts[ib]
+                let pc = verts[ic]
                 let fn: SIMD3<Float>
                 if hasNormals {
                     fn = SIMD3<Float>(0, 0, 0)  // per-vertex normals used below
@@ -308,20 +318,30 @@ public enum MeshCurvatureTools {
                     fn = len > 1e-12 ? n / len : SIMD3<Float>(0, 0, 1)
                 }
                 for (vi, p) in [(ia, pa), (ib, pb), (ic, pc)] {
-                    positions.append(p.x); positions.append(p.y); positions.append(p.z)
+                    positions.append(p.x)
+                    positions.append(p.y)
+                    positions.append(p.z)
                     let nrm = hasNormals ? normals[vi] : fn
-                    bnormals.append(nrm.x); bnormals.append(nrm.y); bnormals.append(nrm.z)
+                    bnormals.append(nrm.x)
+                    bnormals.append(nrm.y)
+                    bnormals.append(nrm.z)
                 }
                 let base = UInt32(indices.count)
-                indices.append(base); indices.append(base + 1); indices.append(base + 2)
+                indices.append(base)
+                indices.append(base + 1)
+                indices.append(base + 2)
             }
-            return ViewportBody.directMesh(id: id, positions: positions, normals: bnormals, indices: indices, color: color)
+            return ViewportBody.directMesh(
+                id: id, positions: positions, normals: bnormals, indices: indices, color: color)
         }
 
         var bodies: [ViewportBody] = []
         for b in 0..<bands where !bandTris[b].isEmpty {
             let t = bandCenterT(for: b, colorBy: colorBy)
-            bodies.append(buildBody(id: "\(bodyId)#curv\(b)", tris: bandTris[b], color: ChartRenderer.divergingColor(t)))
+            bodies.append(
+                buildBody(
+                    id: "\(bodyId)#curv\(b)", tris: bandTris[b],
+                    color: ChartRenderer.divergingColor(t)))
         }
         guard !bodies.isEmpty else { return "no colored surface produced" }
 
@@ -340,14 +360,19 @@ public enum MeshCurvatureTools {
         } catch {
             return error.localizedDescription
         }
-        let (minV, maxV): (Double, Double) = colorBy == .maxAbs ? (0, clampValue) : (-clampValue, clampValue)
-        let unitLabel = colorBy == .gaussian ? "\(colorBy.rawValue) 1/mm\u{b2}" : "\(colorBy.rawValue) 1/mm"
-        try? ChartRenderer.overlayColorbar(on: url, minValue: minV, maxValue: maxV, label: unitLabel)
+        let (minV, maxV): (Double, Double) =
+            colorBy == .maxAbs ? (0, clampValue) : (-clampValue, clampValue)
+        let unitLabel =
+            colorBy == .gaussian ? "\(colorBy.rawValue) 1/mm\u{b2}" : "\(colorBy.rawValue) 1/mm"
+        try? ChartRenderer.overlayColorbar(
+            on: url, minValue: minV, maxValue: maxV, label: unitLabel)
         return nil
     }
 
+    /// Maps `value` to a band index in `0..<bands` for `colorBy`.
+    ///
     /// `.maxAbs` (unsigned): 0..bands-1 across `[0, clamp]`. Every other channel (signed):
-    /// 0..bands-1 across `[-clamp, clamp]` — matches HeatmapTools' bucketing exactly.
+    /// 0..bands-1 across `[-clamp, clamp]`, matching HeatmapTools' bucketing exactly.
     private static func bandIndex(for value: Double, colorBy: ColorBy, clamp: Double) -> Int {
         let norm: Double
         if colorBy == .maxAbs {
@@ -360,8 +385,9 @@ public enum MeshCurvatureTools {
         return max(0, b)
     }
 
-    /// The `t ∈ [-1, 1]` (or `[0, 1]` for `.maxAbs`) passed to `ChartRenderer.divergingColor`
-    /// for band `b`'s fill color.
+    /// The color-scale position passed to `ChartRenderer.divergingColor` for band `b`.
+    ///
+    /// Range is `[-1, 1]`, or `[0, 1]` for `.maxAbs`.
     private static func bandCenterT(for b: Int, colorBy: ColorBy) -> Double {
         let frac = (Double(b) + 0.5) / Double(bands)
         return colorBy == .maxAbs ? frac : frac * 2 - 1

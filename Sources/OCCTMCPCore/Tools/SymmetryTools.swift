@@ -1,13 +1,13 @@
-// SymmetryTools — `detect_symmetry` (Phase 2 of the mesh-analysis
+// SymmetryTools: `detect_symmetry` (Phase 2 of the mesh-analysis
 // expansion). PCA candidate mirror planes, verified with the existing
-// signed-distance engine (DeviationTools) — pure MCP-side composition, no
+// signed-distance engine (DeviationTools), pure MCP-side composition, no
 // new OCCTSwiftMesh surface needed. Rotational/axis symmetry detection is
 // deferred (see the tool's own description): this covers reflective
 // (mirror-plane) symmetry only.
 //
 // Pipeline: mesh -> DeviationTools.TriMesh -> area-weighted centroid + the
 // 3 eigenvectors of the area-weighted covariance of triangle centroids (a
-// small symmetric-3x3 Jacobi solver, `symmetricEigen3x3` below — this
+// small symmetric-3x3 Jacobi solver, `symmetricEigen3x3` below, this
 // tool is the first caller that needs all THREE principal axes;
 // `ZoneSweepTool.principalAxis` only returns the dominant one via power
 // iteration, which doesn't generalise to "give me all three"). Each
@@ -17,7 +17,7 @@
 // maxSamples convention as DeviationTools.directedStats), reflect each
 // across the plane, and measure its UNSIGNED nearest distance back to the
 // mesh's OWN surface via `DeviationTools.signedQuery(..., signMode:
-// .nearest)` — `.nearest` mode never engages the normal-compatibility gate
+// .nearest)`, `.nearest` mode never engages the normal-compatibility gate
 // (#72), so `.nearest` on the returned hit is always the honest closest-
 // surface distance, exactly the "unsigned nearest distance" this needs.
 // rms/p95/max of that per-candidate distance set is the residual; a
@@ -25,8 +25,8 @@
 
 import Foundation
 import OCCTSwift
-import simd
 import ScriptHarness
+import simd
 
 public enum SymmetryTools {
 
@@ -82,18 +82,22 @@ public enum SymmetryTools {
         var centroid = SIMD3<Double>(0, 0, 0)
         var totalArea = 0.0
         for (a, b, c) in tri.triangles {
-            let pa = tri.vertices[Int(a)], pb = tri.vertices[Int(b)], pc = tri.vertices[Int(c)]
+            let pa = tri.vertices[Int(a)]
+            let pb = tri.vertices[Int(b)]
+            let pc = tri.vertices[Int(c)]
             let area = 0.5 * simd_length(simd_cross(pb - pa, pc - pa))
             centroid += (pa + pb + pc) / 3 * area
             totalArea += area
         }
         guard totalArea > 1e-12 else {
-            return .init("'\(bodyId)' has zero surface area (degenerate mesh); cannot fit principal axes.", isError: true)
+            return .init(
+                "'\(bodyId)' has zero surface area (degenerate mesh); cannot fit principal axes.",
+                isError: true)
         }
         centroid /= totalArea
 
         // Area-weighted covariance about that centroid, then its
-        // eigen-decomposition — the 3 principal axes.
+        // eigen-decomposition, the 3 principal axes.
         //
         // Each triangle's EXACT contribution to ∫∫(p-centroid)(p-centroid)ᵀ dA
         // is (area/12)·(9·m⊗m + A⊗A + B⊗B + C⊗C), where A/B/C are its own
@@ -109,10 +113,19 @@ public enum SymmetryTools {
         // true diagonal terms in the box unit-test fixture below), enough to
         // rotate the "principal axes" well off the box's real (and exact)
         // coordinate-aligned symmetry planes.
-        var cxx = 0.0, cxy = 0.0, cxz = 0.0, cyy = 0.0, cyz = 0.0, czz = 0.0
+        var cxx = 0.0
+        var cxy = 0.0
+        var cxz = 0.0
+        var cyy = 0.0
+        var cyz = 0.0
+        var czz = 0.0
         func accumulate(_ p: SIMD3<Double>, weight: Double) {
-            cxx += weight * p.x * p.x; cxy += weight * p.x * p.y; cxz += weight * p.x * p.z
-            cyy += weight * p.y * p.y; cyz += weight * p.y * p.z; czz += weight * p.z * p.z
+            cxx += weight * p.x * p.x
+            cxy += weight * p.x * p.y
+            cxz += weight * p.x * p.z
+            cyy += weight * p.y * p.y
+            cyz += weight * p.y * p.z
+            czz += weight * p.z * p.z
         }
         for (a, b, c) in tri.triangles {
             let pa = tri.vertices[Int(a)] - centroid
@@ -126,7 +139,8 @@ public enum SymmetryTools {
             accumulate(pb, weight: w)
             accumulate(pc, weight: w)
         }
-        let (eigenvalues, axes) = symmetricEigen3x3(xx: cxx, xy: cxy, xz: cxz, yy: cyy, yz: cyz, zz: czz)
+        let (eigenvalues, axes) = symmetricEigen3x3(
+            xx: cxx, xy: cxy, xz: cxz, yy: cyy, yz: cyz, zz: czz)
 
         // Stride-subsample vertices for verification (mirrors
         // DeviationTools.directedStats' maxSamples convention).
@@ -135,7 +149,10 @@ public enum SymmetryTools {
         var sampleIndices: [Int] = []
         sampleIndices.reserveCapacity((n + stride - 1) / stride)
         var vi = 0
-        while vi < n { sampleIndices.append(vi); vi += stride }
+        while vi < n {
+            sampleIndices.append(vi)
+            vi += stride
+        }
 
         var warnings: [String] = []
         // Near-equal eigenvalues make the eigenvector PAIR in that subspace
@@ -145,23 +162,25 @@ public enum SymmetryTools {
         // symmetric body (a square-section prism is the canonical case) can
         // read asymmetric. Continuous-symmetry bodies (cylinders: any plane
         // through the axis mirrors) are unaffected. Surface the ambiguity
-        // rather than guessing — the same explicit-ambiguity-channel
+        // rather than guessing, the same explicit-ambiguity-channel
         // convention as signMode's `ambiguousFraction` (#72).
         let degenerateGapFraction = 0.05
         let eigenScale = max(abs(eigenvalues[0]), 1e-30)
-        for (hi, lo) in [(0, 1), (1, 2)] where abs(eigenvalues[hi] - eigenvalues[lo]) / eigenScale < degenerateGapFraction {
+        for (hi, lo) in [(0, 1), (1, 2)]
+        where abs(eigenvalues[hi] - eigenvalues[lo]) / eigenScale < degenerateGapFraction {
             warnings.append(
-                "Principal-axis eigenvalues #\(hi) and #\(lo) are within \(Int(degenerateGapFraction * 100))% of each other: " +
-                "candidate plane orientations in that subspace are ill-defined (any rotation of the axis pair is an " +
-                "equally valid PCA result), so a symmetric body whose true mirror planes sit between the returned axes " +
-                "can read asymmetric. Treat non-symmetric verdicts for those candidates with suspicion; an explicit " +
-                "known-good plane check via measure_deviation against a mirrored copy is the reliable fallback."
+                "Principal-axis eigenvalues #\(hi) and #\(lo) are within \(Int(degenerateGapFraction * 100))% of each other: "
+                    + "candidate plane orientations in that subspace are ill-defined (any rotation of the axis pair is an "
+                    + "equally valid PCA result), so a symmetric body whose true mirror planes sit between the returned axes "
+                    + "can read asymmetric. Treat non-symmetric verdicts for those candidates with suspicion; an explicit "
+                    + "known-good plane check via measure_deviation against a mirrored copy is the reliable fallback."
             )
         }
         var candidateEntries: [SymmetryReport.CandidateEntry] = []
         for axis in axes {
             guard simd_length(axis) > 1e-9 else {
-                warnings.append("A degenerate principal axis (zero-length eigenvector) was skipped.")
+                warnings.append(
+                    "A degenerate principal axis (zero-length eigenvector) was skipped.")
                 continue
             }
             let unitAxis = simd_normalize(axis)
@@ -177,19 +196,22 @@ public enum SymmetryTools {
                 }
             }
             guard !dists.isEmpty else {
-                warnings.append("Candidate plane with normal [\(fmt(unitAxis))] produced no comparable samples; skipped.")
+                warnings.append(
+                    "Candidate plane with normal [\(fmt(unitAxis))] produced no comparable samples; skipped."
+                )
                 continue
             }
             let sorted = dists.sorted()
             let rms = (dists.reduce(0) { $0 + $1 * $1 } / Double(dists.count)).squareRoot()
             let p95 = DeviationTools.percentile(sorted, 0.95)
             let maxD = sorted.last!
-            candidateEntries.append(.init(
-                point: [centroid.x, centroid.y, centroid.z],
-                normal: [unitAxis.x, unitAxis.y, unitAxis.z],
-                rmsMm: rms, p95Mm: p95, maxMm: maxD,
-                symmetric: p95 <= toleranceMm
-            ))
+            candidateEntries.append(
+                .init(
+                    point: [centroid.x, centroid.y, centroid.z],
+                    normal: [unitAxis.x, unitAxis.y, unitAxis.z],
+                    rmsMm: rms, p95Mm: p95, maxMm: maxD,
+                    symmetric: p95 <= toleranceMm
+                ))
         }
 
         let sortedCandidates = candidateEntries.sorted { $0.p95Mm < $1.p95Mm }
@@ -209,16 +231,20 @@ public enum SymmetryTools {
     // MARK: - Symmetric 3x3 eigen-decomposition
 
     /// Classic cyclic Jacobi eigen-decomposition of a symmetric 3x3 matrix
-    /// (given by its upper triangle). Each sweep zeroes the largest
+    /// (given by its upper triangle).
+    ///
+    /// Each sweep zeroes the largest
     /// remaining off-diagonal entry via an explicit Givens rotation
     /// (`A' = GᵀAG`, `V' = VG`); a few dozen sweeps is always enough for a
-    /// fixed 3x3 — no Accelerate dependency needed for a matrix this small.
+    /// fixed 3x3, no Accelerate dependency needed for a matrix this small.
     ///
     /// Returns eigenvalues and their unit eigenvectors, sorted by
     /// eigenvalue DESCENDING (largest-spread axis first). The eigenvectors
     /// are mutually orthonormal by construction (V accumulates as a
     /// product of orthogonal rotations).
-    static func symmetricEigen3x3(xx: Double, xy: Double, xz: Double, yy: Double, yz: Double, zz: Double)
+    static func symmetricEigen3x3(
+        xx: Double, xy: Double, xz: Double, yy: Double, yz: Double, zz: Double
+    )
         -> (values: SIMD3<Double>, vectors: [SIMD3<Double>])
     {
         var a: [[Double]] = [[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]]
@@ -242,12 +268,24 @@ public enum SymmetryTools {
         }
 
         for _ in 0..<60 {
-            var p = 0, q = 1, best = abs(a[0][1])
-            if abs(a[0][2]) > best { best = abs(a[0][2]); p = 0; q = 2 }
-            if abs(a[1][2]) > best { best = abs(a[1][2]); p = 1; q = 2 }
+            var p = 0
+            var q = 1
+            var best = abs(a[0][1])
+            if abs(a[0][2]) > best {
+                best = abs(a[0][2])
+                p = 0
+                q = 2
+            }
+            if abs(a[1][2]) > best {
+                best = abs(a[1][2])
+                p = 1
+                q = 2
+            }
             if best < 1e-13 { break }
 
-            let app = a[p][p], aqq = a[q][q], apq = a[p][q]
+            let app = a[p][p]
+            let aqq = a[q][q]
+            let apq = a[p][q]
             // The rotation angle that zeroes a[p][q]: the standard
             // Numerical-Recipes (theta -> t -> c,s) form, numerically stable
             // as apq -> 0 (t -> 0 smoothly regardless of apq's sign, unlike
@@ -258,7 +296,7 @@ public enum SymmetryTools {
             // matrix G below (g[p][q] = +s, g[q][p] = -s): for
             // A' = GᵀAG, that placement's off-diagonal term works out to
             // (app-aqq)·sc + apq·(c²-s²), whose zero condition is
-            // tan(2θ) = 2apq/(aqq-app) = cot(2θ)⁻¹ where θ = atan(t) — i.e.
+            // tan(2θ) = 2apq/(aqq-app) = cot(2θ)⁻¹ where θ = atan(t), i.e.
             // exactly the θ this formula solves for. The other placement
             // (g[p][q] = -s, g[q][p] = +s) needs the OPPOSITE-sign angle
             // formula; pairing this θ with that placement zeroes nothing
@@ -271,7 +309,10 @@ public enum SymmetryTools {
             let s = t * c
 
             var g = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
-            g[p][p] = c; g[q][q] = c; g[p][q] = s; g[q][p] = -s
+            g[p][p] = c
+            g[q][q] = c
+            g[p][q] = s
+            g[q][p] = -s
 
             a = matMul(matMul(transpose(g), a), g)
             v = matMul(v, g)

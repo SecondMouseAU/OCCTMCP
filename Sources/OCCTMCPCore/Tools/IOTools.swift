@@ -1,4 +1,4 @@
-// IOTools — read_brep, import_file, export_scene. All three are direct
+// IOTools: read_brep, import_file, export_scene. All three are direct
 // OCCTSwift calls now: Shape.loadBREP / .loadSTEP / .loadIGES,
 // Exporter.writeSTEP / .writeIGES / .writeBREP / .writeSTL / .writeOBJ /
 // .writeGLTF.
@@ -33,10 +33,12 @@ public enum IOTools {
             return .init("BREP file not found: \(inputPath)")
         }
         let manifestExists = (try? store.read()) != nil
-        let manifest: ScriptManifest = (manifestExists ? (try? store.read()) ?? nil : nil) ?? ScriptManifest(
-            description: "Imported via read_brep",
-            bodies: []
-        )
+        let manifest: ScriptManifest =
+            (manifestExists ? (try? store.read()) ?? nil : nil)
+            ?? ScriptManifest(
+                description: "Imported via read_brep",
+                bodies: []
+            )
 
         let resolvedId = bodyId ?? defaultBodyId(from: inputPath)
         if manifest.bodies.contains(where: { $0.id == resolvedId }) {
@@ -58,43 +60,48 @@ public enum IOTools {
         }
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            atPath: outputDir, withIntermediateDirectories: true)
         let outFile = "\(resolvedId).brep"
         let outPath = "\(outputDir)/\(outFile)"
         do {
-            try Exporter.writeBREP(shape: shape, to: URL(fileURLWithPath: outPath), allowInvalid: allowInvalid)
+            try Exporter.writeBREP(
+                shape: shape, to: URL(fileURLWithPath: outPath), allowInvalid: allowInvalid)
         } catch {
             return .init("Failed to copy BREP: \(error.localizedDescription)", isError: true)
         }
 
         await history.snapshot(store: store)
         var bodies = manifest.bodies
-        bodies.append(BodyDescriptor(
-            id: resolvedId,
-            file: outFile,
-            color: color
-        ))
-        try? store.write(ScriptManifest(
-            version: manifest.version,
-            timestamp: Date(),
-            description: manifest.description ?? "Imported via read_brep",
-            bodies: bodies,
-            graphs: manifest.graphs,
-            metadata: manifest.metadata
-        ))
+        bodies.append(
+            BodyDescriptor(
+                id: resolvedId,
+                file: outFile,
+                color: color
+            ))
+        try? store.write(
+            ScriptManifest(
+                version: manifest.version,
+                timestamp: Date(),
+                description: manifest.description ?? "Imported via read_brep",
+                bodies: bodies,
+                graphs: manifest.graphs,
+                metadata: manifest.metadata
+            ))
 
-        return IntrospectionTools.encode(LoadReport(
-            bodyId: resolvedId,
-            isValid: shape.isValid,
-            shapeType: String(describing: shape.shapeType),
-            faceCount: shape.faces().count,
-            edgeCount: shape.edges().count,
-            vertexCount: shape.vertices().count,
-            boundingBox: .init(
-                min: [bb.min.x, bb.min.y, bb.min.z],
-                max: [bb.max.x, bb.max.y, bb.max.z]
-            )
-        ))
+        return IntrospectionTools.encode(
+            LoadReport(
+                bodyId: resolvedId,
+                isValid: shape.isValid,
+                shapeType: String(describing: shape.shapeType),
+                faceCount: shape.faces().count,
+                edgeCount: shape.edges().count,
+                vertexCount: shape.vertices().count,
+                boundingBox: .init(
+                    min: [bb.min.x, bb.min.y, bb.min.z],
+                    max: [bb.max.x, bb.max.y, bb.max.z]
+                )
+            ))
     }
 
     // ── import_file ────────────────────────────────────────────────────
@@ -102,15 +109,17 @@ public enum IOTools {
     public enum ImportFormat: String {
         case auto, step, iges, obj, brep, stl
 
-        /// Mesh formats (STL / OBJ) load as a raw triangulated shell — open,
-        /// often non-manifold, and not a valid solid. They must round-trip
-        /// through BREP with the validity gate off, or `writeBREP` rejects them
-        /// (which is exactly what the deviation / cross-section tools want in
-        /// the scene: a raw scan / STL skin as the reference — #69).
+        /// Mesh formats (STL / OBJ) load as a raw triangulated shell, open,
+        /// often non-manifold, and not a valid solid.
+        ///
+        /// They must round-trip through BREP with the validity gate off, or
+        /// `writeBREP` rejects them (which is exactly what the deviation /
+        /// cross-section tools want in the scene: a raw scan / STL skin as the
+        /// reference, #69).
         var isMesh: Bool { self == .stl || self == .obj }
 
         static func resolve(path: String, hint: ImportFormat) -> ImportFormat? {
-            if hint != .auto { return hint }   // explicit format is authoritative
+            if hint != .auto { return hint }  // explicit format is authoritative
             let ext = (path as NSString).pathExtension.lowercased()
             switch ext {
             case "step", "stp": return .step
@@ -155,7 +164,7 @@ public enum IOTools {
             case .brep:
                 shape = try Shape.loadBREP(fromPath: inputPath)
             case .stl:
-                // Raw triangulated shell (no sew/heal) — preserves the scan
+                // Raw triangulated shell (no sew/heal), preserves the scan
                 // skin the comparison tools re-mesh; healing could fail or
                 // distort an open scan.
                 shape = try Shape.loadSTL(fromPath: inputPath)
@@ -168,20 +177,24 @@ public enum IOTools {
             return .init("Import failed: \(error.localizedDescription)", isError: true)
         }
 
-        let manifest: ScriptManifest = (try? store.read()) ?? ScriptManifest(
-            description: "Imported via import_file",
-            bodies: []
-        )
+        let manifest: ScriptManifest =
+            (try? store.read())
+            ?? ScriptManifest(
+                description: "Imported via import_file",
+                bodies: []
+            )
         let id = uniqueBodyId(prefix: idPrefix, manifest: manifest)
         let outputDir = (store.path as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            atPath: outputDir, withIntermediateDirectories: true)
         let outFile = "\(id).brep"
         let outPath = "\(outputDir)/\(outFile)"
         do {
-            // Mesh shells aren't valid solids — always skip the write-gate for
+            // Mesh shells aren't valid solids, always skip the write-gate for
             // them so the raw scan lands in the scene.
-            try Exporter.writeBREP(shape: shape, to: URL(fileURLWithPath: outPath),
-                                   allowInvalid: allowInvalid || resolved.isMesh)
+            try Exporter.writeBREP(
+                shape: shape, to: URL(fileURLWithPath: outPath),
+                allowInvalid: allowInvalid || resolved.isMesh)
         } catch {
             return .init("Failed to write BREP: \(error.localizedDescription)", isError: true)
         }
@@ -189,19 +202,21 @@ public enum IOTools {
         await history.snapshot(store: store)
         var bodies = manifest.bodies
         bodies.append(BodyDescriptor(id: id, file: outFile))
-        try? store.write(ScriptManifest(
-            version: manifest.version,
-            timestamp: Date(),
-            description: manifest.description ?? "Imported via import_file",
-            bodies: bodies,
-            graphs: manifest.graphs,
-            metadata: manifest.metadata
-        ))
+        try? store.write(
+            ScriptManifest(
+                version: manifest.version,
+                timestamp: Date(),
+                description: manifest.description ?? "Imported via import_file",
+                bodies: bodies,
+                graphs: manifest.graphs,
+                metadata: manifest.metadata
+            ))
 
-        return IntrospectionTools.encode(ImportReport(
-            addedBodyIds: [id],
-            warnings: []
-        ))
+        return IntrospectionTools.encode(
+            ImportReport(
+                addedBodyIds: [id],
+                warnings: []
+            ))
     }
 
     // ── export_scene ───────────────────────────────────────────────────
@@ -282,7 +297,8 @@ public enum IOTools {
         }
         var fileSize = 0
         if let attrs = try? FileManager.default.attributesOfItem(atPath: outputPath),
-           let size = attrs[.size] as? Int {
+            let size = attrs[.size] as? Int
+        {
             fileSize = size
         }
         return .init(

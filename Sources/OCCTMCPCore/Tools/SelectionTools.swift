@@ -9,9 +9,9 @@
 // selectionIds produced here.
 
 import Foundation
-import simd
 import OCCTSwift
 import ScriptHarness
+import simd
 
 public enum SelectionTools {
 
@@ -41,7 +41,9 @@ public enum SelectionTools {
         public let truncated: Bool
     }
 
-    /// Pick faces / edges / vertices matching `filter`. Each match is
+    /// Pick faces / edges / vertices matching `filter`.
+    ///
+    /// Each match is
     /// registered with SelectionRegistry under `sel:<bodyId>#<kind>[<idx>]`.
     public static func selectTopology(
         bodyId: String,
@@ -73,7 +75,8 @@ public enum SelectionTools {
         // instead of being permanently unresolvable.
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: loaded.path)
+            lineage = try await HistoryRegistry.shared.currentInput(
+                bodyId: bodyId, path: loaded.path)
         } catch {
             return .init("\(error)")
         }
@@ -98,13 +101,14 @@ public enum SelectionTools {
             ]
             let snapshot = AnchorSnapshot(center: center)
             await registry.record(anchor: anchor, snapshot: snapshot)
-            entries.append(SelectionEntry(
-                selectionId: anchor.selectionId,
-                bodyId: bodyId,
-                kind: "body",
-                anchorIndex: nil,
-                anchor: snapshot
-            ))
+            entries.append(
+                SelectionEntry(
+                    selectionId: anchor.selectionId,
+                    bodyId: bodyId,
+                    kind: "body",
+                    anchorIndex: nil,
+                    anchor: snapshot
+                ))
             totalScanned = 1
 
         case "face":
@@ -118,12 +122,14 @@ public enum SelectionTools {
 
                 let (center, normal) = faceCenterAndNormal(face: face)
                 if let dir = filter.normalDirection,
-                   let n = normal {
+                    let n = normal
+                {
                     let cos = simd_dot(simd_normalize(dir), simd_normalize(n))
                     let limit = filter.normalTolerance ?? 0.01
                     if abs(cos - 1.0) > limit { continue }
                 }
-                let index = graphIndex(for: Shape.fromFace(face), kind: .face, in: graph, fallback: i)
+                let index = graphIndex(
+                    for: Shape.fromFace(face), kind: .face, in: graph, fallback: i)
                 let anchor = TopologyAnchor.face(bodyId: bodyId, index: index)
                 let snapshot = AnchorSnapshot(
                     center: [center.x, center.y, center.z],
@@ -132,16 +138,19 @@ public enum SelectionTools {
                     surfaceType: surfaceType
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
-                if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: index) {
+                if let uid = graph.uid(
+                    ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: index)
+                {
                     await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
                 }
-                entries.append(SelectionEntry(
-                    selectionId: anchor.selectionId,
-                    bodyId: bodyId,
-                    kind: "face",
-                    anchorIndex: index,
-                    anchor: snapshot
-                ))
+                entries.append(
+                    SelectionEntry(
+                        selectionId: anchor.selectionId,
+                        bodyId: bodyId,
+                        kind: "face",
+                        anchorIndex: index,
+                        anchor: snapshot
+                    ))
             }
 
         case "edge":
@@ -155,7 +164,8 @@ public enum SelectionTools {
 
                 let center = edgeMidpoint(edge: edge)
                 let geom = edgeGeometryFields(edge: edge)
-                let index = graphIndex(for: Shape.fromEdge(edge), kind: .edge, in: graph, fallback: i)
+                let index = graphIndex(
+                    for: Shape.fromEdge(edge), kind: .edge, in: graph, fallback: i)
                 let anchor = TopologyAnchor.edge(bodyId: bodyId, index: index)
                 let snapshot = AnchorSnapshot(
                     center: center.map { [$0.x, $0.y, $0.z] } ?? [0, 0, 0],
@@ -170,16 +180,19 @@ public enum SelectionTools {
                     endAngle: geom.endAngle
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
-                if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: index) {
+                if let uid = graph.uid(
+                    ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: index)
+                {
                     await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
                 }
-                entries.append(SelectionEntry(
-                    selectionId: anchor.selectionId,
-                    bodyId: bodyId,
-                    kind: "edge",
-                    anchorIndex: index,
-                    anchor: snapshot
-                ))
+                entries.append(
+                    SelectionEntry(
+                        selectionId: anchor.selectionId,
+                        bodyId: bodyId,
+                        kind: "edge",
+                        anchorIndex: index,
+                        anchor: snapshot
+                    ))
             }
 
         case "vertex":
@@ -197,16 +210,19 @@ public enum SelectionTools {
                     center: [point.x, point.y, point.z]
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
-                if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.vertex.rawValue), index: index) {
+                if let uid = graph.uid(
+                    ofNodeKind: Int(BRepGraph.NodeKind.vertex.rawValue), index: index)
+                {
                     await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
                 }
-                entries.append(SelectionEntry(
-                    selectionId: anchor.selectionId,
-                    bodyId: bodyId,
-                    kind: "vertex",
-                    anchorIndex: index,
-                    anchor: snapshot
-                ))
+                entries.append(
+                    SelectionEntry(
+                        selectionId: anchor.selectionId,
+                        bodyId: bodyId,
+                        kind: "vertex",
+                        anchorIndex: index,
+                        anchor: snapshot
+                    ))
             }
 
         default:
@@ -216,17 +232,19 @@ public enum SelectionTools {
         let truncated = limit.map { entries.count > $0 } ?? false
         if let n = limit { entries = Array(entries.prefix(n)) }
 
-        return IntrospectionTools.encode(SelectionResult(
-            selections: entries,
-            total: totalScanned,
-            truncated: truncated
-        ))
+        return IntrospectionTools.encode(
+            SelectionResult(
+                selections: entries,
+                total: totalScanned,
+                truncated: truncated
+            ))
     }
 
     // MARK: - Anchor helpers
 
-    /// Centroid + outward normal at the face's UV midpoint. Both nil
-    /// if the face's UV bounds can't be resolved.
+    /// Centroid + outward normal at the face's UV midpoint.
+    ///
+    /// Both nil if the face's UV bounds can't be resolved.
     static func faceCenterAndNormal(face: Face) -> (SIMD3<Double>, SIMD3<Double>?) {
         guard let uv = face.uvBounds else {
             return (SIMD3<Double>.zero, nil)
@@ -246,7 +264,7 @@ public enum SelectionTools {
 
     /// A single-vertex Shape's real position (#168). `Shape.centerOfMass`
     /// used to return the bounding-box centre for ANY shape, which happened
-    /// to be right for a vertex (a point's own bbox is itself) — but as of
+    /// to be right for a vertex (a point's own bbox is itself), but as of
     /// OCCTSwift 2.0.0 (#605) it's the real BRepGProp centre of mass and
     /// returns nil for anything enclosing no volume, a vertex included.
     /// `Shape.vertices()` is the vertex's actual coordinate and always
@@ -266,14 +284,16 @@ public enum SelectionTools {
     /// without this, colinearity / endpoint-error checks against a source
     /// mesh need `execute_script`), and radius/axis/startAngle/endAngle for
     /// CIRCULAR edges (alongside `circleCenter`, computed the same way
-    /// `selectTopology`'s edge case already does).
+    /// `selectTopology` already does for its own edge case).
     static func edgeGeometryFields(edge: Edge) -> (
         endpoints: [[Double]]?, direction: [Double]?,
         circleCenter: [Double]?, radius: Double?, axis: [Double]?,
         startAngle: Double?, endAngle: Double?
     ) {
         let ep = edge.endpoints
-        let endpoints: [[Double]]? = [[ep.start.x, ep.start.y, ep.start.z], [ep.end.x, ep.end.y, ep.end.z]]
+        let endpoints: [[Double]]? = [
+            [ep.start.x, ep.start.y, ep.start.z], [ep.end.x, ep.end.y, ep.end.z],
+        ]
 
         var direction: [Double]? = nil
         if edge.isLine {
@@ -313,11 +333,13 @@ public enum SelectionTools {
         return (endpoints, direction, circleCenter, radius, axis, startAngle, endAngle)
     }
 
-    /// Resolve `sub`'s node index in `graph` for `kind` (#91). Falls back to
-    /// `fallback` (the naive enumeration index) if the graph is absent or
-    /// doesn't know the shape; should not happen in practice for a sub-shape
-    /// freshly enumerated from the exact shape the graph was built from, but
-    /// a stale fallback is safer than dropping the selection outright.
+    /// Resolve the node index of `sub` in `graph` for `kind` (#91).
+    ///
+    /// Falls back to `fallback` (the naive enumeration index) if the graph
+    /// is absent or doesn't know the shape; should not happen in practice
+    /// for a sub-shape freshly enumerated from the exact shape the graph
+    /// was built from, but a stale fallback is safer than dropping the
+    /// selection outright.
     static func graphIndex(
         for sub: Shape?,
         kind: BRepGraph.NodeKind,
@@ -325,7 +347,8 @@ public enum SelectionTools {
         fallback: Int
     ) -> Int {
         guard let graph, let sub,
-              let node = graph.findNode(for: sub), node.kind == kind else {
+            let node = graph.findNode(for: sub), node.kind == kind
+        else {
             return fallback
         }
         return node.index

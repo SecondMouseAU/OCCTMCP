@@ -1,9 +1,9 @@
-// DeviationHistogramTool — `deviation_histogram` (#62).
+// DeviationHistogramTool: `deviation_histogram` (#62).
 //
 // Where `measure_deviation` aggregates to a handful of scalars, this returns the
 // full *distribution* of the signed point-to-surface deviation of `fromBodyId`
 // against `referenceBodyId`: μ, σ, median, p95, the proud/shy extremes, the
-// fraction within ±tolerance, and a bucket histogram — plus an optional PNG.
+// fraction within ±tolerance, and a bucket histogram, plus an optional PNG.
 //
 // Read the shape, not just the number: a tight unimodal histogram centred on 0
 // is honest noise; a histogram with a non-zero mean or two separate humps is a
@@ -27,42 +27,53 @@ public enum DeviationHistogramTool {
         public let reference: String
         public let deflection: Double
         public let samples: Int
-        /// Samples backing the signed figures + buckets — those whose sign is
-        /// trustworthy (#72). Magnitude figures (p95/maxAbs/withinTolerance) use
-        /// all `samples`.
+        /// Samples backing the signed figures + buckets, those whose sign is
+        /// trustworthy (#72).
+        ///
+        /// Magnitude figures (p95/maxAbs/withinTolerance) use all `samples`.
         public let signedSamples: Int
-        /// Samples whose sign couldn't be established. Near `samples` ⇒ the
-        /// reference is open / thin-walled (or inverted-winding) and the
-        /// distribution's SIGN axis is not meaningful for this pair.
+        /// Samples whose sign couldn't be established.
+        ///
+        /// Near `samples` ⇒ the reference is open / thin-walled (or
+        /// inverted-winding) and the distribution's SIGN axis is not meaningful
+        /// for this pair.
         public let ambiguousSamples: Int
         public let ambiguousFraction: Double
         /// Which correspondence rule chose each sample's reference triangle.
         public let signMode: String
-        /// Mean of the signed deviation (μ). Non-zero ⇒ systematic proud/shy bias.
-        /// nil when `signedSamples == 0` — no trustworthy sign to average, which
-        /// zero would misreport as "perfectly centred".
+        /// Mean of the signed deviation (μ).
+        ///
+        /// Non-zero ⇒ systematic proud/shy bias. nil when `signedSamples == 0`,
+        /// no trustworthy sign to average, which zero would misreport as
+        /// "perfectly centred".
         public let mean: Double?
         /// Standard deviation (σ) of the signed deviation. nil as for `mean`.
         public let std: Double?
         /// Median signed deviation. nil as for `mean`.
         public let median: Double?
         /// 95th percentile of the distance to the NEAREST reference surface.
-        /// Unaffected by `signMode` — a magnitude, not a side.
+        ///
+        /// Unaffected by `signMode`, a magnitude, not a side.
         public let p95: Double
         /// Extremes of the signed deviation. nil as for `mean`.
         public let signedMin: Double?
         public let signedMax: Double?
-        /// Largest distance to the nearest reference surface. As `p95`, a pure
-        /// magnitude — so `maxAbs` can be smaller than `|signedMin|` against an
-        /// open thin-walled reference, where the nearest surface and the
-        /// corresponding one are different surfaces (#72).
+        /// Largest distance to the nearest reference surface.
+        ///
+        /// As `p95`, a pure magnitude, so `maxAbs` can be smaller than
+        /// `|signedMin|` against an open thin-walled reference, where the
+        /// nearest surface and the corresponding one are different surfaces
+        /// (#72).
         public let maxAbs: Double
         public let tolerance: Double?
         /// Fraction of samples within `tolerance` of the nearest reference
-        /// surface (0…1). Nil if no tol. A magnitude test, so `signMode` doesn't
-        /// move it.
+        /// surface (0…1).
+        ///
+        /// Nil if no tol. A magnitude test, so `signMode` doesn't move it.
         public let withinTolerance: Double?
-        /// The signed distribution. Empty when `signedSamples == 0`.
+        /// The signed distribution.
+        ///
+        /// Empty when `signedSamples == 0`.
         public let buckets: [Bucket]
         public let imagePath: String?
     }
@@ -78,7 +89,8 @@ public enum DeviationHistogramTool {
         outputPath: String? = nil,
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
-        let fromShape: Shape, refShape: Shape
+        let fromShape: Shape
+        let refShape: Shape
         do {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             refShape = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store).shape
@@ -121,7 +133,7 @@ public enum DeviationHistogramTool {
         guard !hits.isEmpty else { return .init("No samples produced.", isError: true) }
 
         // The distribution is a SIGNED quantity, so it's built from sign-reliable
-        // samples only (#72) — a flipped sign plants a mirror hump at −d and reads
+        // samples only (#72), a flipped sign plants a mirror hump at −d and reads
         // as the two-humped systematic error this tool exists to spot. The
         // magnitude-only figures below are a different measurement entirely: they
         // track the NEAREST reference surface, unchanged by signMode, where the
@@ -131,7 +143,7 @@ public enum DeviationHistogramTool {
         let ambiguous = hits.count - signed.count
 
         // Aggregate stats. Signed ones are nil when nothing had a trustworthy
-        // sign — zero would read as "perfectly centred" rather than "unavailable".
+        // sign, zero would read as "perfectly centred" rather than "unavailable".
         let n = Double(signed.count)
         let mean = signed.isEmpty ? nil : signed.reduce(0, +) / n
         var std: Double? = nil
@@ -159,7 +171,10 @@ public enum DeviationHistogramTool {
         let nb = max(2, bins)
         var buckets: [Bucket] = []
         if var lo = signedMin, var hi = signedMax {
-            if hi - lo < 1e-9 { lo -= 0.5; hi += 0.5 }
+            if hi - lo < 1e-9 {
+                lo -= 0.5
+                hi += 0.5
+            }
             let bw = (hi - lo) / Double(nb)
             var counts = [Int](repeating: 0, count: nb)
             for v in signed {
@@ -168,16 +183,19 @@ public enum DeviationHistogramTool {
                 if b < 0 { b = 0 }
                 counts[b] += 1
             }
-            buckets = (0..<nb).map { Bucket(lo: lo + Double($0) * bw, hi: lo + Double($0 + 1) * bw, count: counts[$0]) }
+            buckets = (0..<nb).map {
+                Bucket(lo: lo + Double($0) * bw, hi: lo + Double($0 + 1) * bw, count: counts[$0])
+            }
         }
 
-        // Optional PNG — only when there's a signed distribution to draw.
+        // Optional PNG, only when there's a signed distribution to draw.
         var imagePath: String? = nil
         if let outputPath, let mean, let std {
             do {
                 try ChartRenderer.histogram(
                     values: signed, tolerance: tolerance, bins: nb,
-                    title: "signed deviation  \(fromBodyId) → \(referenceBodyId)  (μ=\(String(format: "%.3g", mean)), σ=\(String(format: "%.3g", std)))",
+                    title:
+                        "signed deviation  \(fromBodyId) → \(referenceBodyId)  (μ=\(String(format: "%.3g", mean)), σ=\(String(format: "%.3g", std)))",
                     to: URL(fileURLWithPath: outputPath)
                 )
                 imagePath = outputPath
