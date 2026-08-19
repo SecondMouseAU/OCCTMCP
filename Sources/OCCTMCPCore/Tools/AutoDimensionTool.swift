@@ -113,13 +113,11 @@ public enum AutoDimensionTool {
                 curveType: "circle",
                 circleCenter: circleCenter.map { [$0.x, $0.y, $0.z] }
             )
-            let anchor = TopologyAnchor.edge(bodyId: bodyId, index: edgeIndex)
+            // #182: mint the uid before constructing the anchor so `record`
+            // is the only registry write.
+            let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: edgeIndex)
+            let anchor = TopologyAnchor.edge(bodyId: bodyId, index: edgeIndex, uid: uid)
             await registry.record(anchor: anchor, snapshot: snapshot)
-            if let uid = graph.uid(
-                ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: edgeIndex)
-            {
-                await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
-            }
 
             // Run add_dimension with the selectionId we just minted.
             let dimResp = await AnnotationsTools.addDimension(

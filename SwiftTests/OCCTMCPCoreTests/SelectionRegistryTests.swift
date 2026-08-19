@@ -10,6 +10,21 @@
 // point-snapshot-only entry (`pick_surface_point`, which has no
 // `TopologyAnchor`) is neither invisible to `count()` nor silently
 // uncounted when `clear()` wipes it.
+//
+// #182 re-keyed the registry on GraphUID: `uid` is now a field on
+// `TopologyAnchor` itself (written by the same `record` call as the rest
+// of the anchor) rather than a separate `graphUIDs` side-table written by
+// its own `recordGraphUID` call. The pre-#182 regression test here
+// (`countAndClearIncludeGraphUIDOnlyEntries`) simulated a uid recorded for
+// a selectionId that was never `record()`-ed, a real gap two call sites
+// (`RemapTools.refreshAfterHistoryRemap`, `CorrespondenceTools.mintUID`)
+// could actually produce, since the old `recordGraphUID` call ran
+// independently of whether `record` had. That specific violation is no
+// longer expressible through this actor's public API at all (there is no
+// `recordGraphUID` any more; a uid can only ever arrive attached to an
+// anchor passed to `record`), so the test below is replaced by
+// `uidTravelsWithItsAnchorNotSeparately`, which proves the new invariant
+// directly instead of a violation of the old one.
 
 import Foundation
 import Testing
@@ -129,35 +144,77 @@ struct SelectionRegistryTests {
         }
     }
 
-    /// #163: `totalEntryCount`'s comment documents that `graphUIDs.keys` is
-    /// (today) always a subset of `anchors.keys`, since every real call site
-    /// pairs `recordGraphUID` with a prior `record(anchor:snapshot:)` on the
-    /// same id. That invariant isn't enforced anywhere in this actor —
-    /// `recordGraphUID` takes an arbitrary `selectionId: String` — so this
-    /// test simulates a hypothetical future call site that violates it: a
-    /// GraphUID minted for a selectionId that was NEVER `record()`-ed (or
-    /// `recordPointSnapshot()`-ed). `totalEntryCount`'s defensive
-    /// `.union(graphUIDs.keys)` must still count it once, on top of a
-    /// normal anchor-based selection recorded through the real pattern.
-    @Test("count() and clear() include a selectionId present only in graphUIDs (invariant-violation case)")
-    func countAndClearIncludeGraphUIDOnlyEntries() async throws {
+    /// #182: `uid` travels as a field on the recorded `TopologyAnchor`
+    /// itself, written by the SAME `record` call as `bodyId`/`index`/the
+    /// snapshot, never by a separate call the way the retired
+    /// `recordGraphUID` worked. Three things this proves together: (1) a
+    /// uid-carrying anchor is counted exactly once by `count()`/`clear()`,
+    /// same as a uid-less one (no double-counting introduced by folding
+    /// uid into the anchor value); (2) `graphUID(for:)` reads back the
+    /// SAME uid that was attached at record time, straight off the stored
+    /// anchor; (3) an anchor recorded with a uid, then re-recorded without
+    /// one (a plain `.face(bodyId:index:)` construction, `uid` defaulting
+    /// to nil), clears the previously-cached uid rather than leaving a
+    /// stale one behind, the same "record replaces the whole entry"
+    /// semantics `record`'s doc comment already promised for the snapshot,
+    /// extended to uid now that it lives on the same value.
+    @Test("a recorded anchor's uid travels with it, not through a separate table")
+    func uidTravelsWithItsAnchorNotSeparately() async throws {
         let registry = SelectionRegistry()
 
-        await registry.record(anchor: .face(bodyId: "box", index: 0), snapshot: snapshot())
-
-        // Mint a real GraphUID the same way SelectionTools.swift does
-        // (graph.uid(ofNodeKind:index:)), but record it under a
-        // selectionId that never went through `record`/`recordPointSnapshot`
-        // — the violation this test exists to guard against.
         let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
         let graph = try #require(BRepGraph(shape: box))
         let uid = try #require(graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: 0))
-        await registry.recordGraphUID(selectionId: "sel:orphan#face[0]", uid: uid)
+
+        let anchor = TopologyAnchor.face(bodyId: "box", index: 0, uid: uid)
+        #expect(anchor.selectionId == "sel:box#face[0]")
+        await registry.record(anchor: anchor, snapshot: snapshot())
+
+        // A second, uid-less selection: count()/clear() must not treat the
+        // presence of a uid on one entry as adding a phantom extra entry.
+        await registry.record(anchor: .edge(bodyId: "box", index: 1), snapshot: snapshot(1))
 
         #expect(await registry.count() == 2)
+        #expect(await registry.graphUID(for: "sel:box#face[0]") == uid)
+        #expect(await registry.graphUID(for: "sel:box#edge[1]") == nil)
+
+        // Re-recording the same selectionId with a uid-less anchor (the
+        // default `uid: nil`) must clear the previously-cached uid, not
+        // leave it stranded: `record` replaces the whole stored value.
+        await registry.record(anchor: .face(bodyId: "box", index: 0), snapshot: snapshot())
+        #expect(await registry.graphUID(for: "sel:box#face[0]") == nil)
+        #expect(await registry.count() == 2, "re-recording the same id must not grow the count")
 
         let cleared = await registry.clear()
         #expect(cleared == 2)
         #expect(await registry.count() == 0)
+    }
+
+    /// `TopologyAnchor.withUID` (#182): the ergonomic path for a caller
+    /// that resolves an anchor's index first (e.g. via
+    /// `SelectionTools.graphIndex`) and only later has a graph in hand to
+    /// look up its uid (`CorrespondenceTools.withGraphUID`,
+    /// `RemapTools.refreshAfterHistoryRemap`). Must attach on every
+    /// face/edge/vertex case, and must be a documented no-op on `.body`
+    /// (never a graph node, so there is nothing to attach a uid to).
+    @Test("TopologyAnchor.withUID attaches on face/edge/vertex, no-ops on body")
+    func withUIDAttachesPerCase() async throws {
+        let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
+        let graph = try #require(BRepGraph(shape: box))
+        let uid = try #require(graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: 0))
+
+        let face = TopologyAnchor.face(bodyId: "box", index: 0).withUID(uid)
+        #expect(face.uid == uid)
+        #expect(face.nodeKind == .face)
+
+        let edge = TopologyAnchor.edge(bodyId: "box", index: 2).withUID(uid)
+        #expect(edge.uid == uid)
+
+        let vertex = TopologyAnchor.vertex(bodyId: "box", index: 5).withUID(uid)
+        #expect(vertex.uid == uid)
+
+        let body = TopologyAnchor.body(bodyId: "box").withUID(uid)
+        #expect(body.uid == nil, "a body anchor is never a graph node; withUID must be a no-op")
+        #expect(body.nodeKind == nil)
     }
 }

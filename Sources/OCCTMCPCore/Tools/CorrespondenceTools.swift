@@ -393,11 +393,9 @@ public enum CorrespondenceTools {
                     centres: targetFaceCentres,
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.face(bodyId: targetBodyId, index: idx) }
-                if let newAnchor = entry.anchor {
-                    if let snap = snapshot {
-                        await registry.record(anchor: newAnchor, snapshot: snap)
-                    }
-                    await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
+                if let newAnchor = entry.anchor, let snap = snapshot {
+                    await registry.record(
+                        anchor: withGraphUID(newAnchor, graph: targetGraph), snapshot: snap)
                 }
                 out.append(entry.report)
 
@@ -408,11 +406,9 @@ public enum CorrespondenceTools {
                     centres: targetEdgeCentres,
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.edge(bodyId: targetBodyId, index: idx) }
-                if let newAnchor = entry.anchor {
-                    if let snap = snapshot {
-                        await registry.record(anchor: newAnchor, snapshot: snap)
-                    }
-                    await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
+                if let newAnchor = entry.anchor, let snap = snapshot {
+                    await registry.record(
+                        anchor: withGraphUID(newAnchor, graph: targetGraph), snapshot: snap)
                 }
                 out.append(entry.report)
 
@@ -423,11 +419,9 @@ public enum CorrespondenceTools {
                     centres: targetVertexCentres,
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.vertex(bodyId: targetBodyId, index: idx) }
-                if let newAnchor = entry.anchor {
-                    if let snap = snapshot {
-                        await registry.record(anchor: newAnchor, snapshot: snap)
-                    }
-                    await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
+                if let newAnchor = entry.anchor, let snap = snapshot {
+                    await registry.record(
+                        anchor: withGraphUID(newAnchor, graph: targetGraph), snapshot: snap)
                 }
                 out.append(entry.report)
             }
@@ -488,24 +482,26 @@ public enum CorrespondenceTools {
         )
     }
 
-    /// Mint (or skip, if unresolvable) a GraphUID for a freshly-matched
-    /// target anchor, for parity with select_topology / remap_selection
-    /// (#93), so a correspondence result composes cleanly into a later
+    /// Attach a GraphUID (#182: a field on the anchor itself, not a
+    /// separate registry side-table) to a freshly-matched target anchor,
+    /// for parity with select_topology / remap_selection (#93), so a
+    /// correspondence result composes cleanly into a later
     /// remap_selection call on the target body.
-    private static func mintUID(
-        for anchor: TopologyAnchor, graph: BRepGraph, registry: SelectionRegistry
-    ) async {
-        let kindIndex: (BRepGraph.NodeKind, Int)?
-        switch anchor {
-        case .body: kindIndex = nil
-        case .face(_, let idx): kindIndex = (.face, idx)
-        case .edge(_, let idx): kindIndex = (.edge, idx)
-        case .vertex(_, let idx): kindIndex = (.vertex, idx)
-        }
-        guard let (kind, index) = kindIndex else { return }
-        if let uid = graph.uid(ofNodeKind: Int(kind.rawValue), index: index) {
-            await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
-        }
+    ///
+    /// Pure: does not touch the registry, so the caller decides whether
+    /// (and with what snapshot) to actually record the result, folding
+    /// the uid attach and the `record` call into the SAME
+    /// snapshot-gated write, rather than this helper writing the uid on
+    /// its own regardless of whether `record` ran for the same anchor
+    /// (the pre-#182 version of this helper did exactly that, which
+    /// could produce a uid recorded with no matching anchor/snapshot
+    /// when `snapshot` was nil). A no-op for `.body` (never a graph
+    /// node): returned unchanged.
+    private static func withGraphUID(
+        _ anchor: TopologyAnchor, graph: BRepGraph
+    ) -> TopologyAnchor {
+        guard let kind = anchor.nodeKind, let index = anchor.index else { return anchor }
+        return anchor.withUID(graph.uid(ofNodeKind: Int(kind.rawValue), index: index))
     }
 
     /// Recompute the source anchor centroid from the source BREP.
@@ -536,17 +532,17 @@ public enum CorrespondenceTools {
         case .body:
             guard let bb = shape.bounds else { return nil }
             return (bb.min + bb.max) * 0.5
-        case .face(_, let idx):
+        case .face(_, let idx, _):
             guard let faceShape = graph.shape(nodeKind: .face, nodeIndex: idx),
                 let face = Face(faceShape)
             else { return nil }
             return SelectionTools.faceCenterAndNormal(face: face).0
-        case .edge(_, let idx):
+        case .edge(_, let idx, _):
             guard let edgeShape = graph.shape(nodeKind: .edge, nodeIndex: idx),
                 let edge = Edge(edgeShape)
             else { return nil }
             return SelectionTools.edgeMidpoint(edge: edge)
-        case .vertex(_, let idx):
+        case .vertex(_, let idx, _):
             return graph.shape(nodeKind: .vertex, nodeIndex: idx).flatMap(
                 SelectionTools.vertexPoint)
         }

@@ -130,7 +130,11 @@ public enum SelectionTools {
                 }
                 let index = graphIndex(
                     for: Shape.fromFace(face), kind: .face, in: graph, fallback: i)
-                let anchor = TopologyAnchor.face(bodyId: bodyId, index: index)
+                // #182: mint the uid before constructing the anchor, so
+                // `record` writes anchor + snapshot + uid in one call
+                // instead of a separate recordGraphUID follow-up.
+                let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: index)
+                let anchor = TopologyAnchor.face(bodyId: bodyId, index: index, uid: uid)
                 let snapshot = AnchorSnapshot(
                     center: [center.x, center.y, center.z],
                     normal: normal.map { [$0.x, $0.y, $0.z] },
@@ -138,11 +142,6 @@ public enum SelectionTools {
                     surfaceType: surfaceType
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
-                if let uid = graph.uid(
-                    ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: index)
-                {
-                    await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
-                }
                 entries.append(
                     SelectionEntry(
                         selectionId: anchor.selectionId,
@@ -166,7 +165,8 @@ public enum SelectionTools {
                 let geom = edgeGeometryFields(edge: edge)
                 let index = graphIndex(
                     for: Shape.fromEdge(edge), kind: .edge, in: graph, fallback: i)
-                let anchor = TopologyAnchor.edge(bodyId: bodyId, index: index)
+                let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: index)
+                let anchor = TopologyAnchor.edge(bodyId: bodyId, index: index, uid: uid)
                 let snapshot = AnchorSnapshot(
                     center: center.map { [$0.x, $0.y, $0.z] } ?? [0, 0, 0],
                     length: length,
@@ -180,11 +180,6 @@ public enum SelectionTools {
                     endAngle: geom.endAngle
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
-                if let uid = graph.uid(
-                    ofNodeKind: Int(BRepGraph.NodeKind.edge.rawValue), index: index)
-                {
-                    await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
-                }
                 entries.append(
                     SelectionEntry(
                         selectionId: anchor.selectionId,
@@ -205,16 +200,13 @@ public enum SelectionTools {
                 totalScanned += 1
                 guard let point = vertexPoint(vertexShape) else { continue }
                 let index = graphIndex(for: vertexShape, kind: .vertex, in: graph, fallback: i)
-                let anchor = TopologyAnchor.vertex(bodyId: bodyId, index: index)
+                let uid = graph.uid(
+                    ofNodeKind: Int(BRepGraph.NodeKind.vertex.rawValue), index: index)
+                let anchor = TopologyAnchor.vertex(bodyId: bodyId, index: index, uid: uid)
                 let snapshot = AnchorSnapshot(
                     center: [point.x, point.y, point.z]
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
-                if let uid = graph.uid(
-                    ofNodeKind: Int(BRepGraph.NodeKind.vertex.rawValue), index: index)
-                {
-                    await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
-                }
                 entries.append(
                     SelectionEntry(
                         selectionId: anchor.selectionId,
