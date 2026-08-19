@@ -19,7 +19,11 @@ name: code-style
 # swift-format and SwiftLint are blocking for everything NOT on the manifest:
 # formatting has no judgment call in it once a file complies.
 # check-style-manifest.py is blocking (its whole job is catching a specific,
-# unambiguous rule violation).
+# unambiguous rule violation). A forced cross-repo dependency migration can
+# carve out of the "touch it, fix it" rule for one PR via a commit trailer
+# (#177); see check-style-manifest.py's own docstring and
+# okf/policies/code-style.md#migration-carve-out. No workflow edit needed to
+# use it.
 #
 # Pure text analysis, no OCCT build needed: a macOS runner only because
 # that's where swift-format and swiftlint are both readily available via
