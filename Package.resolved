@@ -1,5 +1,5 @@
 {
-  "originHash" : "21292522bc1371ed02f0832e3fd3e48f8f3e0fd6ec7e08027c6875e3beeb4323",
+  "originHash" : "fdb52dee279bee8adc3804b7717b077a5f9f09e34d609fe60d0ce9cd50139a39",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwift.git",
       "state" : {
-        "revision" : "fb7f88747e0f6dc35a804f5af91f69a89bf456a7",
-        "version" : "1.17.0"
+        "revision" : "0c9f9274e4ff2a4fd422291a45b3560161dbbe64",
+        "version" : "3.0.0"
       }
     },
     {
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftAIS.git",
       "state" : {
-        "revision" : "af1de6d47430f45681c1a419a1cf7a07a73a6e81",
-        "version" : "1.3.1"
+        "revision" : "c6fbe2b3ee9044b391e85e91df3ffee42a254b57",
+        "version" : "1.3.2"
       }
     },
     {
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftIO.git",
       "state" : {
-        "revision" : "f7babdf70704ed7a20e9b41831a54b811b9ff387",
-        "version" : "1.7.5"
+        "revision" : "d91c16f0d3a8f7ce16c302aac38ed8f5716dcb26",
+        "version" : "1.7.8"
       }
     },
     {
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftMesh.git",
       "state" : {
-        "revision" : "1361997a8c14b3386c95f63c1eb3344d18ff4e5e",
-        "version" : "1.7.0"
+        "revision" : "a231b6b4bf5ae8976beb7ddfb16682d56b48e0d1",
+        "version" : "1.7.5"
       }
     },
     {
@@ -60,8 +60,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftScripts.git",
       "state" : {
-        "revision" : "c8fc20526f91c759d4667d818b65724a32084c4e",
-        "version" : "1.5.1"
+        "revision" : "460b1d95039375e8e214206777b42a8c199eb022",
+        "version" : "1.6.2"
       }
     },
     {
@@ -69,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftTools.git",
       "state" : {
-        "revision" : "1c85263dc7067a9fd8f3c6411ed504ef271d5667",
-        "version" : "1.6.1"
+        "revision" : "d48a7c297eb6dcc0255da48a814698a292b47384",
+        "version" : "1.6.4"
       }
     },
     {
