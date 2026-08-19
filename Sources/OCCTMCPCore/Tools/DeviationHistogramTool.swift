@@ -86,7 +86,9 @@ public enum DeviationHistogramTool {
             return .init("\(error)")
         }
 
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: fromShape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: fromShape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(fromBodyId), isError: true)
+        }
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
 
         guard let fromTris = DeviationTools.TriMesh(shape: fromShape, deflection: defl) else {

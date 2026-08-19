@@ -86,7 +86,11 @@ public enum SelectionTools {
         switch kind {
         case "body":
             let anchor = TopologyAnchor.body(bodyId: bodyId)
-            let bb = shape.bounds
+            // A body anchor IS its bbox centre, so with no bounding box there is
+            // nothing to anchor to and no selection to mint (OCCTSwift #943).
+            guard let bb = shape.bounds else {
+                return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+            }
             let center = [
                 (bb.min.x + bb.max.x) * 0.5,
                 (bb.min.y + bb.max.y) * 0.5,

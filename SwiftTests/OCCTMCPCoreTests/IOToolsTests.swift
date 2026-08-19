@@ -73,7 +73,7 @@ struct IOToolsTests {
         #expect(bodies.count == 1)
         if let id = bodies.first?.id {
             let loaded = try IntrospectionTools.loadShape(bodyId: id, store: store).shape
-            let b = loaded.bounds
+            let b = try #require(loaded.bounds)
             #expect(b.max.x - b.min.x > 8)   // ~diameter 10
         }
 

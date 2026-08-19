@@ -155,7 +155,9 @@ public enum DeviationTools {
 
         // Default deflection scales with the model so the bound is meaningful
         // regardless of units/size: 0.5% of the `from` bbox diagonal, floored.
-        let defl = deflection ?? defaultDeflection(for: fromShape)
+        guard let defl = deflection ?? defaultDeflection(for: fromShape) else {
+            return .init(noBoundingBoxMessage(fromBodyId), isError: true)
+        }
         guard defl > 0 else {
             return .init("deflection must be positive.", isError: true)
         }
@@ -585,8 +587,16 @@ public enum DeviationTools {
         return sorted[Swift.min(Swift.max(idx, 0), sorted.count - 1)]
     }
 
-    static func defaultDeflection(for shape: Shape) -> Double {
-        let b = shape.bounds
+    /// The error text every tool returns when a body has no bounding box.
+    static func noBoundingBoxMessage(_ bodyId: String) -> String {
+        "Body '\(bodyId)' has no bounding box (an empty or null shape), so no model scale, "
+            + "extent or centre can be measured from it."
+    }
+
+    /// The model-scale default deflection, or nil when `shape` has no
+    /// bounding box to derive a scale from (OCCTSwift 3.0.0 / #943).
+    static func defaultDeflection(for shape: Shape) -> Double? {
+        guard let b = shape.bounds else { return nil }
         let diag = simd_length(b.max - b.min)
         // 0.5% of the diagonal, with a 1µm floor for degenerate/tiny shapes.
         return Swift.max(diag * 0.005, 1e-6)

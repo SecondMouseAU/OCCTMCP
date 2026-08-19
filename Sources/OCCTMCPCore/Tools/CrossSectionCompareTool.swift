@@ -150,7 +150,9 @@ public enum CrossSectionCompareTool {
             return .init("\(error)")
         }
 
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: fromShape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: fromShape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(fromBodyId), isError: true)
+        }
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
 
         guard let fromMesh = mesh(fromShape, deflection: defl) else {
@@ -162,7 +164,9 @@ public enum CrossSectionCompareTool {
 
         let n = simd_normalize(axis)
         let nf = SIMD3<Float>(Float(n.x), Float(n.y), Float(n.z))
-        let pt = through ?? midpoint(of: fromShape)
+        guard let pt = through ?? midpoint(of: fromShape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(fromBodyId), isError: true)
+        }
         let ptf = SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z))
 
         // Axis range = OVERLAP of both meshes' projections, so every station cuts
@@ -304,8 +308,9 @@ public enum CrossSectionCompareTool {
         return shape.mesh(parameters: params)
     }
 
-    static func midpoint(of shape: Shape) -> SIMD3<Double> {
-        let b = shape.bounds
+    /// The centre of `shape`'s bounding box, or nil when it has none.
+    static func midpoint(of shape: Shape) -> SIMD3<Double>? {
+        guard let b = shape.bounds else { return nil }
         return (b.min + b.max) * 0.5
     }
 

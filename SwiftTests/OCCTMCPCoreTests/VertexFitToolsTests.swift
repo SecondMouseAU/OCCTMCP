@@ -56,7 +56,7 @@ struct VertexFitToolsTests {
         guard let from = Shape.box(origin: SIMD3(20, -1, -1), width: 2, height: 2, depth: 2) else {
             throw TestError.fixture("failed to build 'from' box")
         }
-        let toBounds = to.bounds
+        let toBounds = try #require(to.bounds)
         // Sanity: the "from" box's Y/Z extent must sit strictly inside the
         // "to" box's Y/Z extent, or the nearest point wouldn't be a straight
         // drop onto the flat +X face (the property this whole fixture relies
@@ -202,7 +202,7 @@ struct VertexFitToolsTests {
         // Expected distances derived from the reference box's ACTUAL bounds
         // (not an assumed corner-vs-center placement convention), the same
         // robustness approach farBoxScene uses above.
-        let refBounds = refShape.bounds
+        let refBounds = try #require(refShape.bounds)
         let expectedNear = refBounds.min.x - half        // cube's near face (x=+half) to ref's near face
         let expectedFar = refBounds.min.x - (-half)       // cube's far face (x=-half) to ref's near face
 

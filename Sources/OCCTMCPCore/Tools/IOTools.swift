@@ -48,6 +48,14 @@ public enum IOTools {
         } catch {
             return .init("Failed to load BREP: \(error.localizedDescription)", isError: true)
         }
+        // Read the extent BEFORE the scene is mutated, so a BREP that parses but
+        // holds nothing measurable is rejected instead of being registered as a
+        // body whose reported extent would have to be invented (OCCTSwift #943).
+        guard let bb = shape.bounds else {
+            return .init(
+                "\(DeviationTools.noBoundingBoxMessage(resolvedId)) Nothing was added to the scene.",
+                isError: true)
+        }
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
@@ -75,7 +83,6 @@ public enum IOTools {
             metadata: manifest.metadata
         ))
 
-        let bb = shape.bounds
         return IntrospectionTools.encode(LoadReport(
             bodyId: resolvedId,
             isValid: shape.isValid,

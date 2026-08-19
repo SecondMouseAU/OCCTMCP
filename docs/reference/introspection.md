@@ -77,6 +77,8 @@ Compute volume, surface area, center of mass, bounding box, and/or principal axe
 
 **Notes** — `boundingBox` uses `Bnd_Box` and over-reports extents for curved B-spline faces (it encloses the control-point hull, not the actual surface). Use `boundingBoxOptimal` (`BRepBndLib::AddOptimal`) when you need the tight envelope, at a small extra compute cost. `boundingBoxOptimal` is intentionally excluded from the default-all set.
 
+Both bounding-box keys are **omitted entirely** for a body that has no bounding box at all (an empty or null shape). They are never reported as a zero-sized box at the origin, which would be indistinguishable from a real zero-sized body sitting at the origin. Treat an absent key as "not measurable", not as zero.
+
 **Drives** — direct OCCTSwift property calls (no `occtkit` subprocess).
 
 ---

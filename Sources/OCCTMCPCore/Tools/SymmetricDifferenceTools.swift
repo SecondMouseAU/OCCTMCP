@@ -126,7 +126,9 @@ public enum SymmetricDifferenceTools {
         guard maxSamples > 0 else {
             return .init("maxSamples must be positive.", isError: true)
         }
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: fromShape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: fromShape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(fromBodyId), isError: true)
+        }
         guard defl > 0 else {
             return .init("deflection must be positive.", isError: true)
         }
@@ -140,7 +142,15 @@ public enum SymmetricDifferenceTools {
             return .init("Failed to tessellate '\(referenceBodyId)' for symmetric-difference volume.", isError: true)
         }
 
-        let fromB = fromShape.bounds, refB = refShape.bounds
+        // Both extents are needed for the shared sampling box, so either one
+        // missing is the same dead end the degenerate-volume guard below covers
+        // (OCCTSwift #943), not a box to invent one half of.
+        guard let fromB = fromShape.bounds else {
+            return .init(DeviationTools.noBoundingBoxMessage(fromBodyId), isError: true)
+        }
+        guard let refB = refShape.bounds else {
+            return .init(DeviationTools.noBoundingBoxMessage(referenceBodyId), isError: true)
+        }
         let lo = simd_min(fromB.min, refB.min)
         let hi = simd_max(fromB.max, refB.max)
         let extent = hi - lo

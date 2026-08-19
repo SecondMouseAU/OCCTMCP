@@ -94,11 +94,13 @@ public enum IntrospectionTools {
         if wants("centerOfMass"), let i = inertia {
             report.centerOfMass = [i.centerOfMass.x, i.centerOfMass.y, i.centerOfMass.z]
         }
-        if wants("boundingBox") {
+        // A body with no bounding box at all leaves `boundingBox` absent rather
+        // than reporting a zero-sized box at the origin (OCCTSwift #943), the
+        // same shape the `boundingBoxOptimal` branch below already had.
+        if wants("boundingBox"), let b = shape.bounds {
             // Default Bnd_Box: for B-spline / curved faces this is the
             // control-point hull and over-reports the true extent
             // (OCCTSwift #232 / #213). Use boundingBoxOptimal for a tight box.
-            let b = shape.bounds
             report.boundingBox = .init(
                 min: [b.min.x, b.min.y, b.min.z],
                 max: [b.max.x, b.max.y, b.max.z]

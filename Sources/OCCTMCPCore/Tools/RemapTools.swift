@@ -69,8 +69,13 @@ public enum RemapTools {
                 continue
             }
             let path = "\(outputDir)/\(body.file)"
+            // No bounding box means no model scale for `tolerance`, so this
+            // body's selections take the same "lost" fate an unloadable body's
+            // already do (OCCTSwift #943) rather than being matched against a
+            // tolerance derived from a fabricated zero-size box.
             guard FileManager.default.fileExists(atPath: path),
-                  let shape = try? Shape.loadBREP(fromPath: path) else {
+                  let shape = try? Shape.loadBREP(fromPath: path),
+                  let bb = shape.bounds else {
                 for id in ids {
                     remapped.append(.init(
                         originalSelectionId: id,
@@ -81,7 +86,6 @@ public enum RemapTools {
                 }
                 continue
             }
-            let bb = shape.bounds
             let diag = simd_length(bb.max - bb.min)
             let tolerance = max(diag * toleranceMmFraction, 1e-6)
 

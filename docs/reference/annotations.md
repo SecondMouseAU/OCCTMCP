@@ -171,6 +171,8 @@ Compute a body's axis-aligned bounding box and register it as a `boundingBox` sc
 
 **Notes** — Uses the default `Bnd_Box` (may slightly over-report on curved B-spline faces). For a tight box use [`compute_metrics`](introspection.md#compute_metrics) with `"boundingBoxOptimal"`.
 
+A body with no bounding box at all (an empty or null shape) returns an error and registers no primitive. It is never reported as a zero-sized box at the origin: this tool's whole output is the box, so a fabricated one would read as a real measurement.
+
 ---
 
 ## `diff_overlay`

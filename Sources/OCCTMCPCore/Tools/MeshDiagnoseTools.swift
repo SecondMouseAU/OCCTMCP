@@ -85,7 +85,9 @@ public enum MeshDiagnoseTools {
         }
         let shape = loaded.shape
 
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: shape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: shape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
         guard weldToleranceMm >= 0 else { return .init("weldToleranceMm must be >= 0.", isError: true) }
 

@@ -61,7 +61,7 @@ struct ZoneMeshResolutionTests {
     /// deliberately disagree with it.
     func realSignature(of shape: Shape, deflection: Double) throws -> (signature: MeshSignature, triangleCount: Int) {
         let mesh = try #require(shape.mesh(parameters: DeviationTools.standardMeshParameters(deflection: deflection)))
-        let bb = shape.bounds
+        let bb = try #require(shape.bounds)
         let sig = MeshSignature(
             triangleCount: mesh.triangleCount,
             bboxMin: [Double(bb.min.x), Double(bb.min.y), Double(bb.min.z)],
@@ -261,7 +261,7 @@ struct ZoneMeshResolutionTests {
     @Test("zoneId: nil resolves the whole body's mesh, zoneRecord nil, no warnings")
     func wholeBodyPathReturnsFullMesh() async throws {
         let box = try #require(Shape.box(width: 10, height: 10, depth: 10))
-        let expectedDeflection = DeviationTools.defaultDeflection(for: box)
+        let expectedDeflection = try #require(DeviationTools.defaultDeflection(for: box))
         let expectedMesh = try #require(box.mesh(parameters: DeviationTools.standardMeshParameters(deflection: expectedDeflection)))
 
         var warnings: [String] = []

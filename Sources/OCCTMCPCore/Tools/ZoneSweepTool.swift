@@ -247,6 +247,7 @@ public enum ZoneSweepTool {
         case tessellationFailed(bodyId: String)
         case staleZone(zoneId: String, bodyId: String)
         case subMeshExtractionFailed(zoneId: String)
+        case noBoundingBox(bodyId: String)
 
         var description: String {
             switch self {
@@ -262,6 +263,8 @@ public enum ZoneSweepTool {
                 return "Zone \"\(zoneId)\" is stale: body \"\(bodyId)\"'s mesh no longer matches the mesh it was segmented from (triangle count / bounding box changed). Re-run segment_mesh_zones."
             case .subMeshExtractionFailed(let zoneId):
                 return "Failed to extract zone \"\(zoneId)\"'s triangles from the current mesh."
+            case .noBoundingBox(let bodyId):
+                return DeviationTools.noBoundingBoxMessage(bodyId)
             }
         }
     }
@@ -289,7 +292,9 @@ public enum ZoneSweepTool {
         zonesStore: ZonesStore,
         warnings: inout [String]
     ) async throws -> ZoneMeshResolution {
-        var meshDeflection = deflection ?? DeviationTools.defaultDeflection(for: shape)
+        guard var meshDeflection = deflection ?? DeviationTools.defaultDeflection(for: shape) else {
+            throw ZoneMeshResolutionError.noBoundingBox(bodyId: bodyId)
+        }
         var zoneRecord: ZoneRecord? = nil
         if let zid = zoneId {
             await registry.loadSidecarIfNeeded(store: zonesStore)
@@ -316,7 +321,9 @@ public enum ZoneSweepTool {
             return ZoneMeshResolution(mesh: fullMesh, zoneRecord: nil)
         }
 
-        let bb = shape.bounds
+        guard let bb = shape.bounds else {
+            throw ZoneMeshResolutionError.noBoundingBox(bodyId: bodyId)
+        }
         let sig = MeshSignature(
             triangleCount: fullMesh.triangleCount,
             bboxMin: [Double(bb.min.x), Double(bb.min.y), Double(bb.min.z)],

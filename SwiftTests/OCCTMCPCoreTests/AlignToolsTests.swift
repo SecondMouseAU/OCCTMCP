@@ -104,8 +104,8 @@ struct AlignToolsTests {
         #expect(r.iterations > 0, "bestFit should run at least one ICP iteration on a non-trivial pose")
 
         let transformed = try #require(source.transformed(matrix: matrix12(fromRowMajor: r.transform)))
-        let refBounds = reference.bounds
-        let gotBounds = transformed.bounds
+        let refBounds = try #require(reference.bounds)
+        let gotBounds = try #require(transformed.bounds)
         #expect(simd_length(gotBounds.min - refBounds.min) < 0.1,
                 "min corner off by \(simd_length(gotBounds.min - refBounds.min))mm")
         #expect(simd_length(gotBounds.max - refBounds.max) < 0.1,
@@ -133,8 +133,8 @@ struct AlignToolsTests {
         #expect(!r.warnings.contains { $0.contains("did not converge") })
 
         let transformed = try #require(source.transformed(matrix: matrix12(fromRowMajor: r.transform)))
-        let refBounds = reference.bounds
-        let gotBounds = transformed.bounds
+        let refBounds = try #require(reference.bounds)
+        let gotBounds = try #require(transformed.bounds)
         // Coarse stage only — a looser envelope than bestFit's tight recovery ("within a few mm").
         #expect(simd_length(gotBounds.min - refBounds.min) < 5.0)
         #expect(simd_length(gotBounds.max - refBounds.max) < 5.0)
@@ -169,8 +169,8 @@ struct AlignToolsTests {
         // The BREP file on disk now holds the aligned shape — the unambiguous proof the write
         // actually happened, independent of timestamp granularity.
         let rewritten = try Shape.loadBREP(fromPath: sourcePath)
-        let refBounds = reference.bounds
-        let gotBounds = rewritten.bounds
+        let refBounds = try #require(reference.bounds)
+        let gotBounds = try #require(rewritten.bounds)
         #expect(simd_length(gotBounds.min - refBounds.min) < 0.1)
         #expect(simd_length(gotBounds.max - refBounds.max) < 0.1)
 
