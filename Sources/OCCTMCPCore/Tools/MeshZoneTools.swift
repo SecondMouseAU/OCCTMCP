@@ -1,4 +1,4 @@
-// MeshZoneTools — `segment_mesh_zones` (#101). The MCP surface over
+// MeshZoneTools: `segment_mesh_zones` (#101). The MCP surface over
 // OCCTSwiftMesh's `Mesh.segmented(_:)` (dihedral region-growing with
 // primitive-fit merge, SecondMouseAU/OCCTSwiftMesh#16/#17): splits a body's
 // mesh into surface zones (plane / cylinder / sphere / cone), each with a
@@ -17,7 +17,7 @@
 // adjacentZones (#101 design decision): triangle-level adjacency is only
 // meaningful on a WELDED mesh (OCCTSwiftMesh's own docs), but the only public
 // weld entry point, `Mesh.welded(tolerance:)`, also silently DROPS degenerate
-// triangles — which would shift triangle indices relative to the UNWELDED
+// triangles, which would shift triangle indices relative to the UNWELDED
 // mesh `MeshRegion.triangleIndices` (and this tool's `triangleIndices`) are
 // indexed against. Rather than risk mis-attributing adjacency under that
 // shift, this tool welds independently, checks the triangle COUNT survived
@@ -28,12 +28,12 @@
 // slippage (#109, OCCTSwiftMesh#26/#31 `Mesh.slippage(forTriangles:
 // maxSamples:)`): the SAME correspondence problem applies, since the
 // classifier also needs `vertexNormals()` off a genuinely welded mesh, and
-// gets the exact same fix — reuse the one `welded` mesh + triangle-count
+// gets the exact same fix: reuse the one `welded` mesh + triangle-count
 // guard above rather than welding a second time or risking a second silent
 // index shift. When the guard fails, slippage is omitted (nil) per zone
 // alongside `adjacentZones`, with its own warning in the same wording
 // family. `axisDirection`'s sign is arbitrary and its meaning is
-// kind-dependent (surface NORMAL for plane, no axis at all for sphere) —
+// kind-dependent (surface NORMAL for plane, no axis at all for sphere);
 // see `ZoneSlippage`'s doc comment in ZoneRegistry.swift.
 //
 // erosionSkipped (#114): the weld/adjacency guard above protects against a
@@ -48,11 +48,11 @@
 // untouched numbers instead of hiding a possibly-correct answer.
 
 import Foundation
-import simd
 import OCCTSwift
 import OCCTSwiftMesh
 import OCCTSwiftViewport
 import ScriptHarness
+import simd
 
 public enum MeshZoneTools {
 
@@ -147,25 +147,27 @@ public enum MeshZoneTools {
         var warnings: [String] = []
         if segmented.fitMergeSkipped {
             warnings.append(
-                "fit-gated merge pass skipped: raw region count exceeded the merge cap even after " +
-                "the coplanar pre-merge; zones are unmerged seed regions (coarse-tessellation " +
-                "confetti was not collapsed). Consider pre-decimating with simplify_mesh or raising " +
-                "minRegionTriangles."
+                "fit-gated merge pass skipped: raw region count exceeded the merge cap even after "
+                    + "the coplanar pre-merge; zones are unmerged seed regions (coarse-tessellation "
+                    + "confetti was not collapsed). Consider pre-decimating with simplify_mesh or raising "
+                    + "minRegionTriangles."
             )
         }
         if segmented.truncatedTriangleCount > 0 {
             warnings.append(
-                "\(segmented.truncatedTriangleCount) triangles were excluded from every zone " +
-                "(regions under minRegionTriangles=\(segOptions.minRegionTriangles), or the smallest " +
-                "regions past maxZones=\(maxZones))."
+                "\(segmented.truncatedTriangleCount) triangles were excluded from every zone "
+                    + "(regions under minRegionTriangles=\(segOptions.minRegionTriangles), or the smallest "
+                    + "regions past maxZones=\(maxZones))."
             )
         }
         guard !segmented.regions.isEmpty else {
-            return IntrospectionTools.encode(ZoneReport(
-                bodyId: bodyId, zoneCount: 0, truncatedTriangleCount: segmented.truncatedTriangleCount,
-                zones: [], renderPath: nil, registeredBodyIds: nil,
-                warnings: warnings + ["Segmentation produced no zones."]
-            ))
+            return IntrospectionTools.encode(
+                ZoneReport(
+                    bodyId: bodyId, zoneCount: 0,
+                    truncatedTriangleCount: segmented.truncatedTriangleCount,
+                    zones: [], renderPath: nil, registeredBodyIds: nil,
+                    warnings: warnings + ["Segmentation produced no zones."]
+                ))
         }
 
         let totalArea = totalMeshArea(mesh)
@@ -195,24 +197,26 @@ public enum MeshZoneTools {
                     adjSets[za].insert(zb)
                 }
             }
-            for zi in adjSets.indices { adjacentZones[zi] = adjSets[zi].sorted().map { zoneIds[$0] } }
+            for zi in adjSets.indices {
+                adjacentZones[zi] = adjSets[zi].sorted().map { zoneIds[$0] }
+            }
 
             // Boundary-vertex erosion before slippage: on a CONNECTED mesh,
             // `vertexNormals()` at a zone-boundary vertex blends the
             // neighbouring zone's surface in (a box-edge vertex's normal
             // averages both faces), and those contaminated constraint rows
-            // corrupt the classification — a genuine extrusion panel can
+            // corrupt the classification, a genuine extrusion panel can
             // read as helix when its boundary ring dominates the samples.
             // A vertex is "boundary" when its incident welded triangles
             // don't all belong to this same zone (a different zone OR an
             // unassigned/dropped triangle both count: either way the normal
             // blends surface that isn't this zone's). Slippage is fed only
-            // triangles whose 3 vertices are interior — unless that leaves
+            // triangles whose 3 vertices are interior, unless that leaves
             // too few (`slippageErosionFloor`), in which case the FULL
             // region is used and the zone is named in a warning instead of
             // reporting a possibly-contaminated classification as clean.
             let wIdx = welded.indices
-            var vertexOwner = [Int: Int]()   // welded vertex -> zone, -1 = unassigned
+            var vertexOwner = [Int: Int]()  // welded vertex -> zone, -1 = unassigned
             var boundaryVerts = Set<UInt32>()
             for t in 0..<welded.triangleCount {
                 let owner = triToZone[t] ?? -1
@@ -241,7 +245,9 @@ public enum MeshZoneTools {
                 // already interior", which needs no flag at all).
                 let contaminated = !eroded && interior.count < region.triangleIndices.count
                 if contaminated {
-                    contaminatedZones.append("\(zoneIds[zi]) (\(interior.count)/\(region.triangleIndices.count) interior)")
+                    contaminatedZones.append(
+                        "\(zoneIds[zi]) (\(interior.count)/\(region.triangleIndices.count) interior)"
+                    )
                 }
                 let slip = welded.slippage(forTriangles: slipTris, maxSamples: 2000)
                 zoneSlippage[zi] = ZoneSlippage(
@@ -255,14 +261,18 @@ public enum MeshZoneTools {
             }
             if !contaminatedZones.isEmpty {
                 warnings.append(
-                    "slippage boundary erosion skipped for \(contaminatedZones.count) zone(s) too small to erode " +
-                    "(\(contaminatedZones.joined(separator: ", "))): their classifications include boundary vertices " +
-                    "whose normals blend neighbouring zones' surfaces in, and may be affected."
+                    "slippage boundary erosion skipped for \(contaminatedZones.count) zone(s) too small to erode "
+                        + "(\(contaminatedZones.joined(separator: ", "))): their classifications include boundary vertices "
+                        + "whose normals blend neighbouring zones' surfaces in, and may be affected."
                 )
             }
         } else {
-            warnings.append("adjacentZones omitted: welding the mesh to compute adjacency dropped degenerate triangles, breaking triangle-index correspondence.")
-            warnings.append("slippage omitted: welding the mesh to compute it dropped degenerate triangles, breaking triangle-index correspondence.")
+            warnings.append(
+                "adjacentZones omitted: welding the mesh to compute adjacency dropped degenerate triangles, breaking triangle-index correspondence."
+            )
+            warnings.append(
+                "slippage omitted: welding the mesh to compute it dropped degenerate triangles, breaking triangle-index correspondence."
+            )
         }
 
         var entries: [ZoneReport.ZoneEntry] = []
@@ -285,8 +295,10 @@ public enum MeshZoneTools {
         )
 
         for (zi, region) in segmented.regions.enumerated() {
-            var lo = SIMD3<Float>(.greatestFiniteMagnitude, .greatestFiniteMagnitude, .greatestFiniteMagnitude)
-            var hi = SIMD3<Float>(-.greatestFiniteMagnitude, -.greatestFiniteMagnitude, -.greatestFiniteMagnitude)
+            var lo = SIMD3<Float>(
+                .greatestFiniteMagnitude, .greatestFiniteMagnitude, .greatestFiniteMagnitude)
+            var hi = SIMD3<Float>(
+                -.greatestFiniteMagnitude, -.greatestFiniteMagnitude, -.greatestFiniteMagnitude)
             var normalSum = SIMD3<Double>(0, 0, 0)
             for t in region.triangleIndices {
                 for k in 0..<3 {
@@ -308,28 +320,34 @@ public enum MeshZoneTools {
             let fit = segmented.fits[zi]
             let fitEntry = ZoneReport.FitEntry(
                 kind: fit.kind.rawValue, params: fit.params,
-                residualRmsMm: fit.residualRMS, residualMaxMm: fit.residualMax, inlierRatio: fit.inlierRatio
+                residualRmsMm: fit.residualRMS, residualMaxMm: fit.residualMax,
+                inlierRatio: fit.inlierRatio
             )
 
-            entries.append(ZoneReport.ZoneEntry(
-                id: zoneIds[zi],
-                triangleCount: region.triangleIndices.count,
-                areaMm2: region.area,
-                areaFraction: totalArea > 1e-12 ? region.area / totalArea : 0,
-                bbox: .init(min: [Double(lo.x), Double(lo.y), Double(lo.z)], max: [Double(hi.x), Double(hi.y), Double(hi.z)]),
-                meanNormal: [meanNormal.x, meanNormal.y, meanNormal.z],
-                boundaryLoops: boundaryCount,
-                adjacentZones: adjacentZones[zi],
-                fit: fitEntry,
-                slippage: zoneSlippage[zi]
-            ))
-            zoneRecords.append(ZoneRecord(
-                zoneId: zoneIds[zi], bodyId: bodyId, index: zi,
-                triangleIndices: region.triangleIndices, areaMm2: region.area,
-                fit: ZoneFit(kind: fit.kind.rawValue, params: fit.params, residualRmsMm: fit.residualRMS,
-                             residualMaxMm: fit.residualMax, inlierRatio: fit.inlierRatio),
-                params: paramsUsed, meshSignature: signature, slippage: zoneSlippage[zi]
-            ))
+            entries.append(
+                ZoneReport.ZoneEntry(
+                    id: zoneIds[zi],
+                    triangleCount: region.triangleIndices.count,
+                    areaMm2: region.area,
+                    areaFraction: totalArea > 1e-12 ? region.area / totalArea : 0,
+                    bbox: .init(
+                        min: [Double(lo.x), Double(lo.y), Double(lo.z)],
+                        max: [Double(hi.x), Double(hi.y), Double(hi.z)]),
+                    meanNormal: [meanNormal.x, meanNormal.y, meanNormal.z],
+                    boundaryLoops: boundaryCount,
+                    adjacentZones: adjacentZones[zi],
+                    fit: fitEntry,
+                    slippage: zoneSlippage[zi]
+                ))
+            zoneRecords.append(
+                ZoneRecord(
+                    zoneId: zoneIds[zi], bodyId: bodyId, index: zi,
+                    triangleIndices: region.triangleIndices, areaMm2: region.area,
+                    fit: ZoneFit(
+                        kind: fit.kind.rawValue, params: fit.params, residualRmsMm: fit.residualRMS,
+                        residualMaxMm: fit.residualMax, inlierRatio: fit.inlierRatio),
+                    params: paramsUsed, meshSignature: signature, slippage: zoneSlippage[zi]
+                ))
         }
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
@@ -362,19 +380,24 @@ public enum MeshZoneTools {
             let cap = max(0, registerCap)
             let toRegister = Array(segmented.regions.prefix(cap))
             if segmented.regions.count > cap {
-                warnings.append("registerCap=\(cap) truncated registration: \(segmented.regions.count - cap) zones were not registered as bodies.")
+                warnings.append(
+                    "registerCap=\(cap) truncated registration: \(segmented.regions.count - cap) zones were not registered as bodies."
+                )
             }
             var ids: [String] = []
             var manifest = (try? store.read()) ?? ScriptManifest(description: nil, bodies: [])
             let bodyName = loaded.body.name ?? bodyId
             for (zi, region) in toRegister.enumerated() {
                 guard let sub = mesh.subMesh(triangleIndices: region.triangleIndices) else {
-                    warnings.append("zone:\(bodyId)#\(zi): subMesh extraction failed, skipped registration.")
+                    warnings.append(
+                        "zone:\(bodyId)#\(zi): subMesh extraction failed, skipped registration.")
                     continue
                 }
                 let outId = "\(bodyId)_zone\(zi)"
                 if manifest.bodies.contains(where: { $0.id == outId }) {
-                    warnings.append("Body id \"\(outId)\" already exists; skipped registration for zone:\(bodyId)#\(zi).")
+                    warnings.append(
+                        "Body id \"\(outId)\" already exists; skipped registration for zone:\(bodyId)#\(zi)."
+                    )
                     continue
                 }
                 let tmpSTL = NSTemporaryDirectory() + "occtmcp-zone-\(UUID().uuidString).stl"
@@ -383,15 +406,21 @@ public enum MeshZoneTools {
                     try MeshTools.writeMesh(mesh: sub, path: tmpSTL)
                     let zoneShape = try Shape.loadSTL(fromPath: tmpSTL)
                     let outFile = "\(outId).brep"
-                    try Exporter.writeBREP(shape: zoneShape, to: URL(fileURLWithPath: "\(outputDir)/\(outFile)"), allowInvalid: true)
+                    try Exporter.writeBREP(
+                        shape: zoneShape, to: URL(fileURLWithPath: "\(outputDir)/\(outFile)"),
+                        allowInvalid: true)
                     manifest = ScriptManifest(
-                        version: manifest.version, timestamp: Date(), description: manifest.description,
-                        bodies: manifest.bodies + [BodyDescriptor(id: outId, file: outFile, name: "\(bodyName) zone \(zi)")],
+                        version: manifest.version, timestamp: Date(),
+                        description: manifest.description,
+                        bodies: manifest.bodies + [
+                            BodyDescriptor(id: outId, file: outFile, name: "\(bodyName) zone \(zi)")
+                        ],
                         graphs: manifest.graphs, metadata: manifest.metadata
                     )
                     ids.append(outId)
                 } catch {
-                    warnings.append("zone:\(bodyId)#\(zi) registration failed: \(error.localizedDescription)")
+                    warnings.append(
+                        "zone:\(bodyId)#\(zi) registration failed: \(error.localizedDescription)")
                 }
             }
             if !ids.isEmpty {
@@ -401,11 +430,13 @@ public enum MeshZoneTools {
             registeredBodyIds = ids
         }
 
-        return IntrospectionTools.encode(ZoneReport(
-            bodyId: bodyId, zoneCount: entries.count, truncatedTriangleCount: segmented.truncatedTriangleCount,
-            zones: entries, renderPath: writtenRenderPath, registeredBodyIds: registeredBodyIds,
-            warnings: warnings
-        ))
+        return IntrospectionTools.encode(
+            ZoneReport(
+                bodyId: bodyId, zoneCount: entries.count,
+                truncatedTriangleCount: segmented.truncatedTriangleCount,
+                zones: entries, renderPath: writtenRenderPath, registeredBodyIds: registeredBodyIds,
+                warnings: warnings
+            ))
     }
 
     // MARK: - Rendering (band-group trick, mirrors HeatmapTools)
@@ -429,25 +460,37 @@ public enum MeshZoneTools {
             bnormals.reserveCapacity(tris.count * 9)
             indices.reserveCapacity(tris.count * 3)
             for t in tris {
-                let ia = Int(idx[t * 3]), ib = Int(idx[t * 3 + 1]), ic = Int(idx[t * 3 + 2])
-                let pa = verts[ia], pb = verts[ib], pc = verts[ic]
+                let ia = Int(idx[t * 3])
+                let ib = Int(idx[t * 3 + 1])
+                let ic = Int(idx[t * 3 + 2])
+                let pa = verts[ia]
+                let pb = verts[ib]
+                let pc = verts[ic]
                 let fn = faceNormals[t]
                 for (vi, p) in [(ia, pa), (ib, pb), (ic, pc)] {
-                    positions.append(p.x); positions.append(p.y); positions.append(p.z)
+                    positions.append(p.x)
+                    positions.append(p.y)
+                    positions.append(p.z)
                     let nrm = hasNormals ? normals[vi] : fn
-                    bnormals.append(nrm.x); bnormals.append(nrm.y); bnormals.append(nrm.z)
+                    bnormals.append(nrm.x)
+                    bnormals.append(nrm.y)
+                    bnormals.append(nrm.z)
                 }
                 let base = UInt32(indices.count)
-                indices.append(base); indices.append(base + 1); indices.append(base + 2)
+                indices.append(base)
+                indices.append(base + 1)
+                indices.append(base + 2)
             }
-            return ViewportBody.directMesh(id: id, positions: positions, normals: bnormals, indices: indices, color: color)
+            return ViewportBody.directMesh(
+                id: id, positions: positions, normals: bnormals, indices: indices, color: color)
         }
 
         var bodies: [ViewportBody] = []
         var legend: [(label: String, color: SIMD4<Float>)] = []
         for (zi, region) in regions.enumerated() where !region.triangleIndices.isEmpty {
             let color = ChartRenderer.categoricalColor(zi)
-            bodies.append(buildBody(id: "\(bodyId)#zone\(zi)", tris: region.triangleIndices, color: color))
+            bodies.append(
+                buildBody(id: "\(bodyId)#zone\(zi)", tris: region.triangleIndices, color: color))
             legend.append((label: "zone#\(zi) (\(region.triangleIndices.count) tri)", color: color))
         }
         guard !bodies.isEmpty else { return "no zone triangles to render" }
@@ -479,7 +522,9 @@ public enum MeshZoneTools {
         var sum = 0.0
         var t = 0
         while t + 2 < idx.count {
-            let a = verts[Int(idx[t])], b = verts[Int(idx[t + 1])], c = verts[Int(idx[t + 2])]
+            let a = verts[Int(idx[t])]
+            let b = verts[Int(idx[t + 1])]
+            let c = verts[Int(idx[t + 2])]
             sum += Double(simd_length(simd_cross(b - a, c - a)) * 0.5)
             t += 3
         }

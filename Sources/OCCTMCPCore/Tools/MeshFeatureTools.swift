@@ -1,66 +1,66 @@
-// MeshFeatureTools — `detect_mesh_features` (#108, closes the crease-
+// MeshFeatureTools: `detect_mesh_features` (#108, closes the crease-
 // detection piece of the mesh-analysis expansion's Phase 3 backlog;
 // unblocked by SecondMouseAU/OCCTSwiftMesh#28, shipped in OCCTSwiftMesh
 // v1.7.0 alongside #27's RANSAC primitive fitting).
 //
 // Crease-ring feature outlines (doors, panels, window returns, recesses) on
 // raw scan meshes where `recognize_features` (BREP/AAG) cannot operate at
-// all — a scanned/STL body has no B-rep face/edge structure to recognize
+// all, a scanned/STL body has no B-rep face/edge structure to recognize
 // features against in the first place.
 //
-// PIPELINE — loadShape -> mesh (the standard MeshParameters recipe shared
+// PIPELINE: loadShape -> mesh (the standard MeshParameters recipe shared
 // with DeviationTools/MeshZoneTools/MeshCurvatureTools) -> `mesh.welded()`
 // -> `welded.creaseEdges(minAngleDegrees:)`. Detection, reporting, AND
-// render geometry all live on the WELDED mesh — `CreaseRing.vertexIndices`
-// indexes it directly — so there is no triangle/vertex-index correspondence
+// render geometry all live on the WELDED mesh, `CreaseRing.vertexIndices`
+// indexes it directly, so there is no triangle/vertex-index correspondence
 // problem between the stats and the render to guard against, the same
 // MANDATORY-weld-first shape MeshCurvatureTools documents for
 // `vertexCurvatures()`: `creaseEdges()`'s own precondition is a welded mesh
 // (on unwelded input every edge is used by exactly one triangle, so the
 // dihedral angle is undefined and every edge comes back "boundary," never
-// "crease" — see OCCTSwiftMesh's docs/algorithms/crease-detection.md).
+// "crease", see OCCTSwiftMesh's docs/algorithms/crease-detection.md).
 //
-// UNWELDABLE-SOUP WARNING — the same topology-fact trigger MeshCurvatureTools
+// UNWELDABLE-SOUP WARNING: the same topology-fact trigger MeshCurvatureTools
 // uses (`welded.vertexCount == welded.triangleCount * 3`, i.e. the weld pass
 // demonstrably merged nothing): a genuinely flat/uncreased body would ALSO
 // legitimately return zero rings, so "zero rings found" can't itself be the
 // warning trigger without false-positiving on an ordinary flat/uncreased
 // part.
 //
-// ZONE INTERPLAY (#108) — when `segment_mesh_zones` has already been run for
+// ZONE INTERPLAY (#108), when `segment_mesh_zones` has already been run for
 // this body, each ring reports `containingZones`: the zone id(s) whose
 // triangles are incident to the ring's own (welded) vertices, majority
 // first. This needs the SAME welded-mesh + triangle-COUNT-survival guard
 // `MeshZoneTools.adjacentZones` established (`welded.triangleCount ==
-// mesh.triangleCount` — proof the weld here didn't drop a degenerate
+// mesh.triangleCount`, proof the weld here didn't drop a degenerate
 // triangle, so triangle index `t` means the same triangle in both the
 // welded mesh and the zones' own UNWELDED `triangleIndices`), PLUS a
 // mesh-signature check (`ZoneRecord.meshSignature`, the same staleness
 // check `ZoneSweepTool` performs before trusting a resolved zone's
-// `triangleIndices` — the zone table might have been minted from a
+// `triangleIndices`, the zone table might have been minted from a
 // different mesh state, e.g. the body was re-meshed at a different
 // deflection since). Any stale zone or a failed guard omits
 // `containingZones` (nil on every ring) with an honest warning; no zones
-// registered for this body at all is not a warning — zones are optional
+// registered for this body at all is not a warning, zones are optional
 // context, not a prerequisite.
 //
-// RENDER — the body surface as a neutral translucent grey `ViewportBody`
+// RENDER: the body surface as a neutral translucent grey `ViewportBody`
 // (built straight off the welded mesh via `ViewportBody.directMesh`), plus
 // one edges-only `ViewportBody` per ring (`edges: [[ring vertex positions,
 // wrapped if closed]]`, no mesh triangles at all) in a categorical color.
 // `OffscreenRenderer` draws a body's wireframe unconditionally whenever it
 // has no mesh triangles of its own (`hasEdges && (displayMode.showsEdges ||
 // !hasMesh)` in `OffscreenRenderer.swift`), so an edges-only ring body
-// renders regardless of `displayMode` — no tube-strip-quad fallback needed.
+// renders regardless of `displayMode`, no tube-strip-quad fallback needed.
 // Composited with `ChartRenderer.overlayZoneLegend`, the same per-group
 // ViewportBody + legend trick `MeshZoneTools`/`MeshCurvatureTools` use.
 
 import Foundation
-import simd
 import OCCTSwift
 import OCCTSwiftMesh
 import OCCTSwiftViewport
 import ScriptHarness
+import simd
 
 public enum MeshFeatureTools {
 
@@ -86,8 +86,9 @@ public enum MeshFeatureTools {
             /// trusted (stale, or the weld-correspondence guard failed; see the
             /// file header, a warning names the reason in that case).
             public let containingZones: [String]?
-            /// Ordered world-coordinate vertex polyline for this ring/path
-            /// (#120), a direct mirror of `CreaseRing.vertexIndices` resolved
+            /// Ordered world-coordinate vertex polyline for this ring or path (#120).
+            ///
+            /// A direct mirror of `CreaseRing.vertexIndices` resolved
             /// against the welded mesh's vertices, NOT wrapped around for a
             /// closed ring (use `closed` to decide whether to connect the
             /// last point back to the first). Only present when
@@ -160,7 +161,7 @@ public enum MeshFeatureTools {
         }
 
         let cap = max(0, maxRings)
-        let allRings = result.rings   // already sorted largest-first (CreaseRing.order)
+        let allRings = result.rings  // already sorted largest-first (CreaseRing.order)
         let rings = Array(allRings.prefix(cap))
         if allRings.count > cap {
             warnings.append(
@@ -168,7 +169,7 @@ public enum MeshFeatureTools {
             )
         }
 
-        // ── zone interplay (#108) — see the file header for the guard chain.
+        // ── zone interplay (#108), see the file header for the guard chain.
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let zonesStore = ZonesStore(outputDir: outputDir)
         await registry.loadSidecarIfNeeded(store: zonesStore)
@@ -221,7 +222,7 @@ public enum MeshFeatureTools {
             for v in ring.vertexIndices {
                 for z in vz[v] ?? [] { counts[z, default: 0] += 1 }
             }
-            // Majority first, then any others touched (tie-break: zoneId ascending — deterministic).
+            // Majority first, then any others touched (tie-break: zoneId ascending, deterministic).
             return counts.sorted { a, b in
                 a.value != b.value ? a.value > b.value : a.key < b.key
             }.map(\.key)
@@ -234,17 +235,22 @@ public enum MeshFeatureTools {
                 closed: ring.closed,
                 lengthMm: ring.length,
                 bbox: .init(
-                    min: [Double(ring.bbox.min.x), Double(ring.bbox.min.y), Double(ring.bbox.min.z)],
-                    max: [Double(ring.bbox.max.x), Double(ring.bbox.max.y), Double(ring.bbox.max.z)]
+                    min: [
+                        Double(ring.bbox.min.x), Double(ring.bbox.min.y), Double(ring.bbox.min.z),
+                    ],
+                    max: [
+                        Double(ring.bbox.max.x), Double(ring.bbox.max.y), Double(ring.bbox.max.z),
+                    ]
                 ),
                 meanFoldAngleDegrees: ring.meanFoldAngleDegrees,
                 maxFoldAngleDegrees: ring.maxFoldAngleDegrees,
                 edgeCount: ring.closed ? ring.vertexIndices.count : ring.vertexIndices.count - 1,
                 containingZones: containingZones(for: ring),
-                points: includePoints ? ring.vertexIndices.map { idx -> [Double] in
-                    let p = weldedVerts[Int(idx)]
-                    return [Double(p.x), Double(p.y), Double(p.z)]
-                } : nil
+                points: includePoints
+                    ? ring.vertexIndices.map { idx -> [Double] in
+                        let p = weldedVerts[Int(idx)]
+                        return [Double(p.x), Double(p.y), Double(p.z)]
+                    } : nil
             )
         }
 
@@ -266,24 +272,28 @@ public enum MeshFeatureTools {
             }
         }
 
-        return IntrospectionTools.encode(FeatureReport(
-            bodyId: bodyId, ringCount: entries.count, unchainedCreaseEdgeCount: result.unchainedCreaseEdgeCount,
-            rings: entries, renderPath: writtenRenderPath, warnings: warnings
-        ))
+        return IntrospectionTools.encode(
+            FeatureReport(
+                bodyId: bodyId, ringCount: entries.count,
+                unchainedCreaseEdgeCount: result.unchainedCreaseEdgeCount,
+                rings: entries, renderPath: writtenRenderPath, warnings: warnings
+            ))
     }
 
     // MARK: - Rendering (neutral surface + one edges-only ViewportBody per ring)
 
     @MainActor
     private static func renderFeatures(
-        welded: Mesh, rings: [CreaseRing], bodyId: String, outputPath: String, options: RenderPreviewTool.Options
+        welded: Mesh, rings: [CreaseRing], bodyId: String, outputPath: String,
+        options: RenderPreviewTool.Options
     ) -> String? {
         let verts = welded.vertices
         // welded() rebuilds the Mesh without normals, so welded.normals is
         // empty; compute real area-weighted vertex normals for the backdrop's
         // shading instead of falling back to a constant direction (review nit
-        // on #113 — flat lighting made the translucent surface read unlit).
-        let normals = welded.normals.count == welded.vertices.count ? welded.normals : welded.vertexNormals()
+        // on #113, flat lighting made the translucent surface read unlit).
+        let normals =
+            welded.normals.count == welded.vertices.count ? welded.normals : welded.vertexNormals()
         let idx = welded.indices
         let hasNormals = normals.count == verts.count
         guard welded.triangleCount > 0 else { return "no triangles to render" }
@@ -294,11 +304,15 @@ public enum MeshFeatureTools {
         bnormals.reserveCapacity(verts.count * 3)
         for i in 0..<verts.count {
             let p = verts[i]
-            positions.append(p.x); positions.append(p.y); positions.append(p.z)
+            positions.append(p.x)
+            positions.append(p.y)
+            positions.append(p.z)
             let n = hasNormals ? normals[i] : SIMD3<Float>(0, 0, 1)
-            bnormals.append(n.x); bnormals.append(n.y); bnormals.append(n.z)
+            bnormals.append(n.x)
+            bnormals.append(n.y)
+            bnormals.append(n.z)
         }
-        // Neutral translucent grey — the ring overlays are the point of this
+        // Neutral translucent grey, the ring overlays are the point of this
         // render, not the surface itself (see file header).
         let baseBody = ViewportBody.directMesh(
             id: "\(bodyId)#surface", positions: positions, normals: bnormals, indices: idx,
@@ -318,11 +332,13 @@ public enum MeshFeatureTools {
             // body still contributes to camera framing (combinedBoundsSphere)
             // and its own boundingBox (shadow-pass scene bounds) rather than
             // reading as empty.
-            bodies.append(ViewportBody(
-                id: "\(bodyId)#ring\(i)", vertexData: [], indices: [], edges: [poly],
-                vertices: poly, color: color
-            ))
-            legend.append((label: "ring:\(bodyId)#\(i)\(ring.closed ? "" : " (open)")", color: color))
+            bodies.append(
+                ViewportBody(
+                    id: "\(bodyId)#ring\(i)", vertexData: [], indices: [], edges: [poly],
+                    vertices: poly, color: color
+                ))
+            legend.append(
+                (label: "ring:\(bodyId)#\(i)\(ring.closed ? "" : " (open)")", color: color))
         }
 
         guard let renderer = OffscreenRenderer() else {

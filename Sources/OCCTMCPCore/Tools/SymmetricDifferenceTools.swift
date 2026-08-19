@@ -50,14 +50,16 @@ public enum SymmetricDifferenceTools {
         public let ambiguousSamples: Int
         public let ambiguousFraction: Double
         public let boundingBoxVolumeMm3: Double
-        /// Sampled total volume of `fromBodyId`, from `fromBodyId`'s OWN classification only
-        /// (independent of whether `referenceBodyId` classified confidently at the same sample
-        /// point). May differ slightly from `intersectionVolumeMm3 + fromOnlyVolumeMm3`, which
-        /// use a different (jointly-confident) sample subset; both are honest, just different
+        /// Sampled total volume of `fromBodyId`, from its OWN classification only (independent
+        /// of whether `referenceBodyId` classified confidently at the same sample point).
+        ///
+        /// May differ slightly from `intersectionVolumeMm3 + fromOnlyVolumeMm3`, which use a
+        /// different (jointly-confident) sample subset; both are honest, just different
         /// denominators.
         public let fromVolumeMm3: Double
-        /// Sampled total volume of `referenceBodyId`, from `referenceBodyId`'s OWN classification
-        /// only. See `fromVolumeMm3`.
+        /// Sampled total volume of `referenceBodyId`, from its OWN classification only.
+        ///
+        /// See `fromVolumeMm3`.
         public let referenceVolumeMm3: Double
         public let intersectionVolumeMm3: Double
         public let unionVolumeMm3: Double
@@ -72,11 +74,13 @@ public enum SymmetricDifferenceTools {
         /// completely disjoint. nil when the union itself sampled to ~0 (both bodies missed).
         public let symmetricDifferenceFraction: Double?
         /// Monte Carlo standard error on `symmetricDifferenceVolumeMm3`, treating "this sample
-        /// landed in the symmetric-difference region" as a single Bernoulli trial. A measured
-        /// value under ~2x this is noise-dominated at the current `maxSamples`, not necessarily a
-        /// well-registered pair.
+        /// landed in the symmetric-difference region" as a single Bernoulli trial.
+        ///
+        /// A measured value under ~2x this is noise-dominated at the current `maxSamples`, not
+        /// necessarily a well-registered pair.
         public let estimatedStdErrMm3: Double
         /// Exact BREP mass-properties volume (`BRepGProp::VolumeProperties`), when computable.
+        ///
         /// Reported as a cross-check only: it is exact for a genuine closed solid but can be
         /// silently wrong for an open/non-watertight shape, which is exactly the reference-body
         /// case this tool exists to handle. See `referenceWatertight`.
@@ -94,7 +98,9 @@ public enum SymmetricDifferenceTools {
 
     public static let defaultMaxSamples = 300
     /// Winding-number values within this of the nearest integer classify confidently; the rest
-    /// are ambiguous. Width chosen so a genuinely closed, coherently-wound mesh (which reads
+    /// are ambiguous.
+    ///
+    /// Width chosen so a genuinely closed, coherently-wound mesh (which reads
     /// almost exactly 0 or +-1 away from its own surface) never flags ambiguous by numerical
     /// noise alone, while a value near the 0.5 midpoint (a genuine open-shell / self-intersection
     /// symptom) reliably does.
@@ -115,7 +121,8 @@ public enum SymmetricDifferenceTools {
         maxSamples: Int = defaultMaxSamples,
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
-        let fromShape: Shape, refShape: Shape
+        let fromShape: Shape
+        let refShape: Shape
         do {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             refShape = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store).shape
@@ -135,11 +142,16 @@ public enum SymmetricDifferenceTools {
 
         let meshParams = DeviationTools.standardMeshParameters(deflection: defl)
 
-        guard let fromMesh = fromShape.mesh(parameters: meshParams), fromMesh.triangleCount > 0 else {
-            return .init("Failed to tessellate '\(fromBodyId)' for symmetric-difference volume.", isError: true)
+        guard let fromMesh = fromShape.mesh(parameters: meshParams), fromMesh.triangleCount > 0
+        else {
+            return .init(
+                "Failed to tessellate '\(fromBodyId)' for symmetric-difference volume.",
+                isError: true)
         }
         guard let refMesh = refShape.mesh(parameters: meshParams), refMesh.triangleCount > 0 else {
-            return .init("Failed to tessellate '\(referenceBodyId)' for symmetric-difference volume.", isError: true)
+            return .init(
+                "Failed to tessellate '\(referenceBodyId)' for symmetric-difference volume.",
+                isError: true)
         }
 
         // Both extents are needed for the shared sampling box, so either one
@@ -171,9 +183,15 @@ public enum SymmetricDifferenceTools {
         // Rescaling by the confident subset extrapolates instead: the ambiguous region is assumed
         // to partition like the region that DID classify, the same "exclude and rescale" approach
         // `DeviationTools.directedStats` already uses for its own signed aggregates.
-        var insideBoth = 0, fromOnly = 0, referenceOnly = 0, outsideBoth = 0, jointAmbiguous = 0
-        var fromConfident = 0, fromInside = 0
-        var refConfident = 0, refInside = 0
+        var insideBoth = 0
+        var fromOnly = 0
+        var referenceOnly = 0
+        var outsideBoth = 0
+        var jointAmbiguous = 0
+        var fromConfident = 0
+        var fromInside = 0
+        var refConfident = 0
+        var refInside = 0
         for i in 1...maxSamples {
             let p = lo + haltonPoint(index: i) * extent
             let ca = classify(fromMesh.windingNumber(at: p))
@@ -202,7 +220,9 @@ public enum SymmetricDifferenceTools {
         func fraction(_ count: Int, over denom: Int) -> Double {
             denom > 0 ? Double(count) / Double(denom) : 0
         }
-        func vol(_ count: Int, over denom: Int) -> Double { fraction(count, over: denom) * bboxVolume }
+        func vol(_ count: Int, over denom: Int) -> Double {
+            fraction(count, over: denom) * bboxVolume
+        }
         /// Relative standard error of a confident-subset proportion `count/denom`, propagated to
         /// the volume it scales: a Bernoulli proportion's absolute std error is
         /// `sqrt(p(1-p)/denom)`, and dividing by `p` (relative error is scale-invariant under the
@@ -225,7 +245,8 @@ public enum SymmetricDifferenceTools {
         let symDiffFraction: Double? = union > 1e-12 ? symDiff / union : nil
 
         let sdFrac = fraction(fromOnly + referenceOnly, over: jointConfident)
-        let stdErr = jointConfident > 0
+        let stdErr =
+            jointConfident > 0
             ? bboxVolume * (sdFrac * (1 - sdFrac) / Double(jointConfident)).squareRoot() : 0
 
         let ambiguousFraction = Double(jointAmbiguous) / Double(maxSamples)
@@ -234,17 +255,17 @@ public enum SymmetricDifferenceTools {
         if ambiguousFraction > ambiguousWarnFraction {
             reliable = false
             warnings.append(
-                "\(jointAmbiguous)/\(maxSamples) samples (\(Int((ambiguousFraction * 100).rounded()))%) had an " +
-                "uncertain winding-number classification for at least one body, likely a non-watertight, " +
-                "self-intersecting, or very thin-walled region. The joint figures (intersectionVolumeMm3, " +
-                "fromOnlyVolumeMm3, referenceOnlyVolumeMm3, symmetricDifferenceVolumeMm3) extrapolate from " +
-                "the remaining confidently-classified samples and are not fully reliable at this sample count."
+                "\(jointAmbiguous)/\(maxSamples) samples (\(Int((ambiguousFraction * 100).rounded()))%) had an "
+                    + "uncertain winding-number classification for at least one body, likely a non-watertight, "
+                    + "self-intersecting, or very thin-walled region. The joint figures (intersectionVolumeMm3, "
+                    + "fromOnlyVolumeMm3, referenceOnlyVolumeMm3, symmetricDifferenceVolumeMm3) extrapolate from "
+                    + "the remaining confidently-classified samples and are not fully reliable at this sample count."
             )
         }
         if symDiff < 2 * stdErr {
             warnings.append(
-                "symmetricDifferenceVolumeMm3 (\(fmt(symDiff))) is within 2x its own Monte Carlo standard " +
-                "error (\(fmt(stdErr))); raise maxSamples to resolve a difference this small with confidence."
+                "symmetricDifferenceVolumeMm3 (\(fmt(symDiff))) is within 2x its own Monte Carlo standard "
+                    + "error (\(fmt(stdErr))); raise maxSamples to resolve a difference this small with confidence."
             )
         }
 
@@ -252,14 +273,14 @@ public enum SymmetricDifferenceTools {
         let refWatertight = refMesh.integrityReport(weldTolerance: 0).isWatertight
         if !fromWatertight {
             warnings.append(
-                "'\(fromBodyId)' is not watertight; volumes are the generalized-winding-number " +
-                "estimate (robust to this), not an exact mass-properties figure."
+                "'\(fromBodyId)' is not watertight; volumes are the generalized-winding-number "
+                    + "estimate (robust to this), not an exact mass-properties figure."
             )
         }
         if !refWatertight {
             warnings.append(
-                "'\(referenceBodyId)' is not watertight; volumes are the generalized-winding-number " +
-                "estimate (robust to this), not an exact mass-properties figure."
+                "'\(referenceBodyId)' is not watertight; volumes are the generalized-winding-number "
+                    + "estimate (robust to this), not an exact mass-properties figure."
             )
         }
 
@@ -272,25 +293,29 @@ public enum SymmetricDifferenceTools {
         let refExact = refShape.volumeInertia?.volume
         if let fe = fromExact, abs(fe) > 1e-9 {
             let rel = abs(fe - fromVolume) / abs(fe)
-            let threshold = max(exactVolumeDisagreementWarnFraction, 2 * relativeStdErr(count: fromInside, denom: fromConfident))
+            let threshold = max(
+                exactVolumeDisagreementWarnFraction,
+                2 * relativeStdErr(count: fromInside, denom: fromConfident))
             if rel > threshold {
                 reliable = false
                 warnings.append(
-                    "'\(fromBodyId)': sampled volume (\(fmt(fromVolume))) disagrees with the exact BREP " +
-                    "volume (\(fmt(fe))) by \(Int((rel * 100).rounded()))%; raise maxSamples, or '\(fromBodyId)' " +
-                    "may not be a genuinely closed solid."
+                    "'\(fromBodyId)': sampled volume (\(fmt(fromVolume))) disagrees with the exact BREP "
+                        + "volume (\(fmt(fe))) by \(Int((rel * 100).rounded()))%; raise maxSamples, or '\(fromBodyId)' "
+                        + "may not be a genuinely closed solid."
                 )
             }
         }
         if let re = refExact, abs(re) > 1e-9 {
             let rel = abs(re - referenceVolume) / abs(re)
-            let threshold = max(exactVolumeDisagreementWarnFraction, 2 * relativeStdErr(count: refInside, denom: refConfident))
+            let threshold = max(
+                exactVolumeDisagreementWarnFraction,
+                2 * relativeStdErr(count: refInside, denom: refConfident))
             if rel > threshold {
                 reliable = false
                 warnings.append(
-                    "'\(referenceBodyId)': sampled volume (\(fmt(referenceVolume))) disagrees with the exact " +
-                    "BREP volume (\(fmt(re))) by \(Int((rel * 100).rounded()))%, expected for a non-watertight " +
-                    "reference (exact mass properties assume closure); raise maxSamples for a tighter sampled estimate."
+                    "'\(referenceBodyId)': sampled volume (\(fmt(referenceVolume))) disagrees with the exact "
+                        + "BREP volume (\(fmt(re))) by \(Int((rel * 100).rounded()))%, expected for a non-watertight "
+                        + "reference (exact mass properties assume closure); raise maxSamples for a tighter sampled estimate."
                 )
             }
         }
@@ -324,10 +349,11 @@ public enum SymmetricDifferenceTools {
 
     // MARK: - Classification
 
-    /// `true` = confidently inside, `false` = confidently outside, `nil` = ambiguous. Orientation-
-    /// agnostic (see file header): a point is inside iff the winding number sits close to ANY
-    /// nonzero integer, not specifically +1, so an inverted-winding or doubled (nested-shell)
-    /// mesh still classifies correctly without a separate orientation check.
+    /// `true` = confidently inside, `false` = confidently outside, `nil` = ambiguous.
+    ///
+    /// Orientation-agnostic (see file header): a point is inside iff the winding number sits
+    /// close to ANY nonzero integer, not specifically +1, so an inverted-winding or doubled
+    /// (nested-shell) mesh still classifies correctly without a separate orientation check.
     static func classify(_ w: Double) -> Bool? {
         let r = w.rounded()
         guard abs(w - r) <= ambiguityBand else { return nil }
@@ -336,10 +362,12 @@ public enum SymmetricDifferenceTools {
 
     // MARK: - Deterministic low-discrepancy sampling
 
-    /// `index`th point of a 3D Halton sequence (bases 2, 3, 5), in `[0,1)^3`. Deterministic and
-    /// reproducible: unlike a PRNG, two calls with the same `index` always agree, matching every
-    /// other diagnostic sampler in this codebase (fixed Fibonacci-sphere / splitmix64 patterns).
-    /// `index` should start at 1; index 0 is the degenerate all-zero point every base shares.
+    /// `index`th point of a 3D Halton sequence (bases 2, 3, 5), in `[0,1)^3`.
+    ///
+    /// Deterministic and reproducible: unlike a PRNG, two calls with the same `index` always
+    /// agree, matching every other diagnostic sampler in this codebase (fixed Fibonacci-sphere /
+    /// splitmix64 patterns). `index` should start at 1; index 0 is the degenerate all-zero point
+    /// every base shares.
     static func haltonPoint(index: Int) -> SIMD3<Double> {
         SIMD3(halton(index, base: 2), halton(index, base: 3), halton(index, base: 5))
     }

@@ -21,9 +21,9 @@
 // metadata are listed in the issue and queued for follow-ups.
 
 import Foundation
-import simd
 import OCCTSwift
 import ScriptHarness
+import simd
 
 public enum CorrespondenceTools {
 
@@ -44,31 +44,36 @@ public enum CorrespondenceTools {
             case "translate":
                 let arr = try c.decode([Double].self, forKey: .offset)
                 guard arr.count == 3 else {
-                    throw DecodingError.dataCorruptedError(forKey: .offset, in: c,
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .offset, in: c,
                         debugDescription: "translate.offset must be [x, y, z]")
                 }
                 self = .translate(offset: SIMD3(arr[0], arr[1], arr[2]))
             case "mirror":
                 let nArr = try c.decode([Double].self, forKey: .planeNormal)
                 guard nArr.count == 3 else {
-                    throw DecodingError.dataCorruptedError(forKey: .planeNormal, in: c,
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .planeNormal, in: c,
                         debugDescription: "mirror.planeNormal must be [x, y, z]")
                 }
                 let origin: SIMD3<Double>
                 if let oArr = try c.decodeIfPresent([Double].self, forKey: .planeOrigin),
-                   oArr.count == 3 {
+                    oArr.count == 3
+                {
                     origin = SIMD3(oArr[0], oArr[1], oArr[2])
                 } else {
                     origin = .zero
                 }
-                self = .mirror(planeOrigin: origin,
-                               planeNormal: SIMD3(nArr[0], nArr[1], nArr[2]))
+                self = .mirror(
+                    planeOrigin: origin,
+                    planeNormal: SIMD3(nArr[0], nArr[1], nArr[2]))
             case "rotate":
                 let oArr = try c.decode([Double].self, forKey: .axisOrigin)
                 let dArr = try c.decode([Double].self, forKey: .axisDirection)
                 let angle = try c.decode(Double.self, forKey: .angleDeg)
                 guard oArr.count == 3, dArr.count == 3 else {
-                    throw DecodingError.dataCorruptedError(forKey: .axisOrigin, in: c,
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .axisOrigin, in: c,
                         debugDescription: "rotate.axisOrigin / axisDirection must be [x, y, z]")
                 }
                 self = .rotate(
@@ -80,7 +85,8 @@ public enum CorrespondenceTools {
                 let steps = try c.decode([TransformHint].self, forKey: .steps)
                 self = .compound(steps: steps)
             default:
-                throw DecodingError.dataCorruptedError(forKey: .kind, in: c,
+                throw DecodingError.dataCorruptedError(
+                    forKey: .kind, in: c,
                     debugDescription: "unknown transform kind: \(kind)")
             }
         }
@@ -118,7 +124,9 @@ public enum CorrespondenceTools {
             case .rotate(let origin, let dir, let angleDeg):
                 let axis = simd_normalize(dir)
                 let theta = angleDeg * .pi / 180.0
-                let c = cos(theta), s = sin(theta), oneMinusC = 1 - c
+                let c = cos(theta)
+                let s = sin(theta)
+                let oneMinusC = 1 - c
                 let v = p - origin
                 // Rodrigues rotation
                 let rotated =
@@ -135,8 +143,9 @@ public enum CorrespondenceTools {
     public struct Correspondence: Encodable {
         public let sourceSelectionId: String
         public let targetSelectionId: String?
-        public let confidenceMm: Double?   // distance from transformed source anchor to chosen target centroid
-        public let fate: String            // "matched" | "lost"
+        // distance from transformed source anchor to chosen target centroid
+        public let confidenceMm: Double?
+        public let fate: String  // "matched" | "lost"
     }
 
     public struct CorrespondencesReport: Encodable {
@@ -162,7 +171,9 @@ public enum CorrespondenceTools {
     }
 
     /// Resolve correspondences from `sourceSelectionIds` onto `targetBodyId`
-    /// under the given `transform`. Each source id resolves through the
+    /// under the given `transform`.
+    ///
+    /// Each source id resolves through the
     /// SelectionRegistry to its anchor; the anchor's centroid (cached in
     /// the snapshot, or recomputed from the source BREP) is transformed,
     /// then matched against the same-kind sub-shapes of the target body
@@ -199,9 +210,11 @@ public enum CorrespondenceTools {
         // #91/#93: resolve through the retained lineage graph so target
         // sub-shape indices below are graph indices (correct for a later
         // remap_selection/GraphUID lookup), not raw enumeration indices.
-        let targetLineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
+        let targetLineage:
+            (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            targetLineage = try await HistoryRegistry.shared.currentInput(bodyId: targetBodyId, path: targetPath)
+            targetLineage = try await HistoryRegistry.shared.currentInput(
+                bodyId: targetBodyId, path: targetPath)
         } catch {
             return .init("Target BREP missing or unreadable: \(targetPath)")
         }
@@ -253,7 +266,8 @@ public enum CorrespondenceTools {
         }
 
         func validatedProvenance(sourceBodyId: String) async -> TransformHint? {
-            guard let prov = await ProvenanceStore.shared.read(outputDir: outputDir)[targetBodyId] else { return nil }
+            guard let prov = await ProvenanceStore.shared.read(outputDir: outputDir)[targetBodyId]
+            else { return nil }
             guard prov.sourceBodyId == sourceBodyId else {
                 warnings.append(
                     "Ignored provenance for \"\(targetBodyId)\": recorded against source body \"\(prov.sourceBodyId)\", but sourceSelectionIds resolve to \"\(sourceBodyId)\"."
@@ -268,15 +282,18 @@ public enum CorrespondenceTools {
         if let hint = transform {
             resolvedTransform = hint
             transformSource = "explicit"
-        } else if let srcId = resolvedSourceBodyId, let prov = await validatedProvenance(sourceBodyId: srcId) {
+        } else if let srcId = resolvedSourceBodyId,
+            let prov = await validatedProvenance(sourceBodyId: srcId)
+        {
             resolvedTransform = prov
             transformSource = "provenance"
         } else if let srcId = resolvedSourceBodyId,
-                  let inferred = inferTranslation(
-                      manifest: manifest, outputDir: outputDir,
-                      targetShape: targetShape, targetBodyId: targetBodyId,
-                      sourceBodyId: srcId
-                  ) {
+            let inferred = inferTranslation(
+                manifest: manifest, outputDir: outputDir,
+                targetShape: targetShape, targetBodyId: targetBodyId,
+                sourceBodyId: srcId
+            )
+        {
             resolvedTransform = inferred
             transformSource = "bbox-inference"
         } else {
@@ -303,12 +320,14 @@ public enum CorrespondenceTools {
         // shape) has to stay a hole in the array, not get compacted away.
         let targetFaceCentres: [SIMD3<Double>?] = (0..<targetGraph.faceCount).map { i in
             guard let faceShape = targetGraph.shape(nodeKind: .face, nodeIndex: i),
-                  let face = Face(faceShape) else { return nil }
+                let face = Face(faceShape)
+            else { return nil }
             return SelectionTools.faceCenterAndNormal(face: face).0
         }
         let targetEdgeCentres: [SIMD3<Double>?] = (0..<targetGraph.edgeCount).map { i in
             guard let edgeShape = targetGraph.shape(nodeKind: .edge, nodeIndex: i),
-                  let edge = Edge(edgeShape) else { return nil }
+                let edge = Edge(edgeShape)
+            else { return nil }
             return SelectionTools.edgeMidpoint(edge: edge)
         }
         let targetVertexCentres: [SIMD3<Double>?] = (0..<targetGraph.vertexCount).map { i in
@@ -318,12 +337,13 @@ public enum CorrespondenceTools {
         var out: [Correspondence] = []
         for sid in sourceSelectionIds {
             guard let anchor = await registry.anchor(for: sid) else {
-                out.append(.init(
-                    sourceSelectionId: sid,
-                    targetSelectionId: nil,
-                    confidenceMm: nil,
-                    fate: "lost"
-                ))
+                out.append(
+                    .init(
+                        sourceSelectionId: sid,
+                        targetSelectionId: nil,
+                        confidenceMm: nil,
+                        fate: "lost"
+                    ))
                 continue
             }
 
@@ -341,12 +361,13 @@ public enum CorrespondenceTools {
                 )
             }
             guard let sc = sourceCentroid else {
-                out.append(.init(
-                    sourceSelectionId: sid,
-                    targetSelectionId: nil,
-                    confidenceMm: nil,
-                    fate: "lost"
-                ))
+                out.append(
+                    .init(
+                        sourceSelectionId: sid,
+                        targetSelectionId: nil,
+                        confidenceMm: nil,
+                        fate: "lost"
+                    ))
                 continue
             }
 
@@ -357,12 +378,13 @@ public enum CorrespondenceTools {
                 // Whole-body picks always rebind to the target body,
                 // no geometry matching needed.
                 let newAnchor = TopologyAnchor.body(bodyId: targetBodyId)
-                out.append(.init(
-                    sourceSelectionId: sid,
-                    targetSelectionId: newAnchor.selectionId,
-                    confidenceMm: 0,
-                    fate: "matched"
-                ))
+                out.append(
+                    .init(
+                        sourceSelectionId: sid,
+                        targetSelectionId: newAnchor.selectionId,
+                        confidenceMm: 0,
+                        fate: "matched"
+                    ))
 
             case .face:
                 let entry = pickNearest(
@@ -372,7 +394,9 @@ public enum CorrespondenceTools {
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.face(bodyId: targetBodyId, index: idx) }
                 if let newAnchor = entry.anchor {
-                    if let snap = snapshot { await registry.record(anchor: newAnchor, snapshot: snap) }
+                    if let snap = snapshot {
+                        await registry.record(anchor: newAnchor, snapshot: snap)
+                    }
                     await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
                 }
                 out.append(entry.report)
@@ -385,7 +409,9 @@ public enum CorrespondenceTools {
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.edge(bodyId: targetBodyId, index: idx) }
                 if let newAnchor = entry.anchor {
-                    if let snap = snapshot { await registry.record(anchor: newAnchor, snapshot: snap) }
+                    if let snap = snapshot {
+                        await registry.record(anchor: newAnchor, snapshot: snap)
+                    }
                     await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
                 }
                 out.append(entry.report)
@@ -398,18 +424,21 @@ public enum CorrespondenceTools {
                     tolerance: tolerance
                 ) { idx in TopologyAnchor.vertex(bodyId: targetBodyId, index: idx) }
                 if let newAnchor = entry.anchor {
-                    if let snap = snapshot { await registry.record(anchor: newAnchor, snapshot: snap) }
+                    if let snap = snapshot {
+                        await registry.record(anchor: newAnchor, snapshot: snap)
+                    }
                     await mintUID(for: newAnchor, graph: targetGraph, registry: registry)
                 }
                 out.append(entry.report)
             }
         }
 
-        return IntrospectionTools.encode(CorrespondencesReport(
-            correspondences: out,
-            transformSource: transformSource,
-            warnings: warnings
-        ))
+        return IntrospectionTools.encode(
+            CorrespondencesReport(
+                correspondences: out,
+                transformSource: transformSource,
+                warnings: warnings
+            ))
     }
 
     private struct PickResult {
@@ -429,26 +458,32 @@ public enum CorrespondenceTools {
         for (i, c) in centres.enumerated() {
             guard let c else { continue }
             let d = simd_length(c - transformed)
-            if d < bestDist { bestDist = d; bestIdx = i }
+            if d < bestDist {
+                bestDist = d
+                bestIdx = i
+            }
         }
         guard let bestIdx else {
             return PickResult(
-                report: .init(sourceSelectionId: sid, targetSelectionId: nil,
-                              confidenceMm: nil, fate: "lost"),
+                report: .init(
+                    sourceSelectionId: sid, targetSelectionId: nil,
+                    confidenceMm: nil, fate: "lost"),
                 anchor: nil
             )
         }
         if bestDist > tolerance {
             return PickResult(
-                report: .init(sourceSelectionId: sid, targetSelectionId: nil,
-                              confidenceMm: bestDist, fate: "lost"),
+                report: .init(
+                    sourceSelectionId: sid, targetSelectionId: nil,
+                    confidenceMm: bestDist, fate: "lost"),
                 anchor: nil
             )
         }
         let newAnchor = anchorMaker(bestIdx)
         return PickResult(
-            report: .init(sourceSelectionId: sid, targetSelectionId: newAnchor.selectionId,
-                          confidenceMm: bestDist, fate: "matched"),
+            report: .init(
+                sourceSelectionId: sid, targetSelectionId: newAnchor.selectionId,
+                confidenceMm: bestDist, fate: "matched"),
             anchor: newAnchor
         )
     }
@@ -457,12 +492,14 @@ public enum CorrespondenceTools {
     /// target anchor, for parity with select_topology / remap_selection
     /// (#93), so a correspondence result composes cleanly into a later
     /// remap_selection call on the target body.
-    private static func mintUID(for anchor: TopologyAnchor, graph: BRepGraph, registry: SelectionRegistry) async {
+    private static func mintUID(
+        for anchor: TopologyAnchor, graph: BRepGraph, registry: SelectionRegistry
+    ) async {
         let kindIndex: (BRepGraph.NodeKind, Int)?
         switch anchor {
-        case .body:              kindIndex = nil
-        case .face(_, let idx):  kindIndex = (.face, idx)
-        case .edge(_, let idx):  kindIndex = (.edge, idx)
+        case .body: kindIndex = nil
+        case .face(_, let idx): kindIndex = (.face, idx)
+        case .edge(_, let idx): kindIndex = (.edge, idx)
         case .vertex(_, let idx): kindIndex = (.vertex, idx)
         }
         guard let (kind, index) = kindIndex else { return }
@@ -471,11 +508,13 @@ public enum CorrespondenceTools {
         }
     }
 
-    /// Recompute the source anchor centroid from the source BREP. Only
+    /// Recompute the source anchor centroid from the source BREP.
+    ///
+    /// Only
     /// needed when the SelectionRegistry snapshot was evicted or never
     /// captured (e.g. selectionIds constructed by hand). Resolves through
-    /// the HistoryRegistry-retained lineage graph (#91/#93): `anchor`'s
-    /// stored index is a GRAPH index, not a shape.faces()/.edges()/
+    /// the HistoryRegistry-retained lineage graph (#91/#93): the index
+    /// stored on `anchor` is a GRAPH index, not a shape.faces()/.edges()/
     /// .vertices() enumeration index, so it has to be looked up via
     /// `graph.shape(nodeKind:nodeIndex:)`, not raw array subscripting.
     private static func loadSourceCentroid(
@@ -486,7 +525,9 @@ public enum CorrespondenceTools {
         let bodyId = anchor.bodyId
         guard let body = manifest.body(withId: bodyId) else { return nil }
         let path = "\(outputDir)/\(body.file)"
-        guard let lineage = try? await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: path) else {
+        guard
+            let lineage = try? await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: path)
+        else {
             return nil
         }
         let shape = lineage.shape
@@ -497,19 +538,24 @@ public enum CorrespondenceTools {
             return (bb.min + bb.max) * 0.5
         case .face(_, let idx):
             guard let faceShape = graph.shape(nodeKind: .face, nodeIndex: idx),
-                  let face = Face(faceShape) else { return nil }
+                let face = Face(faceShape)
+            else { return nil }
             return SelectionTools.faceCenterAndNormal(face: face).0
         case .edge(_, let idx):
             guard let edgeShape = graph.shape(nodeKind: .edge, nodeIndex: idx),
-                  let edge = Edge(edgeShape) else { return nil }
+                let edge = Edge(edgeShape)
+            else { return nil }
             return SelectionTools.edgeMidpoint(edge: edge)
         case .vertex(_, let idx):
-            return graph.shape(nodeKind: .vertex, nodeIndex: idx).flatMap(SelectionTools.vertexPoint)
+            return graph.shape(nodeKind: .vertex, nodeIndex: idx).flatMap(
+                SelectionTools.vertexPoint)
         }
     }
 
     /// Infer a translation transform from how source and target
-    /// bounding boxes align. Returns nil if the boxes have meaningfully
+    /// bounding boxes align.
+    ///
+    /// Returns nil if the boxes have meaningfully
     /// different sizes (which would imply rotation / scale / mirror,
     /// none of which we attempt to recover from bbox alone).
     ///
@@ -529,7 +575,8 @@ public enum CorrespondenceTools {
         sourceBodyId: String
     ) -> TransformHint? {
         guard let sourceBody = manifest.body(withId: sourceBodyId),
-              let sourceShape = try? Shape.loadBREP(fromPath: "\(outputDir)/\(sourceBody.file)") else {
+            let sourceShape = try? Shape.loadBREP(fromPath: "\(outputDir)/\(sourceBody.file)")
+        else {
             return nil
         }
         guard let s = sourceShape.bounds, let t = targetShape.bounds else { return nil }

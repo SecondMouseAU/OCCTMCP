@@ -1,7 +1,7 @@
-// MeshThicknessTools — `mesh_thickness` (Phase 2 of the mesh-analysis
+// MeshThicknessTools: `mesh_thickness` (Phase 2 of the mesh-analysis
 // expansion). The mesh-domain complement to the BREP-only `check_thickness`
 // (EngineeringTools.swift), which degrades on facet shells (a raw STL
-// import is one BREP face per facet — see CLAUDE.md's tool table). This
+// import is one BREP face per facet, see CLAUDE.md's tool table). This
 // tool never touches BREP topology at all: it works directly on the
 // tessellated surface via the ray (normal-opposite, first-hit) method.
 //
@@ -12,13 +12,13 @@
 // sample, cast from `p - 1e-4*n` along `-n` (the tiny epsilon nudge is so
 // the ray's own origin triangle isn't itself the first hit) -> first hit
 // distance is the local thickness. A ray that exits without hitting
-// anything (an open shell, or a sample whose own vertex normal is zero —
+// anything (an open shell, or a sample whose own vertex normal is zero:
 // two coincident-but-oppositely-wound skins meeting at a rim) is excluded
 // from the stats and counted in `noHitSamples`.
 //
-// Optional cone averaging (`coneAngleDegrees > 0`) casts 5 rays — the
+// Optional cone averaging (`coneAngleDegrees > 0`) casts 5 rays, the
 // sample's own inward direction plus 4 more at the cone's angular boundary,
-// evenly spaced in azimuth — and takes the MEDIAN hit distance (the SDF/
+// evenly spaced in azimuth, and takes the MEDIAN hit distance (the SDF/
 // signed-distance-field convention for a robust local thickness estimate,
 // less sensitive to one ray grazing a nearby feature than a single ray).
 // This is a deterministic fixed pattern, not randomized jitter, so a repeat
@@ -26,8 +26,8 @@
 
 import Foundation
 import OCCTSwift
-import simd
 import ScriptHarness
+import simd
 
 public enum MeshThicknessTools {
 
@@ -52,7 +52,7 @@ public enum MeshThicknessTools {
             public let thresholdMm: Double
             public let count: Int
             /// Fraction of samples that produced a measurable thickness
-            /// (`samples - noHitSamples`) falling below `thresholdMm` — NOT
+            /// (`samples - noHitSamples`) falling below `thresholdMm`, NOT
             /// a fraction of `samples`, since a noHit sample has no
             /// thickness to compare against the threshold at all.
             public let fraction: Double
@@ -121,7 +121,9 @@ public enum MeshThicknessTools {
             let p = tri.vertices[i]
             let normal = tri.vertexNormal(i)
             if simd_length(normal) > 1e-9,
-               let d = castThickness(bvh: bvh, point: p, outward: normal, coneAngleDegrees: coneAngleDegrees) {
+                let d = castThickness(
+                    bvh: bvh, point: p, outward: normal, coneAngleDegrees: coneAngleDegrees)
+            {
                 thicknesses.append(d)
                 if let thr = thresholdMm, d < thr {
                     below.append((p, d))
@@ -136,9 +138,9 @@ public enum MeshThicknessTools {
             let noHitFraction = Double(noHit) / Double(totalSamples)
             if noHitFraction > noHitWarnFraction {
                 warnings.append(
-                    "\(noHit)/\(totalSamples) sample rays (\(Int((noHitFraction * 100).rounded()))%) found no hit — " +
-                    "likely an open shell along the sampled surface normals (or a zero-normal rim). " +
-                    "thicknessMm stats exclude these."
+                    "\(noHit)/\(totalSamples) sample rays (\(Int((noHitFraction * 100).rounded()))%) found no hit, "
+                        + "likely an open shell along the sampled surface normals (or a zero-normal rim). "
+                        + "thicknessMm stats exclude these."
                 )
             }
         }
@@ -147,8 +149,8 @@ public enum MeshThicknessTools {
         if thicknesses.isEmpty {
             stat = .init(min: 0, p05: 0, median: 0, mean: 0, p95: 0, max: 0)
             warnings.append(
-                "No hits: thickness could not be measured for any sample (a fully open shell along every " +
-                "sampled normal, or geometry thinner than the internal offset epsilon)."
+                "No hits: thickness could not be measured for any sample (a fully open shell along every "
+                    + "sampled normal, or geometry thinner than the internal offset epsilon)."
             )
         } else {
             let sorted = thicknesses.sorted()
@@ -172,12 +174,14 @@ public enum MeshThicknessTools {
                 )
             }
             let worst = sortedBelow.prefix(worstPointsCap).map {
-                ThicknessReport.WorstPoint(point: [$0.point.x, $0.point.y, $0.point.z], thicknessMm: $0.thicknessMm)
+                ThicknessReport.WorstPoint(
+                    point: [$0.point.x, $0.point.y, $0.point.z], thicknessMm: $0.thicknessMm)
             }
             belowEntry = .init(
                 thresholdMm: thr,
                 count: sortedBelow.count,
-                fraction: thicknesses.isEmpty ? 0 : Double(sortedBelow.count) / Double(thicknesses.count),
+                fraction: thicknesses.isEmpty
+                    ? 0 : Double(sortedBelow.count) / Double(thicknesses.count),
                 worst: Array(worst)
             )
         }
@@ -200,16 +204,18 @@ public enum MeshThicknessTools {
 
         let report = ThicknessReport(
             bodyId: bodyId, samples: totalSamples, noHitSamples: noHit,
-            thicknessMm: stat, belowThreshold: belowEntry, chartPath: writtenChartPath, warnings: warnings
+            thicknessMm: stat, belowThreshold: belowEntry, chartPath: writtenChartPath,
+            warnings: warnings
         )
         return IntrospectionTools.encode(report)
     }
 
     // MARK: - Ray casting
 
-    /// Local thickness at `point`, whose outward surface normal is
-    /// `outward` (unit or near-unit; the caller already checked its
-    /// length). Single ray when `coneAngleDegrees == 0`; otherwise casts
+    /// Local thickness at `point`, cast along its outward surface normal.
+    ///
+    /// `outward` is unit or near-unit; the caller already checked its
+    /// length. Single ray when `coneAngleDegrees == 0`; otherwise casts
     /// `coneRayCount` rays inside the cone and returns their MEDIAN hit
     /// distance (nil only if every ray in the cone misses).
     static func castThickness(
@@ -217,7 +223,8 @@ public enum MeshThicknessTools {
     ) -> Double? {
         let n = simd_normalize(outward)
         let origin = point - n * 1e-4
-        let directions = coneAngleDegrees > 0
+        let directions =
+            coneAngleDegrees > 0
             ? coneDirections(base: -n, halfAngleDegrees: coneAngleDegrees, count: coneRayCount)
             : [-n]
 
@@ -234,12 +241,15 @@ public enum MeshThicknessTools {
         return hits.count % 2 == 1 ? hits[mid] : (hits[mid - 1] + hits[mid]) / 2
     }
 
-    /// `count` unit directions inside a cone of half-angle
-    /// `halfAngleDegrees` around `base` (unit): `base` itself, then
-    /// `count - 1` more evenly spaced in azimuth exactly AT the cone's
-    /// angular boundary. A deterministic fixed pattern (not randomized
-    /// jitter), so repeat calls are byte-identical.
-    static func coneDirections(base: SIMD3<Double>, halfAngleDegrees: Double, count: Int) -> [SIMD3<Double>] {
+    /// `count` unit directions spanning a cone of half-angle `halfAngleDegrees` around `base`.
+    ///
+    /// `base` is unit. Returns `base` itself, then `count - 1` more evenly
+    /// spaced in azimuth exactly AT the cone's angular boundary. A
+    /// deterministic fixed pattern (not randomized jitter), so repeat
+    /// calls are byte-identical.
+    static func coneDirections(base: SIMD3<Double>, halfAngleDegrees: Double, count: Int) -> [SIMD3<
+        Double
+    >] {
         guard halfAngleDegrees > 0, count > 1 else { return [simd_normalize(base)] }
         let d = simd_normalize(base)
         // Any vector not parallel to d works as the seed for an orthonormal
@@ -249,7 +259,8 @@ public enum MeshThicknessTools {
         let v = simd_cross(d, u)
 
         let halfAngleRad = halfAngleDegrees * .pi / 180
-        let cosA = cos(halfAngleRad), sinA = sin(halfAngleRad)
+        let cosA = cos(halfAngleRad)
+        let sinA = sin(halfAngleRad)
 
         var dirs: [SIMD3<Double>] = [d]
         let ringCount = count - 1

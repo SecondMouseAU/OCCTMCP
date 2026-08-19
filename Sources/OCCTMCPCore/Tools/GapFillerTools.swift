@@ -1,15 +1,15 @@
-// GapFillerTools — show_bounding_box, diff_overlay, select_by_feature.
+// GapFillerTools: show_bounding_box, diff_overlay, select_by_feature.
 // Three small wins layered on the SelectionRegistry + AnnotationsStore
 // + recognize_features primitives we already have.
 //
 // All three are compositions over existing tools rather than fresh
-// OCCT calls — they make common LLM idioms one tool call instead of
+// OCCT calls, they make common LLM idioms one tool call instead of
 // several.
 
 import Foundation
-import simd
 import OCCTSwift
 import ScriptHarness
+import simd
 
 public enum GapFillerTools {
 
@@ -25,9 +25,10 @@ public enum GapFillerTools {
     }
 
     /// Compute a body's axis-aligned bounding box and register it as a
-    /// `boundingBox` scene primitive. The renderer can draw the
-    /// 12-edge wireframe later; for now the value is also returned
-    /// inline so the LLM can reason about it.
+    /// `boundingBox` scene primitive.
+    ///
+    /// The renderer can draw the 12-edge wireframe later; for now the value is
+    /// also returned inline so the LLM can reason about it.
     public static func showBoundingBox(
         bodyId: String,
         primitiveId: String? = nil,
@@ -62,23 +63,25 @@ public enum GapFillerTools {
         let sidecar = AnnotationsStore(outputDir: outputDir)
         var doc = sidecar.read()
         doc.primitives.removeAll { $0.id == id }
-        doc.primitives.append(.init(
-            id: id, kind: "boundingBox",
-            params: [
-                "bodyId": .string(bodyId),
-                "min": .array(minP.map { .number($0) }),
-                "max": .array(maxP.map { .number($0) }),
-            ]
-        ))
+        doc.primitives.append(
+            .init(
+                id: id, kind: "boundingBox",
+                params: [
+                    "bodyId": .string(bodyId),
+                    "min": .array(minP.map { .number($0) }),
+                    "max": .array(maxP.map { .number($0) }),
+                ]
+            ))
         try? sidecar.write(doc)
-        return IntrospectionTools.encode(BoundingBoxResult(
-            primitiveId: id,
-            bodyId: bodyId,
-            min: minP,
-            max: maxP,
-            extent: extent,
-            center: center
-        ))
+        return IntrospectionTools.encode(
+            BoundingBoxResult(
+                primitiveId: id,
+                bodyId: bodyId,
+                min: minP,
+                max: maxP,
+                extent: extent,
+                center: center
+            ))
     }
 
     // MARK: - diff_overlay
@@ -91,10 +94,12 @@ public enum GapFillerTools {
         public let primitiveIds: [String]
     }
 
-    /// Visualise a recent scene change. Reads compare_versions data,
-    /// drops a tinted scene primitive at each affected body's bbox so
-    /// the LLM (and a future viewport) can see what moved at a glance.
-    /// Added → green, removed → red, appearance/file changed → yellow.
+    /// Visualise a recent scene change.
+    ///
+    /// Reads compare_versions data, drops a tinted scene primitive at each
+    /// affected body's bbox so the LLM (and a future viewport) can see what
+    /// moved at a glance. Added → green, removed → red, appearance/file
+    /// changed → yellow.
     public static func diffOverlay(
         since: Int = 1,
         store: ManifestStore = ManifestStore(),
@@ -117,15 +122,16 @@ public enum GapFillerTools {
         var primitiveIds: [String] = []
 
         func registerOverlay(bodyId: String, color: [Double], suffix: String) {
-            // Look up the body's bbox from the live manifest — for
+            // Look up the body's bbox from the live manifest, for
             // removed bodies we don't have a current shape, so the
             // prior manifest's body is used to position a marker.
             let manifest = (current.body(withId: bodyId) != nil) ? current : prior
             guard let body = manifest.body(withId: bodyId) else { return }
             let path = "\(outputDir)/\(body.file)"
             guard FileManager.default.fileExists(atPath: path),
-                  let shape = try? Shape.loadBREP(fromPath: path),
-                  let bb = shape.bounds else { return }
+                let shape = try? Shape.loadBREP(fromPath: path),
+                let bb = shape.bounds
+            else { return }
             let centre = [
                 (bb.min.x + bb.max.x) * 0.5,
                 (bb.min.y + bb.max.y) * 0.5,
@@ -138,16 +144,17 @@ public enum GapFillerTools {
             ]
             let id = "diff_\(suffix)_\(bodyId)"
             doc.primitives.removeAll { $0.id == id }
-            doc.primitives.append(.init(
-                id: id, kind: "diffMarker",
-                params: [
-                    "bodyId": .string(bodyId),
-                    "fate": .string(suffix),
-                    "center": .array(centre.map { .number($0) }),
-                    "extent": .array(extent.map { .number($0) }),
-                    "color": .array(color.map { .number($0) }),
-                ]
-            ))
+            doc.primitives.append(
+                .init(
+                    id: id, kind: "diffMarker",
+                    params: [
+                        "bodyId": .string(bodyId),
+                        "fate": .string(suffix),
+                        "center": .array(centre.map { .number($0) }),
+                        "extent": .array(extent.map { .number($0) }),
+                        "color": .array(color.map { .number($0) }),
+                    ]
+                ))
             primitiveIds.append(id)
         }
 
@@ -156,23 +163,26 @@ public enum GapFillerTools {
         let yellow: [Double] = [0.95, 0.85, 0.1, 0.5]
         for id in diff.added { registerOverlay(bodyId: id, color: green, suffix: "added") }
         for id in diff.removed { registerOverlay(bodyId: id, color: red, suffix: "removed") }
-        for entry in diff.appearanceChanged { registerOverlay(bodyId: entry.id, color: yellow, suffix: "appchg") }
+        for entry in diff.appearanceChanged {
+            registerOverlay(bodyId: entry.id, color: yellow, suffix: "appchg")
+        }
         for id in diff.fileChanged { registerOverlay(bodyId: id, color: yellow, suffix: "filechg") }
 
         try? sidecar.write(doc)
-        return IntrospectionTools.encode(DiffOverlayResult(
-            added: diff.added,
-            removed: diff.removed,
-            appearanceChanged: diff.appearanceChanged.map(\.id),
-            fileChanged: diff.fileChanged,
-            primitiveIds: primitiveIds
-        ))
+        return IntrospectionTools.encode(
+            DiffOverlayResult(
+                added: diff.added,
+                removed: diff.removed,
+                appearanceChanged: diff.appearanceChanged.map(\.id),
+                fileChanged: diff.fileChanged,
+                primitiveIds: primitiveIds
+            ))
     }
 
     // MARK: - select_by_feature
 
     public struct FeatureSelection: Encodable {
-        public let kind: String              // "hole" | "pocket"
+        public let kind: String  // "hole" | "pocket"
         public let selectionId: String
         public let detail: AnchorSnapshot
     }
@@ -183,8 +193,10 @@ public enum GapFillerTools {
 
     /// Run AAG feature recognition, then turn each detected hole / pocket
     /// into a selectionId pointing at the relevant face (hole faceIndex,
-    /// or pocket floorFaceIndex). The LLM can then dimension or refer
-    /// to those features without re-running query_topology.
+    /// or pocket floorFaceIndex).
+    ///
+    /// The LLM can then dimension or refer to those features without
+    /// re-running query_topology.
     public static func selectByFeature(
         bodyId: String,
         kinds: [String]? = nil,
@@ -203,13 +215,14 @@ public enum GapFillerTools {
         // enumeration order (true for faces only by coincidence, see
         // TopologyIdentityTests). Separately (OCCTSwift 2.0.0, #642):
         // floorFaceIndex/wallFaceIndices/faceIndex are occurrence indices
-        // into shape.orientedFaces(), not shape.faces() — indexing faces()
+        // into shape.orientedFaces(), not shape.faces(), indexing faces()
         // with them silently grabs the wrong face (or goes out of range) on
         // a body with a face shared between two solids, e.g. a boolean or
         // pattern result.
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: loaded.path)
+            lineage = try await HistoryRegistry.shared.currentInput(
+                bodyId: bodyId, path: loaded.path)
         } catch {
             return .init("\(error)")
         }
@@ -237,7 +250,9 @@ public enum GapFillerTools {
             )
             let anchor = TopologyAnchor.face(bodyId: bodyId, index: resolvedIndex)
             await registry.record(anchor: anchor, snapshot: snap)
-            if let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: resolvedIndex) {
+            if let uid = graph.uid(
+                ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: resolvedIndex)
+            {
                 await registry.recordGraphUID(selectionId: anchor.selectionId, uid: uid)
             }
             results.append(.init(kind: kind, selectionId: anchor.selectionId, detail: snap))
@@ -253,9 +268,10 @@ public enum GapFillerTools {
                 await mintFaceSelection(kind: "hole", faceIndex: hole.faceIndex)
             }
         }
-        return IntrospectionTools.encode(FeatureSelectionsResult(
-            bodyId: bodyId,
-            selections: results
-        ))
+        return IntrospectionTools.encode(
+            FeatureSelectionsResult(
+                bodyId: bodyId,
+                selections: results
+            ))
     }
 }
