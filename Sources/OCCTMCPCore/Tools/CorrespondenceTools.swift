@@ -284,7 +284,12 @@ public enum CorrespondenceTools {
             transformSource = "identity-fallback"
         }
 
-        let bb = targetShape.bounds
+        // The whole match runs against a model-scale tolerance, so with no target
+        // extent every correspondence below would be decided by an invented one
+        // (OCCTSwift #943).
+        guard let bb = targetShape.bounds else {
+            return .init(DeviationTools.noBoundingBoxMessage(targetBodyId), isError: true)
+        }
         let diag = simd_length(bb.max - bb.min)
         let tolerance = max(diag * toleranceMmFraction, 1e-6)
 
@@ -488,7 +493,7 @@ public enum CorrespondenceTools {
         let graph = lineage.graph
         switch anchor {
         case .body:
-            let bb = shape.bounds
+            guard let bb = shape.bounds else { return nil }
             return (bb.min + bb.max) * 0.5
         case .face(_, let idx):
             guard let faceShape = graph.shape(nodeKind: .face, nodeIndex: idx),
@@ -527,8 +532,7 @@ public enum CorrespondenceTools {
               let sourceShape = try? Shape.loadBREP(fromPath: "\(outputDir)/\(sourceBody.file)") else {
             return nil
         }
-        let s = sourceShape.bounds
-        let t = targetShape.bounds
+        guard let s = sourceShape.bounds, let t = targetShape.bounds else { return nil }
         let sourceSize = s.max - s.min
         let targetSize = t.max - t.min
         let sizeDiag = simd_length(sourceSize)

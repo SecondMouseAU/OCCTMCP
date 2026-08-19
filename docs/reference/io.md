@@ -31,6 +31,8 @@ Add a `.brep` file from disk to the scene as a new body.
 
 **Returns** — The updated scene manifest entry for the new body, including its assigned `bodyId` and bounding info. Returns an error if the file does not exist or fails to parse (and `allowInvalid` is `false`).
 
+A file that parses but holds nothing with a bounding box (an empty or null shape) is also an error. The bounding box is read before the scene is written, so this case leaves the scene untouched rather than registering a body whose reported extent would have to be invented.
+
 **Example**
 
 ```json

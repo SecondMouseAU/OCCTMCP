@@ -107,7 +107,9 @@ public enum AlignTools {
             return .init("correspondenceDistanceCapMm must be positive when supplied.", isError: true)
         }
 
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: sourceShape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: sourceShape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
 
         // The standard mesh recipe (DeviationTools.standardMeshParameters): both
@@ -156,12 +158,23 @@ public enum AlignTools {
                 "continuous-symmetry limitations."
             )
         }
-        let sourceBboxDiag = simd_length(sourceShape.bounds.max - sourceShape.bounds.min)
-        if sourceBboxDiag > 0, result.residualRMS > largeResidualBboxFraction * sourceBboxDiag {
+        // The large-residual check is relative to the source body's own scale.
+        // With no bounding box there is no scale to compare against (OCCTSwift
+        // #943), which is the same "no verdict available" state the existing
+        // `sourceBboxDiag > 0` test already handles, so it says so rather than
+        // dropping the check silently.
+        if let sourceBboxDiag = sourceShape.bounds.map({ simd_length($0.max - $0.min) }) {
+            if sourceBboxDiag > 0, result.residualRMS > largeResidualBboxFraction * sourceBboxDiag {
+                warnings.append(
+                    "residualRmsMm=\(fmt(result.residualRMS)) is more than \(Int(largeResidualBboxFraction * 100))% " +
+                    "of the source body's bounding-box diagonal (\(fmt(sourceBboxDiag))mm), a large residual: the " +
+                    "two bodies may not actually correspond, or the alignment converged to the wrong pose."
+                )
+            }
+        } else {
             warnings.append(
-                "residualRmsMm=\(fmt(result.residualRMS)) is more than \(Int(largeResidualBboxFraction * 100))% " +
-                "of the source body's bounding-box diagonal (\(fmt(sourceBboxDiag))mm) — large residual, the two " +
-                "bodies may not actually correspond, or the alignment converged to the wrong pose."
+                "large-residual check skipped: source body '\(bodyId)' has no bounding box, so residualRmsMm " +
+                "cannot be scaled against the body's own size."
             )
         }
 

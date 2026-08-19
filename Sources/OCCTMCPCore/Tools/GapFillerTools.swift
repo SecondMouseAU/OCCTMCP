@@ -39,7 +39,12 @@ public enum GapFillerTools {
         } catch {
             return .init("\(error)")
         }
-        let bb = loaded.shape.bounds
+        // This tool IS the bounding box, so a body without one has no answer to
+        // return. Reporting the old fabricated zero-sized box at the origin
+        // (OCCTSwift #943) would read to the caller as a real measurement.
+        guard let bb = loaded.shape.bounds else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         let minP = [bb.min.x, bb.min.y, bb.min.z]
         let maxP = [bb.max.x, bb.max.y, bb.max.z]
         let extent = [
@@ -119,8 +124,8 @@ public enum GapFillerTools {
             guard let body = manifest.body(withId: bodyId) else { return }
             let path = "\(outputDir)/\(body.file)"
             guard FileManager.default.fileExists(atPath: path),
-                  let shape = try? Shape.loadBREP(fromPath: path) else { return }
-            let bb = shape.bounds
+                  let shape = try? Shape.loadBREP(fromPath: path),
+                  let bb = shape.bounds else { return }
             let centre = [
                 (bb.min.x + bb.max.x) * 0.5,
                 (bb.min.y + bb.max.y) * 0.5,

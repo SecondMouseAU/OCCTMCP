@@ -127,7 +127,9 @@ public enum MeshFeatureTools {
             return .init("minAngleDegrees must be in (0, 180].", isError: true)
         }
 
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: shape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: shape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
 
         let meshParams = DeviationTools.standardMeshParameters(deflection: defl)
@@ -173,8 +175,7 @@ public enum MeshFeatureTools {
         let zones = await registry.zones(forBody: bodyId)
 
         var vertexZones: [UInt32: Set<String>]? = nil
-        if !zones.isEmpty {
-            let bb = shape.bounds
+        if !zones.isEmpty, let bb = shape.bounds {
             let currentSig = MeshSignature(
                 triangleCount: mesh.triangleCount,
                 bboxMin: [Double(bb.min.x), Double(bb.min.y), Double(bb.min.z)],
@@ -205,6 +206,13 @@ public enum MeshFeatureTools {
                 }
                 vertexZones = vz
             }
+        } else if !zones.isEmpty {
+            // No bounding box means no MeshSignature, so the stored zones'
+            // staleness cannot be checked (OCCTSwift #943). Same omission path
+            // the stale / weld-mismatch branches above take.
+            warnings.append(
+                "containingZones omitted: body \"\(bodyId)\" has no bounding box, so the stored zones' mesh signature cannot be checked for staleness."
+            )
         }
 
         func containingZones(for ring: CreaseRing) -> [String]? {

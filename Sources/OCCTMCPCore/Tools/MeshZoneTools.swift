@@ -120,7 +120,9 @@ public enum MeshZoneTools {
         }
         let shape = loaded.shape
 
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: shape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: shape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
 
         let meshParams = DeviationTools.standardMeshParameters(deflection: defl)
@@ -128,7 +130,9 @@ public enum MeshZoneTools {
             return .init("Failed to tessellate '\(bodyId)'.", isError: true)
         }
 
-        let bb = shape.bounds
+        guard let bb = shape.bounds else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         let bboxDiag = Double(simd_length(bb.max - bb.min))
 
         var segOptions = Mesh.SegmentOptions()

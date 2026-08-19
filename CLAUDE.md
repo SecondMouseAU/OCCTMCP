@@ -224,18 +224,53 @@ The Node server does not expose the v0.4+ tool surface (selection / remap / anno
 
 ### Swift implementation
 
-- **OCCTSwift** ≥ 2.0.0: kernel wrapper around OpenCASCADE. **v2.0.0 (#171) is a correctness major**
+- **OCCTSwift** ≥ 3.0.0: kernel wrapper around OpenCASCADE. **v3.0.0 (#175) is a Rule 2 major on a
+  much smaller surface than v2.0.0.** OCCT itself does not move: the kernel stays at 8.0.1, rebuilt
+  as `v3.0.0-kernel.1` to carry two patches the 2.0.0 asset was missing (OCCTSwift#905/#913). Three
+  breaks, full table in OCCTSwift `docs/SEMVER.md#v300`. Two are zero-hit here:
+  `Selector.SubShapeType.compsolid` renamed `.compSolid`, and `Shape.ShapeFilterType.RawValue`
+  moving `Int32` to `Int` as `ShapeFilterType` becomes a `ShapeType` typealias (both
+  OCCTSwift#844). The third one reaches almost every tool: `Shape.bounds`/`size`/`center`,
+  `Wire.bounds`, `Edge.bounds` and `Face.bounds`/`exactBounds` are now **Optional**
+  (OCCTSwift#943), returning `nil` on OCCT's own `Bnd_Box::IsVoid()` rather than fabricating a
+  `(0,0,0)-(0,0,0)` box that no caller could tell apart from a genuine zero-size shape at the world
+  origin. **No call site here defaults to zero.** Every answer this repo computes leaves as an LLM
+  tool result, where an invented bounding box does not degrade, it reads as a measurement. Each
+  unwrap routes into a failure path the code already had, in one of three shapes. (1) *An explicit
+  error*, wherever the box IS the answer or sets the scale everything else is judged against:
+  `show_bounding_box`, `select_topology`'s body anchor (the anchor is the bbox centre),
+  `find_correspondences`' match tolerance, `segment_mesh_zones`, `mesh_curvature`'s `flatFraction`
+  threshold, `symmetric_difference_volume`'s shared sampling box, `cross_section_compare`'s default
+  station point, and every deflection-defaulting tool, since `DeviationTools.defaultDeflection` now
+  returns `Double?` (12 call sites, each guarded ahead of its existing `defl > 0` check;
+  `ZoneSweepTool.resolveZoneMesh` throws a new `ZoneMeshResolutionError.noBoundingBox` instead,
+  matching its own error style). `read_brep` reads the extent **before** it writes the manifest, so
+  an empty BREP is refused rather than registered as a body whose reported extent would have to be
+  invented. (2) *Omit the optional extra*, where the box is context rather than the answer:
+  `compute_metrics` leaves `boundingBox` absent exactly as its `boundingBoxOptimal` branch always
+  has, `detect_mesh_features` drops `containingZones` with a warning (no `MeshSignature` means no
+  staleness check), `align_bodies` reports that its large-residual check could not be scaled
+  instead of dropping it silently. (3) *The existing nil/lost path*: `remap_selection` gives that
+  body's selections the same `"lost"` fate an unloadable body already got;
+  `CorrespondenceTools.loadSourceCentroid` and `inferTranslation` already returned Optional. Two
+  things that look like breaks and are not: `Shape.TopAbs_ShapeEnum` survives as a deprecated
+  typealias, and `ThruSectionsBuilder.setCriteriumWeight` returning `Bool` where it returned `Void`
+  is `@discardableResult`. One new deprecation warning, not an error: `Shape.transformed(matrix:)`
+  now prefers `Matrix12Grouped` over a raw `[Double]` (OCCTSwift#835), which is exactly the
+  grouped-vs-interleaved footgun `AlignTools` documents at length below; migrating it is a
+  follow-up, not part of the repin.
+  **v2.0.0 (#171) was the previous correctness major**
   (Pass 1a/1b duplication+bug-fix audit, OCCTSwift#377/#669; OCCT absorbed to 8.0.1), 17 breaking
-  API changes — full table in OCCTSwift `docs/SEMVER.md#v200`. Two needed a source fix here: #605
+  API changes, full table in OCCTSwift `docs/SEMVER.md#v200`. Two needed a source fix here: #605
   (`Shape.centerOfMass` returns `nil` instead of the bounding-box centre for anything enclosing no
-  volume — every vertex-anchor site now reads `Shape.vertices()` via the new
+  volume: every vertex-anchor site now reads `Shape.vertices()` via the new
   `SelectionTools.vertexPoint(_:)` helper instead) and #642/#699 (`AAG.detectPockets()`/
   `detectHoles()`'s `floorFaceIndex`/`wallFaceIndices`/`faceIndex` are occurrence indices into
-  `orientedFaces()` now, not `faces()` — `AnalysisTools.buildFeatureReport` converts to the stable
+  `orientedFaces()` now, not `faces()`: `AnalysisTools.buildFeatureReport` converts to the stable
   `distinctFaceIndex` before reporting to the LLM, `GapFillerTools.mintFaceSelection` indexes
   `orientedFaces()` directly, `AutoDimensionTool` converts before calling `edgesInFace(at:)`; all
   three only diverge on a body with a face shared between two solids, e.g. a boolean/pattern
-  result — see `AAGFaceIndexTests`). Also #541 changed `Shape.faces()` itself to the deduplicated
+  result, see `AAGFaceIndexTests`). Also #541 changed `Shape.faces()` itself to the deduplicated
   convention `BRepGraph` already used, so `TopologyIdentityTests`' shared-face divergence fixture
   moved to the still-occurrence-based `orientedFaces()`. The remaining breaks had zero call sites
   in this repo. **v1.17.0** is Pass 1a of the

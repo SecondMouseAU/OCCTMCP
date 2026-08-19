@@ -135,7 +135,9 @@ public enum MeshCurvatureTools {
         }
         let shape = loaded.shape
 
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: shape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: shape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
         guard clampPercentile > 0, clampPercentile <= 1.0 else {
             return .init("clampPercentile must be in (0, 1].", isError: true)
@@ -161,7 +163,11 @@ public enum MeshCurvatureTools {
         }
 
         let curvatures = welded.vertexCurvatures()
-        let bb = shape.bounds
+        // flatFraction's threshold is an absolute model-scale figure, so with no
+        // bounding box there is no scale to set it against (OCCTSwift #943).
+        guard let bb = shape.bounds else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         let bboxDiag = Double(simd_length(bb.max - bb.min))
         let flatThreshold = flatCurvatureBboxFraction / max(bboxDiag, 1e-9)
 

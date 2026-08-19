@@ -87,7 +87,9 @@ public enum MeshThicknessTools {
         }
         let shape = loaded.shape
 
-        let defl = deflection ?? DeviationTools.defaultDeflection(for: shape)
+        guard let defl = deflection ?? DeviationTools.defaultDeflection(for: shape) else {
+            return .init(DeviationTools.noBoundingBoxMessage(bodyId), isError: true)
+        }
         guard defl > 0 else { return .init("deflection must be positive.", isError: true) }
         guard maxSamples > 0 else { return .init("maxSamples must be positive.", isError: true) }
         guard coneAngleDegrees >= 0, coneAngleDegrees < 90 else {
