@@ -26,12 +26,33 @@ func useLocalSibling(_ name: String) -> Bool {
     return !manifestDir.contains("/.build/")
         && FileManager.default.fileExists(atPath: manifestDir + "/../\(name)/Package.swift")
 }
-
+// Every dependency resolves from its published URL. NEVER from a `../<name>` sibling.
+//
+// The old helper preferred a sibling checkout when one existed, so the fleet would share the
+// single OCCT.xcframework instead of each repo extracting its own (SecondMouseAU/ecosystem#8).
+// The saving is real but bought in the wrong currency: a path dependency carries no version
+// requirement, so SwiftPM compiles whatever happens to be checked out in that sibling and drops
+// the pin from Package.resolved entirely. Committing that lockfile makes the repo unresolvable
+// from any clean checkout, which is CI and every new clone.
+//
+// Not hypothetical: PadCAM's `main` was unresolvable for exactly this reason and nobody noticed,
+// because everyone builds with siblings present. Four incidents in two days built stale sibling
+// source (ecosystem#48), and four OCCTParts branches shipped a Package.resolved with every
+// occtswift pin stripped, caught by a review bot reading the diff rather than by any check
+// (ecosystem#51).
+//
+// Measured, which is what settles it: the artifact DOWNLOAD is already shared, in
+// ~/Library/Caches/org.swift.swiftpm/artifacts, so a URL-resolved build reports
+// "Fetched ... from cache" and touches no network. Sibling resolution only ever saved the
+// per-project EXTRACTION, about 594 MB in .build/artifacts/. That is disk worth paying for a
+// lockfile that means what it says, and it is separately recoverable by sharing the extraction
+// (symlink or APFS clone) without substituting source at all.
+//
+// Ed's rule, 2026-08-20: nothing resolves locally except binaries, and the binary is already
+// shared by the artifact cache. The helper is kept rather than reverted to a bare
+// `.package(url:)` so the call sites stay identical across the fleet.
 func occtDep(_ name: String, from version: String) -> Package.Dependency {
-    if useLocalSibling(name) {
-        return .package(path: "../\(name)")
-    }
-    return .package(url: "https://github.com/SecondMouseAU/\(name).git", from: Version(version)!)
+    .package(url: "https://github.com/SecondMouseAU/\(name).git", from: Version(version)!)
 }
 
 let package = Package(
