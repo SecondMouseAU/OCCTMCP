@@ -8,7 +8,7 @@ MCP server that gives LLMs the ability to author, inspect, and iterate on 3D CAD
 
 Part of the [OCCTSwift ecosystem](https://github.com/SecondMouseAU/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package sits on top of the kernel, viewport, bridge, and AIS layers. SemVer-stable from v1.0.0.
 
-The Swift implementation calls OCCT directly in-process (no subprocess, no JSONL marshalling) and exposes 77 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, alignment, and dimension overlays.
+The Swift implementation calls OCCT directly in-process (no subprocess, no JSONL marshalling) and exposes 79 typed MCP tools that cover authoring, scene reads, mutation, introspection, construction, analysis, I/O, mesh, drawing, selection / remap, mesh-zone analysis, mesh inspection, alignment, dimension overlays, and the agent-to-viewport-host selection bridge.
 
 ## How It Works
 
@@ -23,7 +23,7 @@ For novel geometry the typed tools don't cover, the LLM falls back to `execute_s
 
 ## Tools
 
-77 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot, useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
+79 tools, organized below. Call `get_api_reference({ category: "mcp_tools" })` to dump every tool's JSON Schema in one shot, useful for LLM auto-discovery. Most flows can answer "what's the volume?", "make it red", "boolean-subtract these", "render a preview", "add a dimension between these two faces", "export to STEP", and "draw this" without ever touching `execute_script`.
 
 ### Authoring
 
@@ -139,6 +139,8 @@ The mesh-domain check-list / measurement surface (Phase 2 of the mesh-analysis e
 | `select_by_feature` | Bulk pick by feature kind (e.g. all hole edges) |
 | `list_selections` | Inspect the in-memory selection registry |
 | `clear_selections` | Wipe the registry |
+| `get_selection` (#189) | Read a live viewport host's current selection (`<output_dir>/selection.json` + `host.lock`, per `SecondMouseAU/OCCTSwiftInteraction#17`). Three-state result: `noHost` vs `hostRunning` with an empty or populated selection list; each entry resolves against this server's own scene the same way `select_topology` does and mints a composable `selectionId` |
+| `highlight_selection` (#190) | Ask a live viewport host to highlight one sub-shape (`replace`/`add`/`remove`/`xor`, mirroring `OCCTSwiftAIS.SelectionScheme`). Writes `highlight_requests/<id>.json`, polls `highlight_requests/handled/<id>.json` for the host's real `applied`/`rejected`/`superseded` outcome, or an explicit `timeout`/`noHost` |
 
 ### Annotations & overlays
 
@@ -199,7 +201,7 @@ LLM read/write over an attributed reconstruction graph — annotate per-node dec
 
 This repo ships two implementations side-by-side:
 
-- **Swift** (`Sources/`, `Package.swift`): the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 77 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
+- **Swift** (`Sources/`, `Package.swift`): the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 79 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
 - **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
 
 Both speak stdio MCP and read/write the same manifest format.

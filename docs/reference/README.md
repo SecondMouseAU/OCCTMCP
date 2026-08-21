@@ -12,7 +12,7 @@ with an example response, the underlying OCCTSwift / occtkit it drives, and gotc
 
 OCCTMCP is an **MCP server**, not a library: clients call these tools over stdio MCP, each with a
 single JSON-object argument, and get JSON text back. The **Swift** server (`occtmcp-server`) is the
-canonical 75-tool surface documented here; the **Node** server exposes a 37-tool subset, and each tool
+canonical 79-tool surface documented here; the **Node** server exposes a 37-tool subset, and each tool
 notes its Node availability.
 
 This complements the other docs:
@@ -95,7 +95,7 @@ nav_order: <n>
 | [Introspection & measurement](introspection.md) | validate_geometry, compute_metrics, query_topology, measure_distance, measure_deviation, recognize_features, inspect_assembly |
 | [Construction](construction.md) | apply_feature, transform_body, boolean_op, mirror_or_pattern |
 | [Engineering analysis](engineering.md) | check_thickness, analyze_clearance, heal_shape |
-| [Selection & remap](selection.md) | select_topology, remap_selection, find_correspondences, select_by_feature, list_selections, clear_selections |
+| [Selection & remap](selection.md) | select_topology, remap_selection, find_correspondences, select_by_feature, list_selections, clear_selections, get_selection, highlight_selection |
 | [Annotations & overlays](annotations.md) | add_dimension, add_scene_primitive, auto_dimension, show_bounding_box, diff_overlay, remove_scene_annotation, list_annotations |
 | [I/O](io.md) | read_brep, import_file, export_scene, set_assembly_metadata |
 | [Mesh & visualization](mesh-visualization.md) | generate_mesh, simplify_mesh, render_preview, pick_surface_point, generate_drawing |

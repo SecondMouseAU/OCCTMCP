@@ -7,12 +7,20 @@ nav_order: 6
 # Selection & remap
 
 These tools let an LLM pick faces, edges, or vertices on scene bodies and carry those picks forward
-across mutations, transforms, and pattern instances. All six tools are **Swift only**: the Node
+across mutations, transforms, and pattern instances. All eight tools are **Swift only**: the Node
 server does not expose them.
+
+`get_selection`/`highlight_selection` (#189/#190) are a distinct pair within this family: instead of
+picking topology in this server's own scene, they bridge to a *live viewport host* process (e.g.
+ACADStudio) reading/writing sidecar files in the resolved output directory, per the wire format in
+[`SecondMouseAU/OCCTSwiftInteraction#17`](https://github.com/SecondMouseAU/OCCTSwiftInteraction/issues/17).
+No host implements the writer/watcher side yet as of this writing; both tools are host-agnostic by
+construction and degrade to an explicit `noHost`/`timeout` result rather than hanging when nothing is
+listening.
 
 ## Tools
 
-- [`select_topology`](#select_topology) · [`remap_selection`](#remap_selection) · [`find_correspondences`](#find_correspondences) · [`select_by_feature`](#select_by_feature) · [`list_selections`](#list_selections) · [`clear_selections`](#clear_selections)
+- [`select_topology`](#select_topology) · [`remap_selection`](#remap_selection) · [`find_correspondences`](#find_correspondences) · [`select_by_feature`](#select_by_feature) · [`list_selections`](#list_selections) · [`clear_selections`](#clear_selections) · [`get_selection`](#get_selection) · [`highlight_selection`](#highlight_selection)
 
 ---
 
@@ -298,3 +306,99 @@ discards, not just the anchor-scoped subset `list_selections` enumerates ([#150]
 // example result
 { "cleared": 3 }
 ```
+
+---
+
+## `get_selection`
+
+Read a live viewport host's current selection from `<output_dir>/selection.json` + `host.lock`, per
+the wire format in `SecondMouseAU/OCCTSwiftInteraction#17`.
+
+**Server:** Swift only
+
+No parameters.
+
+**Returns:** A three-state result: `state: "noHost"` (`selections: null` — no viewport host is
+running at all) vs `state: "hostRunning"` with `selections: []` (host live, nothing picked) or
+`selections: [...]` (host live, N items picked). Never collapses those into one boolean/empty-array
+reading. Each resolved selection carries `selectionId`, `bodyId`, `kind`, `index`, the host's own
+`uid` (passed through as-is), an `anchor` snapshot (area/bounds/centroid for a face, length/curveType/
+endpoints for an edge, position for a vertex — resolved the same way `select_topology` resolves a
+match), or an `error` string when that one entry couldn't be resolved (bad `bodyId`, out-of-range
+`index`) without failing the rest of the response. A host that's running but whose `selection.json` is
+missing or malformed (a torn read) is reported as an explicit tool error, never swallowed into an
+empty selection list.
+
+**Example**
+
+```json
+// tool call arguments
+{}
+```
+```json
+// example result
+{
+  "state": "hostRunning",
+  "revision": 4,
+  "updatedAt": "2026-08-21T00:00:00Z",
+  "selections": [
+    {
+      "selectionId": "sel:part#face[2]",
+      "bodyId": "part",
+      "kind": "face",
+      "index": 2,
+      "uid": "host-graphuid-string",
+      "anchor": { "center": [0.0, 0.0, 10.0], "area": 314.15, "surfaceType": "plane" },
+      "error": null
+    }
+  ]
+}
+```
+
+**Notes:** The resulting `selectionId`s compose with `remap_selection`/`find_correspondences`/
+`add_dimension`/`measure_distance` exactly like ones `select_topology` minted itself. The host's
+`uid` is an opaque string from its own process-local `BRepGraph.GraphUID` and is never treated as a
+uid this server's own registry could resolve.
+
+---
+
+## `highlight_selection`
+
+Ask a live viewport host to highlight one sub-shape, by writing
+`<output_dir>/highlight_requests/<id>.json` and polling
+`<output_dir>/highlight_requests/handled/<id>.json` for the host's real outcome.
+
+**Server:** Swift only
+
+**Parameters**
+
+| name | type | required | description |
+|------|------|:--------:|-------------|
+| `bodyId` | string | yes | Body the highlighted sub-shape belongs to. |
+| `kind` | string (`"body"` \| `"face"` \| `"edge"` \| `"vertex"`) | yes | Topological entity type. |
+| `index` | integer | yes | Entity index (host-scoped; not validated against this server's own scene). |
+| `scheme` | string (`"replace"` \| `"add"` \| `"remove"` \| `"xor"`) | yes | Mirrors `OCCTSwiftAIS.SelectionScheme` exactly. |
+| `question` | string | no | Optional natural-language context for the host to show alongside the highlight. |
+| `timeoutSeconds` | number | no | How long to poll `handled/<id>.json` before returning `outcome: "timeout"`. Default `5.0`. |
+
+**Returns:** `{ "id": <string or null>, "outcome": <string>, "reason": <string or null> }`. `outcome`
+is the host's own `"applied"`/`"rejected"`/`"superseded"` (read from its `handled/<id>.json`), or
+`"timeout"` if nothing answers within the deadline, or `"noHost"` (with `id: null`, no request
+written) if no viewport host is running at all.
+
+**Example**
+
+```json
+// tool call arguments
+{ "bodyId": "part", "kind": "face", "index": 2, "scheme": "replace" }
+```
+```json
+// example result
+{ "id": "3f9b1c2a-...", "outcome": "applied", "reason": null }
+```
+
+**Notes:** `kind`/`scheme` are validated against their closed wire-format enums before anything is
+written; a malformed request is never written. `bodyId`/`index` are written through UNVALIDATED
+against the live scene (this tool has no other access to check them) — a bad reference still writes
+the request and comes back as the host's own `rejected` outcome through the same poll, not a
+client-side pre-check. `id` is generated by this tool, never supplied by the caller.
