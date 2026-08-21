@@ -791,6 +791,56 @@ func catalogTools() -> [Tool] {
             ])
         ),
         Tool(
+            name: "get_selection",
+            description:
+                "Read the live viewport host's current selection (SecondMouseAU/OCCTSwiftInteraction#17: <output_dir>/selection.json + host.lock). Three-state result: state=\"noHost\" (no viewport host is running at all, selections is null) vs state=\"hostRunning\" with selections=[] (host live, nothing picked) vs selections=[...] (host live, N items picked): never collapse those into one boolean/empty-array reading. Each selection is resolved against this server's own scene the same way select_topology resolves a match (area/bounds/centroid for a face, length/curveType/endpoints for an edge, position for a vertex) and mints a selectionId that composes with remap_selection/measure_distance/add_dimension/etc. A host running but missing or malformed selection.json is reported as an explicit error, never swallowed into an empty selection list.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([:]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "highlight_selection",
+            description:
+                "Ask the live viewport host to highlight one sub-shape (SecondMouseAU/OCCTSwiftInteraction#17: writes <output_dir>/highlight_requests/<id>.json, polls highlight_requests/handled/<id>.json for the real outcome). scheme mirrors OCCTSwiftAIS.SelectionScheme exactly: \"replace\" swaps the host's whole selection, \"add\"/\"remove\" adjust it, \"xor\" toggles. bodyId/kind/index are written through unvalidated against the live scene (this tool has no other access to check them); an unknown bodyId or out-of-range index still comes back as the host's own rejected outcome through the same poll, not a client-side pre-check. Returns outcome=\"noHost\" immediately (no request written) if no viewport host is running, \"timeout\" if the host never writes a handled/ response within the deadline, or the host's own applied/rejected/superseded outcome.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "bodyId": .object(["type": .string("string")]),
+                    "kind": .object([
+                        "type": .string("string"),
+                        "enum": .array([
+                            .string("body"), .string("face"), .string("edge"), .string("vertex"),
+                        ]),
+                    ]),
+                    "index": .object(["type": .string("integer")]),
+                    "scheme": .object([
+                        "type": .string("string"),
+                        "enum": .array([
+                            .string("replace"), .string("add"), .string("remove"), .string("xor"),
+                        ]),
+                    ]),
+                    "question": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Optional natural-language context for the host to show alongside the highlight, e.g. when confirming an ambiguous pick with a human."
+                        ),
+                    ]),
+                    "timeoutSeconds": .object([
+                        "type": .string("number"),
+                        "description": .string(
+                            "How long to poll handled/<id>.json before returning outcome=\"timeout\". Default 5.0."
+                        ),
+                    ]),
+                ]),
+                "required": .array([
+                    .string("bodyId"), .string("kind"), .string("index"), .string("scheme"),
+                ]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
             name: "ping",
             description:
                 "Sanity-check tool: returns 'pong' so callers can verify the OCCTMCP Swift server is alive.",
@@ -2364,6 +2414,28 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         let limit = arguments["limit"]?.intValue
         return await SelectionTools.selectTopology(
             bodyId: bodyId, kind: kind, filter: filter, limit: limit
+        ).asCallToolResult()
+
+    case "get_selection":
+        return await SelectionBridgeTools.getSelection().asCallToolResult()
+
+    case "highlight_selection":
+        guard let bodyId = arguments["bodyId"]?.stringValue,
+            let kind = arguments["kind"]?.stringValue,
+            let index = arguments["index"]?.intValue,
+            let scheme = arguments["scheme"]?.stringValue
+        else {
+            return ToolText(
+                "highlight_selection requires `bodyId`, `kind`, `index`, and `scheme`.",
+                isError: true
+            ).asCallToolResult()
+        }
+        let timeout =
+            arguments["timeoutSeconds"]?.numberValue ?? SelectionBridgeTools.defaultTimeoutSeconds
+        return await SelectionBridgeTools.highlightSelection(
+            bodyId: bodyId, kind: kind, index: index, scheme: scheme,
+            question: arguments["question"]?.stringValue,
+            timeoutSeconds: timeout
         ).asCallToolResult()
 
     case "set_assembly_metadata":
