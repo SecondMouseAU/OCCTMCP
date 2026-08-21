@@ -417,4 +417,76 @@ struct SelectionBridgeToolsTests {
         #expect(written.scheme == "xor")
         #expect(written.question == "is this the right vertex?")
     }
+
+    // ── review follow-ups: malformed handled/, cancellation ────────────────
+
+    @Test(
+        "highlight_selection: a handled/<id>.json that exists but doesn't decode reports outcome=error immediately, not timeout"
+    )
+    func highlightMalformedHandledFileReportsErrorNotTimeout() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        // A long timeout: if the malformed file were mistaken for "nothing
+        // there yet" this test would have to wait the whole thing out to
+        // observe the wrong "timeout" outcome. Asserting `outcome == "error"`
+        // (rather than the wall-clock the call took) is what actually proves
+        // it didn't fall through to the timeout branch.
+        async let resultTask = SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 0, scheme: "replace", store: store,
+            timeoutSeconds: 30.0, pollIntervalSeconds: 0.02)
+
+        let requestsDir = "\(dir)/highlight_requests"
+        var requestId: String?
+        for _ in 0..<200 {
+            if let files = try? FileManager.default.contentsOfDirectory(atPath: requestsDir),
+                let match = files.first(where: { $0.hasSuffix(".json") })
+            {
+                requestId = String(match.dropLast(".json".count))
+                break
+            }
+            try await Task.sleep(nanoseconds: 15_000_000)
+        }
+        let id = try #require(requestId)
+
+        let handledDir = "\(requestsDir)/handled"
+        try FileManager.default.createDirectory(atPath: handledDir, withIntermediateDirectories: true)
+        try Data("{ not valid json".utf8).write(
+            to: URL(fileURLWithPath: "\(handledDir)/\(id).json"), options: .atomic)
+
+        let result = await resultTask
+        #expect(!result.isError)
+        let r = try JSONDecoder().decode(HighlightResultMirror.self, from: Data(result.text.utf8))
+        #expect(r.outcome == "error")
+        #expect(r.reason?.contains(id) == true)
+    }
+
+    @Test("highlight_selection: cancelling the ambient task exits the poll loop instead of running to the deadline")
+    func highlightCancellationExitsPollLoopEarly() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        // A long timeout and a fast poll interval: nothing ever writes
+        // handled/<id>.json, so the only way this returns before the 30s
+        // deadline is the cancellation check firing.
+        let task = Task {
+            await SelectionBridgeTools.highlightSelection(
+                bodyId: "box", kind: "face", index: 0, scheme: "replace", store: store,
+                timeoutSeconds: 30.0, pollIntervalSeconds: 0.02)
+        }
+        // Give it time to write the request and enter the poll loop at least
+        // once before cancelling.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+
+        let result = await task.value
+        let r = try JSONDecoder().decode(HighlightResultMirror.self, from: Data(result.text.utf8))
+        #expect(r.outcome == "cancelled")
+    }
 }

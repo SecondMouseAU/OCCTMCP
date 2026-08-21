@@ -48,13 +48,16 @@ enum HostLiveness: Sendable, Equatable {
 ///
 /// Trying a non-blocking SHARED
 /// lock and seeing whether that succeeds is the documented check: success
-/// means nothing holds the exclusive lock (no host), failure means
-/// something does (a host is running). A missing lock file is the same as
-/// no host, trivially: nothing can be holding a lock on a file that was
-/// never created. An `open` failure for any other reason (permissions, a
-/// TOCTOU race with a deletion) fails open to `.noHost` rather than
+/// means nothing holds the exclusive lock (no host), failure with
+/// `EWOULDBLOCK` means something does (a host is running). A missing lock
+/// file is the same as no host, trivially: nothing can be holding a lock on
+/// a file that was never created. An `open` failure for any other reason
+/// (permissions, a TOCTOU race with a deletion), and a `flock` failure for
+/// any reason OTHER than `EWOULDBLOCK` (locking unsupported on the
+/// filesystem, an interrupted call), fails open to `.noHost` rather than
 /// claiming a positive "host running" signal this probe never actually
-/// observed.
+/// observed: only `EWOULDBLOCK` is evidence of a live exclusive holder, and
+/// nothing else is treated as if it were.
 enum HostLock {
     static func checkLiveness(outputDir: String) -> HostLiveness {
         let path = "\(outputDir)/host.lock"
@@ -70,7 +73,7 @@ enum HostLock {
             flock(fd, LOCK_UN)
             return .noHost
         }
-        return .hostRunning
+        return (errno == EWOULDBLOCK) ? .hostRunning : .noHost
     }
 }
 
@@ -383,7 +386,9 @@ public enum SelectionBridgeTools {
         public let id: String?
         /// "applied" | "rejected" | "superseded" (from the host's handled/
         /// file) | "timeout" (no handled/ file within the deadline) |
-        /// "noHost" (no viewport host is running at all).
+        /// "noHost" (no viewport host is running at all) | "error" (a
+        /// handled/ file exists but did not decode) | "cancelled" (the
+        /// request was cancelled while waiting for a response).
         public let outcome: String
         public let reason: String?
     }
@@ -466,14 +471,40 @@ public enum SelectionBridgeTools {
         let handledPath = "\(handledDir)/\(id).json"
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         while Date() < deadline {
-            if let outcome = readHandledOutcome(path: handledPath) {
+            switch pollHandledOutcome(path: handledPath) {
+            case .decoded(let outcome):
                 return IntrospectionTools.encode(
                     HighlightSelectionResult(
                         id: id, outcome: outcome.outcome, reason: outcome.reason)
                 )
+            case .malformed(let reason):
+                // The host DID respond, just not readably: report that
+                // immediately rather than waiting out the rest of the
+                // timeout for a response that has already arrived.
+                return IntrospectionTools.encode(
+                    HighlightSelectionResult(
+                        id: id, outcome: "error",
+                        reason:
+                            "highlight_requests/handled/\(id).json exists but did not decode: \(reason)"
+                    ))
+            case .pending:
+                break
             }
+            // `Task.sleep` throws `CancellationError` when the ambient task
+            // is cancelled (e.g. the MCP client disconnected); `try?`
+            // swallows that so cancellation doesn't propagate as an error,
+            // but `Task.isCancelled` still reports it, so check explicitly
+            // rather than sleeping out the rest of the deadline for a caller
+            // that has already gone away.
             try? await Task.sleep(
                 nanoseconds: UInt64(max(pollIntervalSeconds, 0.001) * 1_000_000_000))
+            if Task.isCancelled {
+                return IntrospectionTools.encode(
+                    HighlightSelectionResult(
+                        id: id, outcome: "cancelled",
+                        reason: "The request was cancelled before a response arrived."
+                    ))
+            }
         }
 
         return IntrospectionTools.encode(
@@ -484,13 +515,38 @@ public enum SelectionBridgeTools {
             ))
     }
 
-    static func readHandledOutcome(path: String) -> HandledOutcome? {
-        guard FileManager.default.fileExists(atPath: path),
-            let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-            let decoded = try? JSONDecoder().decode(HandledOutcome.self, from: data)
-        else {
-            return nil
+    /// One poll of `highlight_requests/handled/<id>.json`.
+    ///
+    /// Distinguishes "nothing there yet" (`.pending`, keep polling) from "the
+    /// host wrote something that doesn't decode" (`.malformed`, worth
+    /// surfacing immediately): the ADR's atomic-write rule (temp name, then
+    /// `rename(2)`) means a fully-renamed file should always read cleanly, so
+    /// a decode failure here is a genuine anomaly (a host bug, or a
+    /// filesystem where rename isn't truly atomic), not a timing window.
+    /// Reporting it as `.pending` and waiting out the whole timeout would
+    /// hide that the host DID respond, just not readably.
+    enum HandledPoll {
+        case pending
+        case decoded(HandledOutcome)
+        case malformed(String)
+    }
+
+    static func pollHandledOutcome(path: String) -> HandledPoll {
+        guard FileManager.default.fileExists(atPath: path) else {
+            return .pending
         }
-        return decoded
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            // A transient read failure (e.g. racing a rename that hasn't
+            // landed yet on some filesystem) is treated the same as "not
+            // there yet", not as malformed: the file existing but being
+            // unreadable for a moment is a timing window, not evidence the
+            // host wrote bad content.
+            return .pending
+        }
+        do {
+            return .decoded(try JSONDecoder().decode(HandledOutcome.self, from: data))
+        } catch {
+            return .malformed(error.localizedDescription)
+        }
     }
 }
