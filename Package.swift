@@ -125,7 +125,7 @@ let package = Package(
         // 1.1.20 adds tap-to-measure (Viewport #68) and
         // ViewportBody.worldHitPoint(ray:triangleIndex:) ray to world
         // surface-point reconstruction that respects the body transform.
-        occtDep("OCCTSwiftViewport", from: "1.1.23"),   // >=1.1.23: ViewportBody.directMesh (#76)
+        occtDep("OCCTSwiftViewport", from: "1.2.0"),   // >=1.1.23: ViewportBody.directMesh (#76)
         // OCCTSwiftTools and OCCTSwiftAIS are now vended by this ONE package (ecosystem#42/#43):
         // OCCTSwiftTools, OCCTSwiftAIS and OCCTSwiftCADKit merged into OCCTSwiftInteraction v0.1.0.
         // Module names are unchanged (`import OCCTSwiftTools` / `import OCCTSwiftAIS` still work;
