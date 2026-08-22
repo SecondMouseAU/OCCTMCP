@@ -150,7 +150,7 @@ let package = Package(
         // graph. Uncapped as of the #90/#91/#93/#97 repin; the heavy stack is now a
         // real (if unused) part of the dependency graph, accepted in exchange for the
         // whole OCCTSwift cohort staying current, including the BRepGraph rename.
-        occtDep("OCCTSwiftIO", from: "1.7.8"),  // >=1.7.8 (#175/#176): repins OCCTSwift floor to 3.0.0; no library source change, three test call sites unwrap through an existing try #require. >=1.7.7 (#171): repin OCCTSwift floor to 2.0.0; audited against the full break table (including sub-shape-enumeration and AAG families), zero hits
+        occtDep("OCCTSwiftIO", from: "1.8.0"),  // >=1.7.8 (#175/#176): repins OCCTSwift floor to 3.0.0; no library source change, three test call sites unwrap through an existing try #require. >=1.7.7 (#171): repin OCCTSwift floor to 2.0.0; audited against the full break table (including sub-shape-enumeration and AAG families), zero hits
     ],
     targets: [
         .target(
