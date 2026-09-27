@@ -3,7 +3,7 @@ type: component
 title: Components index
 resource: https://github.com/SecondMouseAU/OCCTMCP
 tags: [index, api, mcp-tools]
-description: OCCTMCP products — OCCTMCPCore library, occtmcp-server executable, and the 79-tool catalogue.
+description: "OCCTMCP products: OCCTMCPCore library, occtmcp-server executable, and the 79-tool catalogue."
 timestamp: 2026-06-22
 ---
 
