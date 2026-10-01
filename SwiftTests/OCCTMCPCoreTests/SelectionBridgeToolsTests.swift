@@ -416,6 +416,93 @@ struct SelectionBridgeToolsTests {
         #expect(written.index == 2)
         #expect(written.scheme == "xor")
         #expect(written.question == "is this the right vertex?")
+        #expect(written.target == "attention")
+    }
+
+    @Test("highlight_selection (#200): default target is written as attention, explicit selection is honoured")
+    func highlightTargetWrittenToRequest() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        func written(_ result: ToolText) throws -> SelectionBridgeTools.HighlightRequest {
+            let r = try JSONDecoder().decode(HighlightResultMirror.self, from: Data(result.text.utf8))
+            let id = try #require(r.id)
+            let data = try Data(contentsOf: URL(fileURLWithPath: "\(dir)/highlight_requests/\(id).json"))
+            return try JSONDecoder().decode(SelectionBridgeTools.HighlightRequest.self, from: data)
+        }
+
+        let def = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 0, scheme: "replace", store: store,
+            timeoutSeconds: 0.1, pollIntervalSeconds: 0.02)
+        #expect(try written(def).target == "attention")
+
+        let sel = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "body", index: 0, scheme: "replace", target: "selection",
+            store: store, timeoutSeconds: 0.1, pollIntervalSeconds: 0.02)
+        #expect(try written(sel).target == "selection")
+    }
+
+    @Test("highlight_selection (#200): invalid target and body+attention are rejected without writing")
+    func highlightRejectsBadTargetAndBodyAttention() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        let badTarget = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 0, scheme: "replace", target: "everything", store: store)
+        #expect(badTarget.isError)
+
+        let body = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "body", index: 0, scheme: "replace", store: store)
+        #expect(body.isError)
+        #expect(body.text.contains("target \"selection\""))
+
+        #expect(
+            !FileManager.default.fileExists(atPath: "\(dir)/highlight_requests"),
+            "a rejected request must never be written")
+    }
+
+    @Test("highlight_selection (#200): the host's handled target is surfaced in the result")
+    func highlightSurfacesHandledTarget() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        async let resultTask = SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 0, scheme: "replace", store: store,
+            timeoutSeconds: 5.0, pollIntervalSeconds: 0.02)
+
+        let requestsDir = "\(dir)/highlight_requests"
+        var requestId: String?
+        for _ in 0..<200 {
+            if let files = try? FileManager.default.contentsOfDirectory(atPath: requestsDir),
+                let match = files.first(where: { $0.hasSuffix(".json") })
+            {
+                requestId = String(match.dropLast(".json".count))
+                break
+            }
+            try await Task.sleep(nanoseconds: 15_000_000)
+        }
+        let id = try #require(requestId)
+        let handledDir = "\(requestsDir)/handled"
+        try FileManager.default.createDirectory(atPath: handledDir, withIntermediateDirectories: true)
+        let handled = SelectionBridgeTools.HandledOutcome(
+            outcome: "applied", reason: nil, target: "attention")
+        try JSONEncoder().encode(handled).write(
+            to: URL(fileURLWithPath: "\(handledDir)/\(id).json"), options: .atomic)
+
+        let result = await resultTask
+        let json = try #require(
+            JSONSerialization.jsonObject(with: Data(result.text.utf8)) as? [String: Any])
+        #expect(json["outcome"] as? String == "applied")
+        #expect(json["target"] as? String == "attention")
     }
 
     // ── review follow-ups: malformed handled/, cancellation ────────────────

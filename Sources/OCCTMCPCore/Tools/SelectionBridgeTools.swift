@@ -19,8 +19,8 @@
 //   host.lock                            : empty file, host holds LOCK_EX for its lifetime
 //   host.json                            : {pid, startedAt, hostName, hostVersion, schemaVersion}
 //   selection.json                       : {selections: [{bodyId,kind,index,uid?}], revision, updatedAt}
-//   highlight_requests/<id>.json         : written here: {id,bodyId,kind,index,scheme,question?}
-//   highlight_requests/handled/<id>.json : written by the host: {outcome,reason?}
+//   highlight_requests/<id>.json         : written here: {id,bodyId,kind,index,scheme,target,question?}
+//   highlight_requests/handled/<id>.json : written by the host: {outcome,reason?,target?}
 //
 // Every writer (ours included) uses atomic write (temp name + rename, i.e.
 // `Data.write(to:options:.atomic)`); reads tolerate a missing file (no host
@@ -117,6 +117,10 @@ public enum SelectionBridgeTools {
         public let kind: String
         public let index: Int
         public let scheme: String
+        /// "attention" (the agent's own marker) or "selection" (the human's
+        /// selection). Always written, so the request never depends on the
+        /// host's default for an absent field.
+        public let target: String
         public let question: String?
     }
 
@@ -124,6 +128,9 @@ public enum SelectionBridgeTools {
     public struct HandledOutcome: Codable, Sendable {
         public let outcome: String
         public let reason: String?
+        /// Where an applied request landed ("attention" or "selection").
+        /// Absent on hosts that predate the field.
+        public var target: String? = nil
     }
 
     // MARK: - get_selection
@@ -377,6 +384,8 @@ public enum SelectionBridgeTools {
 
     static let validKinds = ["body", "face", "edge", "vertex"]
     static let validSchemes = ["replace", "add", "remove", "xor"]
+    static let validTargets = ["attention", "selection"]
+    public static let defaultTarget = "attention"
     public static let defaultTimeoutSeconds: Double = 5.0
     public static let defaultPollIntervalSeconds: Double = 0.1
 
@@ -391,6 +400,16 @@ public enum SelectionBridgeTools {
         /// request was cancelled while waiting for a response).
         public let outcome: String
         public let reason: String?
+        /// The host's `target` from handled/<id>.json (where an applied
+        /// request landed), when it reports one.
+        public let target: String?
+
+        init(id: String?, outcome: String, reason: String?, target: String? = nil) {
+            self.id = id
+            self.outcome = outcome
+            self.reason = reason
+            self.target = target
+        }
     }
 
     /// Write a `highlight_requests/<id>.json` request and poll
@@ -401,7 +420,7 @@ public enum SelectionBridgeTools {
     /// access to the live viewport's scene to validate against, so a bad
     /// reference is still written and comes back as the host's own
     /// `rejected` outcome through the same poll, not a client-side
-    /// pre-check). `kind`/`scheme` ARE validated against the wire format's
+    /// pre-check). `kind`/`scheme`/`target` ARE validated against the wire format's
     /// own closed enums before writing anything, since those aren't a scene
     /// fact to defer, they're the request's own shape.
     ///
@@ -415,6 +434,7 @@ public enum SelectionBridgeTools {
         kind: String,
         index: Int,
         scheme: String,
+        target: String = defaultTarget,
         question: String? = nil,
         store: ManifestStore = ManifestStore(),
         timeoutSeconds: Double = defaultTimeoutSeconds,
@@ -435,6 +455,26 @@ public enum SelectionBridgeTools {
             )
         }
 
+        guard validTargets.contains(target) else {
+            return ToolText(
+                "highlight_selection: unknown target '\(target)'. Expected one of: "
+                    + validTargets.joined(separator: ", ") + ".",
+                isError: true
+            )
+        }
+        // The attention marker is a single sub-shape slot with no whole-body
+        // form, so a body request can only land in the selection. A request
+        // with a `question` always lands in the selection regardless of
+        // `target` (the host's escalation card reads it), so it is exempt.
+        if kind == "body" && target == "attention" && question == nil {
+            return ToolText(
+                "highlight_selection: kind \"body\" cannot be marked under target \"attention\" "
+                    + "(there is no whole-body attention marker). Pass target \"selection\" to "
+                    + "select a whole body, or use kind face/edge/vertex.",
+                isError: true
+            )
+        }
+
         let outputDir = (store.path as NSString).deletingLastPathComponent
 
         guard HostLock.checkLiveness(outputDir: outputDir) == .hostRunning else {
@@ -450,7 +490,8 @@ public enum SelectionBridgeTools {
 
         let id = UUID().uuidString
         let request = HighlightRequest(
-            id: id, bodyId: bodyId, kind: kind, index: index, scheme: scheme, question: question)
+            id: id, bodyId: bodyId, kind: kind, index: index, scheme: scheme,
+            target: target, question: question)
 
         let requestsDir = "\(outputDir)/highlight_requests"
         let handledDir = "\(requestsDir)/handled"
@@ -475,7 +516,8 @@ public enum SelectionBridgeTools {
             case .decoded(let outcome):
                 return IntrospectionTools.encode(
                     HighlightSelectionResult(
-                        id: id, outcome: outcome.outcome, reason: outcome.reason)
+                        id: id, outcome: outcome.outcome, reason: outcome.reason,
+                        target: outcome.target)
                 )
             case .malformed(let reason):
                 // The host DID respond, just not readably: report that
