@@ -228,3 +228,28 @@ No parameters.
 // example result
 "pong"
 ```
+
+## Embedding: extra tools
+
+A Swift host that links `OCCTMCPCore` can serve tools of its own beside OCCTMCP's. Registering a
+handler on the returned `Server` replaces OCCTMCP's `ListTools` and `CallTool` handlers, so pass the
+extra tools to the factory instead:
+
+```swift
+let server = await makeOCCTMCPServer(extraTools: [
+    ExtraTool(
+        tool: Tool(name: "get_scene_hierarchy", description: "...", inputSchema: .object([:])),
+        handler: { arguments in
+            .init(content: [.text(text: "...", annotations: nil, _meta: nil)], isError: false)
+        })
+])
+```
+
+- Extra tools are listed after the built-ins and are dispatched before them.
+- A name that matches a built-in replaces it: the built-in is dropped from `ListTools` and is never
+  called, so the name appears exactly once.
+- If several extras share a name, the last one in the array wins.
+- A handler that throws produces an error result (`isError: true`); the server keeps running.
+- `get_api_reference` with `category: "mcp_tools"` lists the live catalog, so it includes the extra
+  tools and omits any built-in they replaced.
+- With no extras (the default) the catalog and behaviour are unchanged.
