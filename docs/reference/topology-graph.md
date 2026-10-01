@@ -140,7 +140,7 @@ Export a BREP's topology graph as ML-friendly JSON. Wraps `ScriptHarness BREPGra
 }
 ```
 
-**Notes** — Face indices in `faceAdjacency` follow `shape.faces()` order, consistent with `query_topology`'s `face[N]` scheme.
+**Notes** — Face indices in `faceAdjacency` follow `shape.faces()` order, consistent with `query_topology`'s `face[N]` scheme. The kernel's attributed adjacency graph numbers face occurrences (`orientedFaces()`), which differ from `faces()` when two solids in a compound share a face, so the indices are converted and the shared face's occurrences are merged (#201): shared-edge counts add, duplicate pairs collapse and self-edges are dropped.
 
 ---
 
@@ -156,7 +156,7 @@ Local B-rep graph adjacency/selection query — returns a focused neighbourhood 
 |------|------|:--------:|-------------|
 | `brep_path` | string | yes | Absolute path to the BREP file. |
 | `query` | string (`"face-neighbors"` \| `"edge-faces"` \| `"vertex-edges"` \| `"face-adjacency"` \| `"edges-class"`) | yes | Which adjacency/selection query to run. |
-| `face` | integer | no | Face index (required for `face-neighbors`). Follows `shape.faces()` order. |
+| `face` | integer | no | Face index (required for `face-neighbors`). Follows `shape.faces()` order and is checked against `shape.faces().count`. |
 | `edge` | integer | no | Edge index (required for `edge-faces`). TopologyGraph index. |
 | `vertex` | integer | no | Vertex index (required for `vertex-edges`). TopologyGraph index. |
 | `class` | string (`"boundary"` \| `"non-manifold"` \| `"seam"` \| `"degenerate"`) | no | Edge class filter (required for `edges-class`). |
@@ -189,7 +189,7 @@ Local B-rep graph adjacency/selection query — returns a focused neighbourhood 
 }
 ```
 
-**Notes** — The correct secondary parameter to supply depends on `query`: `face` for `face-neighbors`, `edge` for `edge-faces`, `vertex` for `vertex-edges`, `class` for `edges-class`; none needed for `face-adjacency`. This tool is Swift only — Node clients must use `graph_ml` for adjacency data.
+**Notes** — Face indices (`face-neighbors`, `face-adjacency`) are in `shape.faces()` order even on compounds with a shared face (#201; before that fix they were `orientedFaces()` occurrence indices). For the same neighbour data on a scene body, `query_topology` takes `includeNeighbors`. The correct secondary parameter to supply depends on `query`: `face` for `face-neighbors`, `edge` for `edge-faces`, `vertex` for `vertex-edges`, `class` for `edges-class`; none needed for `face-adjacency`. This tool is Swift only — Node clients must use `graph_ml` for adjacency data.
 
 ---
 
