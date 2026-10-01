@@ -142,10 +142,12 @@ public enum IntrospectionTools {
 
         public struct Result: Encodable {
             public let id: String
-            /// Position in `Shape.faces()/.edges()/.vertices()` enumeration order, the
-            /// `[N]` in `id`. This is the `index` `get_selection` returns for the same
-            /// entity. NOT the index embedded in a `selectionId` (a BRepGraph node
-            /// index, which only coincides for faces); use `select_topology` to mint one (#197).
+            /// Enumeration index of the entity, the `N` in `id`.
+            ///
+            /// This is the position in `Shape.faces()/.edges()/.vertices()` order and the
+            /// `index` `get_selection` returns for the same entity. It is NOT the index
+            /// embedded in a `selectionId` (a BRepGraph node index, which only coincides
+            /// for faces); use `select_topology` to mint one (#197).
             public let index: Int?
             public let surfaceType: String?
             public let curveType: String?
