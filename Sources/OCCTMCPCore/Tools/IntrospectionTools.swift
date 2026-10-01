@@ -142,10 +142,22 @@ public enum IntrospectionTools {
 
         public struct Result: Encodable {
             public let id: String
+            /// Enumeration index of the entity, the `N` in `id`.
+            ///
+            /// This is the position in `Shape.faces()/.edges()/.vertices()` order and the
+            /// `index` `get_selection` returns for the same entity. It is NOT the index
+            /// embedded in a `selectionId` (a BRepGraph node index, which only coincides
+            /// for faces); use `select_topology` to mint one (#197).
+            public let index: Int?
             public let surfaceType: String?
             public let curveType: String?
             public let area: Double?
             public let boundingBox: MetricsReport.BBox?
+            /// Face point at the surface's UV midpoint (same point `select_topology`
+            /// anchors use; may lie off a heavily trimmed face). nil for non-faces (#197).
+            public let center: [Double]?
+            /// Face normal at `center`. nil for non-faces or when it can't be evaluated (#197).
+            public let normal: [Double]?
             /// Edge start/end points (`[start, end]`, world coordinates). nil
             /// for faces/vertices (#119).
             public let endpoints: [[Double]]?
@@ -163,13 +175,17 @@ public enum IntrospectionTools {
             public let endAngle: Double?
 
             public init(
-                id: String, surfaceType: String? = nil, curveType: String? = nil,
+                id: String, index: Int? = nil, surfaceType: String? = nil, curveType: String? = nil,
                 area: Double? = nil, boundingBox: MetricsReport.BBox? = nil,
+                center: [Double]? = nil, normal: [Double]? = nil,
                 endpoints: [[Double]]? = nil, direction: [Double]? = nil,
                 circleCenter: [Double]? = nil, radius: Double? = nil, axis: [Double]? = nil,
                 startAngle: Double? = nil, endAngle: Double? = nil
             ) {
                 self.id = id
+                self.index = index
+                self.center = center
+                self.normal = normal
                 self.surfaceType = surfaceType
                 self.curveType = curveType
                 self.area = area
@@ -230,13 +246,18 @@ public enum IntrospectionTools {
                 let a = face.area()
                 if let lo = filter.minArea, a < lo { continue }
                 if let hi = filter.maxArea, a > hi { continue }
+                let (center, normal) = SelectionTools.faceCenterAndNormal(face: face)
+                let hasPoint = face.uvBounds != nil
                 results.append(
                     .init(
                         id: "face[\(i)]",
+                        index: i,
                         surfaceType: kind,
                         curveType: nil,
                         area: a,
-                        boundingBox: nil
+                        boundingBox: nil,
+                        center: hasPoint ? [center.x, center.y, center.z] : nil,
+                        normal: normal.map { [$0.x, $0.y, $0.z] }
                     ))
             }
         case "edge":
@@ -248,6 +269,7 @@ public enum IntrospectionTools {
                 results.append(
                     .init(
                         id: "edge[\(i)]",
+                        index: i,
                         curveType: kind,
                         endpoints: geom.endpoints,
                         direction: geom.direction,
@@ -264,6 +286,7 @@ public enum IntrospectionTools {
                 results.append(
                     .init(
                         id: "vertex[\(i)]",
+                        index: i,
                         surfaceType: nil,
                         curveType: nil,
                         area: nil,

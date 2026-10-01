@@ -377,7 +377,7 @@ Ask a live viewport host to highlight one sub-shape, by writing
 | `bodyId` | string | yes | Body the highlighted sub-shape belongs to. |
 | `kind` | string (`"body"` \| `"face"` \| `"edge"` \| `"vertex"`) | yes | Topological entity type. |
 | `index` | integer | yes | Entity index (host-scoped; not validated against this server's own scene). |
-| `scheme` | string (`"replace"` \| `"add"` \| `"remove"` \| `"xor"`) | yes | Mirrors `OCCTSwiftAIS.SelectionScheme` exactly. |
+| `scheme` | string (`"replace"` \| `"add"` \| `"remove"` \| `"xor"`) | yes | Mirrors `OCCTSwiftAIS.SelectionScheme` exactly. `replace` discards the human's current selection in the host; use `add`, `remove` or `xor` to keep it (#197). |
 | `question` | string | no | Optional natural-language context for the host to show alongside the highlight. |
 | `timeoutSeconds` | number | no | How long to poll `handled/<id>.json` before returning `outcome: "timeout"`. Default `5.0`. |
 

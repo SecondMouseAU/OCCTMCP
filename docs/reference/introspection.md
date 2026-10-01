@@ -98,7 +98,7 @@ Find faces, edges, or vertices on a body matching optional criteria. Returns sta
 | `filter` | object | no | Optional filter: `surfaceType`, `curveType`, `minArea`, `maxArea`. |
 | `limit` | integer (≥1) | no | Maximum number of results to return. |
 
-**Returns** — Array of matching topology entries, each with its stable ID, geometric properties (type, area/length as applicable), and centroid. Edge entries (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit `direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians, measured from the circle's own xAxis) for CIRCULAR edges. Returns an empty array when no entities match the filter.
+**Returns** — Array of matching topology entries, each with its stable ID, an `index` (the `N` in `face[N]`, in `Shape.faces()/.edges()/.vertices()` enumeration order: the same `index` `get_selection` reports for the same entity, but NOT the index embedded in a `selectionId`, which is a BRepGraph node index that only coincides for faces; call `select_topology` to mint a `selectionId` rather than composing one by hand), and geometric properties (type, area/length as applicable). Face entries (#197) also carry `center` (a point at the surface's UV midpoint, which can lie off a heavily trimmed face) and `normal` at that point, so faces can be compared without selecting each one first. Edge entries (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit `direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians, measured from the circle's own xAxis) for CIRCULAR edges. Returns an empty array when no entities match the filter.
 
 **Example**
 

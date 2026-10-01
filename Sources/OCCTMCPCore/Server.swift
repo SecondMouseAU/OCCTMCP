@@ -803,7 +803,7 @@ func catalogTools() -> [Tool] {
         Tool(
             name: "highlight_selection",
             description:
-                "Ask the live viewport host to highlight one sub-shape (SecondMouseAU/OCCTSwiftInteraction#17: writes <output_dir>/highlight_requests/<id>.json, polls highlight_requests/handled/<id>.json for the real outcome). scheme mirrors OCCTSwiftAIS.SelectionScheme exactly: \"replace\" swaps the host's whole selection, \"add\"/\"remove\" adjust it, \"xor\" toggles. bodyId/kind/index are written through unvalidated against the live scene (this tool has no other access to check them); an unknown bodyId or out-of-range index still comes back as the host's own rejected outcome through the same poll, not a client-side pre-check. Returns outcome=\"noHost\" immediately (no request written) if no viewport host is running, \"timeout\" if the host never writes a handled/ response within the deadline, or the host's own applied/rejected/superseded outcome.",
+                "Ask the live viewport host to highlight one sub-shape (SecondMouseAU/OCCTSwiftInteraction#17: writes <output_dir>/highlight_requests/<id>.json, polls highlight_requests/handled/<id>.json for the real outcome). scheme mirrors OCCTSwiftAIS.SelectionScheme exactly: \"replace\" DISCARDS the human's current selection in the host and swaps in this one; prefer \"add\" or \"xor\" (or \"remove\") to keep what the human has picked. Use \"replace\" only when clobbering their selection is intended. bodyId/kind/index are written through unvalidated against the live scene (this tool has no other access to check them); an unknown bodyId or out-of-range index still comes back as the host's own rejected outcome through the same poll, not a client-side pre-check. Returns outcome=\"noHost\" immediately (no request written) if no viewport host is running, \"timeout\" if the host never writes a handled/ response within the deadline, or the host's own applied/rejected/superseded outcome.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -944,7 +944,7 @@ func catalogTools() -> [Tool] {
         Tool(
             name: "query_topology",
             description:
-                "Find faces / edges / vertices on a body matching criteria. Returns stable IDs (face[N], edge[N], vertex[N]). Edge results (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
+                "Find faces / edges / vertices on a body matching criteria. Returns stable IDs (face[N], edge[N], vertex[N]) plus `index` (N, the same enumeration index get_selection reports as `index` for the same entity; it is NOT the index inside a selectionId, which is a BRepGraph node index that only coincides for faces, so call select_topology to mint a selectionId rather than composing one by hand). Face results carry `center` (a point at the surface's UV midpoint) and `normal` at that point, so faces can be compared without selecting each one first. Edge results (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
