@@ -12,8 +12,8 @@ public enum OCCTMCPPaths {
     /// The output directory an embedding host asked for, scoped to the current task.
     ///
     /// Set only through `withOutputDirectory(_:operation:)`. Child tasks and
-    /// `async let` inherit it; `Task.detached` does not (nothing in this package
-    /// uses one).
+    /// `async let` inherit it; `Task.detached` does not. Code in this package MUST NOT
+    /// use `Task.detached` on a tool path, or the override silently stops applying.
     @TaskLocal public static var outputDirectoryOverride: String?
 
     /// Run `operation` with `directory` as the output directory for every path
@@ -71,21 +71,29 @@ public enum OCCTMCPPaths {
 /// With no host override (stdio server, tests) it returns the single legacy instance, so
 /// behaviour is unchanged. With an override, each directory gets its own instance, so two
 /// embedded servers never share selections, zones, history or scene snapshots.
+///
+/// Instances are kept for the life of the process, one per distinct directory. That suits
+/// a host with a small number of long-lived servers; a host that creates a server per
+/// request with a fresh directory each time would grow this table without bound.
 final class DirectoryScoped<Instance: Sendable>: @unchecked Sendable {
-    private let legacy: Instance
+    private var legacy: Instance?
     private let make: @Sendable () -> Instance
     private let lock = NSLock()
     private var byDirectory: [String: Instance] = [:]
 
     init(make: @escaping @Sendable () -> Instance) {
         self.make = make
-        self.legacy = make()
     }
 
     var current: Instance {
-        guard let directory = OCCTMCPPaths.outputDirectoryOverride else { return legacy }
         lock.lock()
         defer { lock.unlock() }
+        guard let directory = OCCTMCPPaths.outputDirectoryOverride else {
+            if let existing = legacy { return existing }
+            let created = make()
+            legacy = created
+            return created
+        }
         if let existing = byDirectory[directory] { return existing }
         let created = make()
         byDirectory[directory] = created
