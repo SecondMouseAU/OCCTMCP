@@ -51,7 +51,8 @@ public enum HistoryRegistryError: Error, CustomStringConvertible {
 }
 
 public actor HistoryRegistry {
-    public static let shared = HistoryRegistry()
+    private static let scope = DirectoryScoped<HistoryRegistry> { HistoryRegistry() }
+    public static var shared: HistoryRegistry { scope.current }
 
     /// mtime + size snapshot of a body's BREP file, used to detect out-of-band rewrites
     /// (execute_script, manual edits) between calls.

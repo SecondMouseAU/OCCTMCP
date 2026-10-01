@@ -90,9 +90,21 @@ changing any other tooling.
 
 Every tool resolves the output directory in this order:
 
+0. The `outputDirectory` argument of `makeOCCTMCPServer(outputDirectory:)`, for a host that embeds `OCCTMCPCore` in its own process (see below)
 1. `OCCTMCP_OUTPUT_DIR` environment variable (set this to redirect to a temp dir or a project folder)
 2. iCloud Drive: `~/Library/Mobile Documents/com~apple~CloudDocs/OCCTSwiftScripts/output/`
 3. Local fallback: `~/.occtswift-scripts/output/`
+
+When embedding `OCCTMCPCore`, pass the directory when you build the server:
+
+```swift
+let server = await makeOCCTMCPServer(outputDirectory: sceneURL)
+```
+
+It wins over the environment variable, and `nil` (the default) keeps the resolution above. Each
+directory gets its own selection, zone, history and scene-snapshot state, so two embedded servers
+with different directories can share one process. Tools run `execute_script` children with that
+directory exported as `OCCTMCP_OUTPUT_DIR`.
 
 The scene files written there are:
 
