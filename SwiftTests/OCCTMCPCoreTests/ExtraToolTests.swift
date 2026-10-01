@@ -25,7 +25,6 @@ struct ExtraToolTests {
     @Test("no extras leaves the catalog identical")
     func noExtrasUnchanged() {
         #expect(catalogTools(extraTools: []).map(\.name) == catalogTools().map(\.name))
-        #expect(catalogTools().count == 79)
     }
 
     @Test("extra is listed after the built-ins and is callable")

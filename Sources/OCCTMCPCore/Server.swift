@@ -2630,9 +2630,8 @@ func dispatch(
         if category == "mcp_tools" {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let payload = ToolCatalog(
-                tools: catalogTools(extraTools: extraTools),
-                count: catalogTools(extraTools: extraTools).count)
+            let catalog = catalogTools(extraTools: extraTools)
+            let payload = ToolCatalog(tools: catalog, count: catalog.count)
             if let data = try? encoder.encode(payload),
                 let str = String(data: data, encoding: .utf8)
             {
