@@ -803,7 +803,7 @@ func catalogTools() -> [Tool] {
         Tool(
             name: "highlight_selection",
             description:
-                "Ask the live viewport host to highlight one sub-shape (SecondMouseAU/OCCTSwiftInteraction#17: writes <output_dir>/highlight_requests/<id>.json, polls highlight_requests/handled/<id>.json for the real outcome). scheme mirrors OCCTSwiftAIS.SelectionScheme exactly: \"replace\" DISCARDS the human's current selection in the host and swaps in this one; prefer \"add\" or \"xor\" (or \"remove\") to keep what the human has picked. Use \"replace\" only when clobbering their selection is intended. bodyId/kind/index are written through unvalidated against the live scene (this tool has no other access to check them); an unknown bodyId or out-of-range index still comes back as the host's own rejected outcome through the same poll, not a client-side pre-check. Returns outcome=\"noHost\" immediately (no request written) if no viewport host is running, \"timeout\" if the host never writes a handled/ response within the deadline, or the host's own applied/rejected/superseded outcome.",
+                "Ask the live viewport host to highlight one sub-shape (SecondMouseAU/OCCTSwiftInteraction#17: writes <output_dir>/highlight_requests/<id>.json, polls highlight_requests/handled/<id>.json for the real outcome). target picks what is marked: \"attention\" (default) is the agent's own marker, one entity at a time, which leaves the human's selection untouched; \"selection\" changes the human's selection. Requests with a question always land in the selection, whatever target says. scheme mirrors OCCTSwiftAIS.SelectionScheme and applies to the attention slot unless target is \"selection\" (attention: replace/add set the marker, remove clears it if it matches, xor toggles it). With target \"selection\", replace DISCARDS the human's current selection; use add, remove or xor to keep it. kind \"body\" is rejected under attention (no whole-body marker): pass target \"selection\". bodyId/kind/index are written through unvalidated against the live scene (this tool has no other access to check them); an unknown bodyId or out-of-range index still comes back as the host's own rejected outcome through the same poll, not a client-side pre-check. Returns outcome=\"noHost\" immediately (no request written) if no viewport host is running, \"timeout\" if the host never writes a handled/ response within the deadline, or the host's own applied/rejected/superseded outcome.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -820,6 +820,13 @@ func catalogTools() -> [Tool] {
                         "enum": .array([
                             .string("replace"), .string("add"), .string("remove"), .string("xor"),
                         ]),
+                    ]),
+                    "target": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("attention"), .string("selection")]),
+                        "description": .string(
+                            "Default \"attention\" (the agent's marker; the human's selection is untouched). \"selection\" changes the human's selection and is required for kind \"body\"."
+                        ),
                     ]),
                     "question": .object([
                         "type": .string("string"),
@@ -2434,6 +2441,7 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             arguments["timeoutSeconds"]?.numberValue ?? SelectionBridgeTools.defaultTimeoutSeconds
         return await SelectionBridgeTools.highlightSelection(
             bodyId: bodyId, kind: kind, index: index, scheme: scheme,
+            target: arguments["target"]?.stringValue ?? SelectionBridgeTools.defaultTarget,
             question: arguments["question"]?.stringValue,
             timeoutSeconds: timeout
         ).asCallToolResult()

@@ -377,13 +377,14 @@ Ask a live viewport host to highlight one sub-shape, by writing
 | `bodyId` | string | yes | Body the highlighted sub-shape belongs to. |
 | `kind` | string (`"body"` \| `"face"` \| `"edge"` \| `"vertex"`) | yes | Topological entity type. |
 | `index` | integer | yes | Entity index (host-scoped; not validated against this server's own scene). |
-| `scheme` | string (`"replace"` \| `"add"` \| `"remove"` \| `"xor"`) | yes | Mirrors `OCCTSwiftAIS.SelectionScheme` exactly. `replace` discards the human's current selection in the host; use `add`, `remove` or `xor` to keep it (#197). |
+| `scheme` | string (`"replace"` \| `"add"` \| `"remove"` \| `"xor"`) | yes | Mirrors `OCCTSwiftAIS.SelectionScheme`. Applies to the attention slot unless `target` is `"selection"`. Under attention, `replace`/`add` set the marker, `remove` clears it if it matches, `xor` toggles it; the slot holds one entity at a time. With `target: "selection"`, `replace` discards the human's current selection; use `add`, `remove` or `xor` to keep it (#197). |
+| `target` | string (`"attention"` \| `"selection"`) | no | What gets marked. Default `"attention"`: the agent's own marker, leaving the human's selection and `selection.json` alone. `"selection"` changes the human's selection. `kind: "body"` is rejected client-side under attention (no whole-body marker); pass `target: "selection"`. A request with a `question` always lands in the selection, whatever `target` says. Always written into the request file. |
 | `question` | string | no | Optional natural-language context for the host to show alongside the highlight. |
 | `timeoutSeconds` | number | no | How long to poll `handled/<id>.json` before returning `outcome: "timeout"`. Default `5.0`. |
 
 **Returns:** `{ "id": <string or null>, "outcome": <string>, "reason": <string or null> }`. `outcome`
 is the host's own `"applied"`/`"rejected"`/`"superseded"` (read from its `handled/<id>.json`), or
-`"timeout"` if nothing answers within the deadline, or `"noHost"` (with `id: null`, no request
+`"timeout"` if nothing answers within the deadline, plus `target` (where an applied request landed) when the host reports it, or `"noHost"` (with `id: null`, no request
 written) if no viewport host is running at all.
 
 **Example**
