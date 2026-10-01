@@ -173,6 +173,14 @@ public enum IntrospectionTools {
             public let axis: [Double]?
             public let startAngle: Double?
             public let endAngle: Double?
+            /// Adjacent faces in `faces()` index order, capped at `neighborLimit` (#199).
+            public let neighbors: [FaceAdjacency.Neighbour]?
+            /// True neighbour count, before any `neighborLimit` cap (#199).
+            public let neighborCount: Int?
+            /// True when `neighbors` was cut short by `neighborLimit` (#199).
+            public let neighborsTruncated: Bool?
+            /// Nearest overlapping anti-parallel planar face behind this one (#199).
+            public let oppositeFace: OppositeFaces.Hit?
 
             public init(
                 id: String, index: Int? = nil, surfaceType: String? = nil, curveType: String? = nil,
@@ -180,7 +188,9 @@ public enum IntrospectionTools {
                 center: [Double]? = nil, normal: [Double]? = nil,
                 endpoints: [[Double]]? = nil, direction: [Double]? = nil,
                 circleCenter: [Double]? = nil, radius: Double? = nil, axis: [Double]? = nil,
-                startAngle: Double? = nil, endAngle: Double? = nil
+                startAngle: Double? = nil, endAngle: Double? = nil,
+                neighbors: [FaceAdjacency.Neighbour]? = nil, neighborCount: Int? = nil,
+                neighborsTruncated: Bool? = nil, oppositeFace: OppositeFaces.Hit? = nil
             ) {
                 self.id = id
                 self.index = index
@@ -197,8 +207,37 @@ public enum IntrospectionTools {
                 self.axis = axis
                 self.startAngle = startAngle
                 self.endAngle = endAngle
+                self.neighbors = neighbors
+                self.neighborCount = neighborCount
+                self.neighborsTruncated = neighborsTruncated
+                self.oppositeFace = oppositeFace
             }
         }
+
+        /// Set when an `exact` opposite-face request had to use the box test for some pairs.
+        public let warnings: [String]?
+
+        public init(
+            entity: String, results: [Result], total: Int, truncated: Bool,
+            warnings: [String]? = nil
+        ) {
+            self.entity = entity
+            self.results = results
+            self.total = total
+            self.truncated = truncated
+            self.warnings = warnings
+        }
+    }
+
+    /// Optional face-relation outputs of `query_topology` (#199).
+    public struct FaceRelations {
+        public var includeNeighbors = false
+        public var neighborLimit = 16
+        public var oppositeFaces = false
+        public var oppositeMethod = "exact"
+        /// Face count above which neighbours/opposites need a `limit` or a `filter`.
+        public var maxUnlimitedFaces = 200
+        public init() {}
     }
 
     public struct TopologyFilter {
@@ -224,8 +263,21 @@ public enum IntrospectionTools {
         entity: String,
         filter: TopologyFilter = .init(),
         limit: Int? = nil,
+        relations: FaceRelations = .init(),
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
+        guard let method = OppositeFaces.Method(rawValue: relations.oppositeMethod) else {
+            return .init("`oppositeMethod` must be exact or bbox.", isError: true)
+        }
+        guard relations.neighborLimit >= 1, relations.maxUnlimitedFaces >= 0 else {
+            return .init(
+                "`neighborLimit` must be >= 1 and `maxUnlimitedFaces` >= 0.", isError: true)
+        }
+        let wantsRelations = relations.includeNeighbors || relations.oppositeFaces
+        if wantsRelations && entity != "face" {
+            return .init(
+                "includeNeighbors and oppositeFaces apply to entity \"face\" only.", isError: true)
+        }
         let loaded: (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String)
         do {
             loaded = try loadShape(bodyId: bodyId, store: store)
@@ -233,33 +285,72 @@ public enum IntrospectionTools {
             return .init("\(error)")
         }
         let shape = loaded.shape
+        var warnings: [String] = []
 
         var results: [QueryReport.Result] = []
         var totalScanned = 0
+        var totalResultsBeforeLimit: Int?
 
         switch entity {
         case "face":
-            for (i, face) in shape.faces().enumerated() {
+            let allFaces = shape.faces()
+            let adjacency =
+                relations.includeNeighbors ? FaceAdjacency.faceAdjacency(shape: shape) : nil
+            let finder =
+                relations.oppositeFaces
+                ? OppositeFaces.Finder(faces: allFaces, method: method) : nil
+            var rows: [(index: Int, face: Face, kind: String, area: Double)] = []
+            for (i, face) in allFaces.enumerated() {
                 totalScanned += 1
                 let kind = String(describing: face.surfaceType)
                 if let want = filter.surfaceType, want != kind { continue }
                 let a = face.area()
                 if let lo = filter.minArea, a < lo { continue }
                 if let hi = filter.maxArea, a > hi { continue }
-                let (center, normal) = SelectionTools.faceCenterAndNormal(face: face)
-                let hasPoint = face.uvBounds != nil
+                rows.append((i, face, kind, a))
+            }
+            if wantsRelations, limit == nil, rows.count > relations.maxUnlimitedFaces {
+                return .init(
+                    "includeNeighbors/oppositeFaces on \(rows.count) faces needs a `limit` or a `filter`"
+                        + " (or raise `maxUnlimitedFaces`, now \(relations.maxUnlimitedFaces)).",
+                    isError: true)
+            }
+            // Relations are only worth computing for rows that survive the limit.
+            let kept = limit.map { Array(rows.prefix($0)) } ?? rows
+            for row in kept {
+                let (center, normal) = SelectionTools.faceCenterAndNormal(face: row.face)
+                let hasPoint = row.face.uvBounds != nil
+                var neighbors: [FaceAdjacency.Neighbour]?
+                var neighborCount: Int?
+                var neighborsTruncated: Bool?
+                if let adjacency {
+                    let all = adjacency.neighbours[row.index] ?? []
+                    neighbors = Array(all.prefix(relations.neighborLimit))
+                    neighborCount = all.count
+                    neighborsTruncated = all.count > relations.neighborLimit
+                }
                 results.append(
                     .init(
-                        id: "face[\(i)]",
-                        index: i,
-                        surfaceType: kind,
+                        id: "face[\(row.index)]",
+                        index: row.index,
+                        surfaceType: row.kind,
                         curveType: nil,
-                        area: a,
+                        area: row.area,
                         boundingBox: nil,
                         center: hasPoint ? [center.x, center.y, center.z] : nil,
-                        normal: normal.map { [$0.x, $0.y, $0.z] }
+                        normal: normal.map { [$0.x, $0.y, $0.z] },
+                        neighbors: neighbors,
+                        neighborCount: neighborCount,
+                        neighborsTruncated: neighborsTruncated,
+                        oppositeFace: finder?.opposite(of: row.index)
                     ))
             }
+            if let finder, finder.fallbackCount > 0 {
+                warnings.append(
+                    "oppositeMethod exact could not trace an outline for \(finder.fallbackCount) face pair test(s); the bbox test decided those (see oppositeFace.method)."
+                )
+            }
+            totalResultsBeforeLimit = rows.count
         case "edge":
             for (i, edge) in shape.edges().enumerated() {
                 totalScanned += 1
@@ -297,15 +388,21 @@ public enum IntrospectionTools {
             return .init("Unknown entity '\(entity)'. Expected one of: face, edge, vertex.")
         }
 
-        let truncated = limit.map { results.count > $0 } ?? false
-        if let n = limit { results = Array(results.prefix(n)) }
+        let truncated: Bool
+        if let before = totalResultsBeforeLimit {
+            truncated = limit.map { before > $0 } ?? false
+        } else {
+            truncated = limit.map { results.count > $0 } ?? false
+            if let n = limit { results = Array(results.prefix(n)) }
+        }
 
         return encode(
             QueryReport(
                 entity: entity,
                 results: results,
                 total: totalScanned,
-                truncated: truncated
+                truncated: truncated,
+                warnings: warnings.isEmpty ? nil : warnings
             ))
     }
 

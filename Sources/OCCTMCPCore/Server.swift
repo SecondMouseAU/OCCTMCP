@@ -211,7 +211,7 @@ func catalogTools() -> [Tool] {
         Tool(
             name: "graph_select",
             description:
-                "Local B-rep graph adjacency / selection query (no full-graph dump). query=face-neighbors needs `face` (returns adjacent faces + convexity + shared-edge count); edge-faces needs `edge`; vertex-edges needs `vertex`; face-adjacency returns the full attributed face-adjacency graph (gAAG); edges-class needs `class` (boundary|non-manifold|seam|degenerate). Face indices follow shape.faces() order (the face[N] scheme query_topology emits); edge/vertex indices are BRepGraph indices.",
+                "Local B-rep graph adjacency / selection query (no full-graph dump). query=face-neighbors needs `face` (returns adjacent faces + convexity + shared-edge count); edge-faces needs `edge`; vertex-edges needs `vertex`; face-adjacency returns the full attributed face-adjacency graph (gAAG); edges-class needs `class` (boundary|non-manifold|seam|degenerate). Face indices follow shape.faces() order (the face[N] scheme query_topology emits), including on compounds where two solids share a face (occurrences merge, shared-edge counts add); edge/vertex indices are BRepGraph indices. For the same adjacency on a scene body, use query_topology with includeNeighbors.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -944,7 +944,7 @@ func catalogTools() -> [Tool] {
         Tool(
             name: "query_topology",
             description:
-                "Find faces / edges / vertices on a body matching criteria. Returns stable IDs (face[N], edge[N], vertex[N]) plus `index` (N, the same enumeration index get_selection reports as `index` for the same entity; it is NOT the index inside a selectionId, which is a BRepGraph node index that only coincides for faces, so call select_topology to mint a selectionId rather than composing one by hand). Face results carry `center` (a point at the surface's UV midpoint) and `normal` at that point, so faces can be compared without selecting each one first. Edge results (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis).",
+                "Find faces / edges / vertices on a body matching criteria. Returns stable IDs (face[N], edge[N], vertex[N]) plus `index` (N, the same enumeration index get_selection reports as `index` for the same entity; it is NOT the index inside a selectionId, which is a BRepGraph node index that only coincides for faces, so call select_topology to mint a selectionId rather than composing one by hand). Face results carry `center` (a point at the surface's UV midpoint) and `normal` at that point, so faces can be compared without selecting each one first. Edge results (#119) carry endpoints ([start,end], every edge kind) plus a unit direction for LINE edges, and circleCenter/radius/axis/startAngle/endAngle for CIRCULAR edges (startAngle/endAngle are radians measured from the circle's own xAxis). Face-only extras: `includeNeighbors` adds `neighbors` ([{index, convexity, sharedEdgeCount}], faces() order, capped at `neighborLimit`, default 16), `neighborCount` (true count) and `neighborsTruncated`; `oppositeFaces` adds `oppositeFace` ({index, distance, method}) for planar faces: the nearest anti-parallel planar face behind this one whose outline overlaps it in projection (advisory; absent when none). `oppositeMethod` is `exact` (default, face-outline overlap) or `bbox` (cheaper, can over-report on L-shaped faces). Without a `limit`, either flag on more than `maxUnlimitedFaces` (default 200) matching faces is an error: pass `limit`, narrow with `filter`, or raise the guard. Either flag with entity other than face is an error.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -959,6 +959,14 @@ func catalogTools() -> [Tool] {
                             "Optional: surfaceType, curveType, minArea, maxArea."),
                     ]),
                     "limit": .object(["type": .string("integer"), "minimum": .int(1)]),
+                    "includeNeighbors": .object(["type": .string("boolean")]),
+                    "neighborLimit": .object(["type": .string("integer"), "minimum": .int(1)]),
+                    "oppositeFaces": .object(["type": .string("boolean")]),
+                    "oppositeMethod": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("exact"), .string("bbox")]),
+                    ]),
+                    "maxUnlimitedFaces": .object(["type": .string("integer"), "minimum": .int(0)]),
                 ]),
                 "required": .array([.string("bodyId"), .string("entity")]),
                 "additionalProperties": .bool(false),
@@ -2729,8 +2737,16 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
             filter.maxArea = f["maxArea"]?.doubleValue
         }
         let limit = arguments["limit"]?.intValue
+        var relations = IntrospectionTools.FaceRelations()
+        relations.includeNeighbors = arguments["includeNeighbors"]?.boolValue ?? false
+        relations.neighborLimit = arguments["neighborLimit"]?.intValue ?? relations.neighborLimit
+        relations.oppositeFaces = arguments["oppositeFaces"]?.boolValue ?? false
+        relations.oppositeMethod =
+            arguments["oppositeMethod"]?.stringValue ?? relations.oppositeMethod
+        relations.maxUnlimitedFaces =
+            arguments["maxUnlimitedFaces"]?.intValue ?? relations.maxUnlimitedFaces
         return await IntrospectionTools.queryTopology(
-            bodyId: bodyId, entity: entity, filter: filter, limit: limit
+            bodyId: bodyId, entity: entity, filter: filter, limit: limit, relations: relations
         ).asCallToolResult()
 
     case "measure_distance":

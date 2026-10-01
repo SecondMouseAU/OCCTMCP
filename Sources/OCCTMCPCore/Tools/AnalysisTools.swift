@@ -350,13 +350,12 @@ public enum AnalysisTools {
             guard var obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 return .init(String(data: data, encoding: .utf8) ?? "{}")
             }
-            let aag = AAG(shape: shape)
-            obj["faceAdjacency"] = aag.edges.map { e in
+            obj["faceAdjacency"] = FaceAdjacency.faceAdjacency(shape: shape).pairs.map { pair in
                 [
-                    "face1": e.face1Index,
-                    "face2": e.face2Index,
-                    "convexity": convexityLabel(e.convexity),
-                    "sharedEdgeCount": e.sharedEdgeCount,
+                    "face1": pair.lower,
+                    "face2": pair.upper,
+                    "convexity": pair.convexity,
+                    "sharedEdgeCount": pair.sharedEdgeCount,
                 ] as [String: Any]
             }
             let out = try JSONSerialization.data(
@@ -376,14 +375,6 @@ public enum AnalysisTools {
     // attribute). Face indices follow shape.faces() order (the `face[N]` scheme
     // query_topology emits); edge/vertex indices are BRepGraph indices.
     // OCCTMCP#38.
-
-    private static func convexityLabel(_ c: EdgeConvexity) -> String {
-        switch c {
-        case .concave: return "concave"
-        case .smooth: return "smooth"
-        case .convex: return "convex"
-        }
-    }
 
     public struct GraphSelectNeighbour: Encodable {
         public let face: Int
@@ -445,18 +436,21 @@ public enum AnalysisTools {
             let shape = try Shape.loadBREP(fromPath: brepPath)
             switch query {
             case "face-neighbors":
-                let aag = AAG(shape: shape)
-                guard let f = face, f >= 0, f < aag.nodes.count else {
+                let adjacency = FaceAdjacency.faceAdjacency(shape: shape)
+                guard let f = face, f >= 0, f < adjacency.faceCount else {
                     return .init(
-                        "face-neighbors requires `face` in 0..<\(aag.nodes.count)", isError: true)
+                        "face-neighbors requires `face` in 0..<\(adjacency.faceCount)",
+                        isError: true)
                 }
-                let node = aag.nodes[f]
-                let neighbors = aag.neighbors(of: f).sorted().map { nb -> GraphSelectNeighbour in
-                    let e = aag.edge(between: f, and: nb)
-                    return GraphSelectNeighbour(
-                        face: nb,
-                        convexity: convexityLabel(e?.convexity ?? .smooth),
-                        sharedEdgeCount: e?.sharedEdgeCount ?? 0)
+                guard let node = adjacency.nodes[f] else {
+                    return .init(
+                        "face \(f) has no extent, so the face graph holds no node for it.",
+                        isError: true)
+                }
+                let neighbors = (adjacency.neighbours[f] ?? []).map {
+                    GraphSelectNeighbour(
+                        face: $0.index, convexity: $0.convexity,
+                        sharedEdgeCount: $0.sharedEdgeCount)
                 }
                 return IntrospectionTools.encode(
                     GraphSelectFaceNeighbors(
@@ -487,16 +481,15 @@ public enum AnalysisTools {
                     GraphSelectVertexEdges(vertex: k, edges: graph.edges(of: k)))
 
             case "face-adjacency":
-                let aag = AAG(shape: shape)
-                let adjacencies = aag.edges.map {
+                let adjacency = FaceAdjacency.faceAdjacency(shape: shape)
+                let adjacencies = adjacency.pairs.map {
                     GraphSelectFaceAdj(
-                        face1: $0.face1Index, face2: $0.face2Index,
-                        convexity: convexityLabel($0.convexity), sharedEdgeCount: $0.sharedEdgeCount
-                    )
+                        face1: $0.lower, face2: $0.upper,
+                        convexity: $0.convexity, sharedEdgeCount: $0.sharedEdgeCount)
                 }
                 return IntrospectionTools.encode(
                     GraphSelectFaceAdjacency(
-                        faceCount: aag.nodes.count, adjacencies: adjacencies))
+                        faceCount: adjacency.faceCount, adjacencies: adjacencies))
 
             case "edges-class":
                 let graph = try GraphIO.buildGraph(from: shape)
