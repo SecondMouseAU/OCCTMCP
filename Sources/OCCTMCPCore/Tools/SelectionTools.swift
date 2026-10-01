@@ -245,7 +245,13 @@ public enum SelectionTools {
         let v = (uv.vMin + uv.vMax) * 0.5
         let center = face.point(atU: u, v: v) ?? SIMD3<Double>.zero
         let normal = face.normal(atU: u, v: v)
-        return (center, normal)
+        return (centerOrZero(center), normal.map(centerOrZero))
+    }
+
+    /// Normalises IEEE negative zero to +0 so a component never prints as `-0`
+    /// in an LLM-facing result (#197).
+    static func centerOrZero(_ v: SIMD3<Double>) -> SIMD3<Double> {
+        v + SIMD3<Double>.zero
     }
 
     static func edgeMidpoint(edge: Edge) -> SIMD3<Double>? {
