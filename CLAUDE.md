@@ -43,6 +43,7 @@ npm run test:integration  # node:test end-to-end chain through occtkit (slow; ~3
 
 - `Server.swift`: `createServer()` factory: registers all 79 tools with their JSON Schemas, returns an `MCP.Server` ready to bind to a transport. Tests import `createServer()` to introspect the registry without binding stdio. The `get_api_reference` tool's `mcp_tools` category dumps the live registry as JSON Schema for LLM auto-discovery.
 - `Tools/`: one file per tool family:
+  - `ExtraTool` (in `Server.swift`, #196): a public `Tool` + `@Sendable` async throwing handler that an embedding host passes to `makeOCCTMCPServer(extraTools:)` (default `[]`, so no behaviour change). `catalogTools(extraTools:)` lists built-ins then extras; `dispatch(callName:arguments:extraTools:)` checks extras first. A name collision with a built-in is won by the extra (the built-in leaves the catalog, no duplicate names); among extras the last wins. A thrown handler error becomes an `isError` result. `get_api_reference` `mcp_tools` dumps the catalog including extras (dispatch threads `extraTools` to it). Docs: `docs/reference/core.md`
   - `CoreTools.swift`: `get_scene`, `get_script`, `export_model`, `get_api_reference`
   - `ExecuteScriptTool.swift`: `execute_script` (writes Swift to tempfile, `occtkit run` via the resolved binary, parses manifest)
   - `SceneTools.swift`: `remove_body`, `clear_scene`, `rename_body`, `set_appearance`, `compare_versions`, `export_scene` (pure manifest manipulation; `export_scene` runs a templated script via occtkit)

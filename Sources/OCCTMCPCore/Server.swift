@@ -42,15 +42,41 @@ let signModeDescription = """
     pre-1.17 behaviour, correct only against a watertight / single-surface reference.
     """
 
+/// A tool supplied by an embedding host, served beside the built-in tools.
+///
+/// Pass these to `makeOCCTMCPServer(extraTools:)`. Name collisions are resolved
+/// deterministically: an extra tool with the same name as a built-in replaces
+/// it (the built-in is dropped from `ListTools` and never dispatched), and if
+/// several extras share a name the last one in the array wins.
+public struct ExtraTool: Sendable {
+    /// Handler signature: the call's arguments in, a result out.
+    ///
+    /// A thrown error is reported to the client as an error result rather than failing the server.
+    public typealias Handler = @Sendable ([String: Value]) async throws -> CallTool.Result
+
+    public let tool: Tool
+    public let handler: Handler
+
+    public init(tool: Tool, handler: @escaping Handler) {
+        self.tool = tool
+        self.handler = handler
+    }
+}
+
 /// Build a fully-configured MCP server with every OCCTMCP tool registered.
 ///
 /// Caller is responsible for `start(transport:)` and `waitUntilCompleted()`.
+///
+/// `extraTools` are listed after the built-ins and take precedence over a
+/// built-in of the same name; see `ExtraTool`.
 ///
 /// `outputDirectory` is where this server reads and writes its scene (manifest, body files,
 /// sidecars). `nil` keeps the usual resolution: `OCCTMCP_OUTPUT_DIR`, then iCloud Drive, then
 /// `~/.occtswift-scripts/output`. Two servers built with different directories can run in one
 /// process; each sees only its own scene and keeps its own selection, zone and history state.
-public func makeOCCTMCPServer(outputDirectory: URL? = nil) async -> Server {
+public func makeOCCTMCPServer(extraTools: [ExtraTool] = [], outputDirectory: URL? = nil) async
+    -> Server
+{
     let server = Server(
         name: OCCTMCPVersion.serverName,
         version: OCCTMCPVersion.serverVersion,
@@ -58,12 +84,14 @@ public func makeOCCTMCPServer(outputDirectory: URL? = nil) async -> Server {
             tools: .init(listChanged: false)
         )
     )
-    await registerTools(on: server, outputDirectory: outputDirectory)
+    await registerTools(on: server, extraTools: extraTools, outputDirectory: outputDirectory)
     return server
 }
 
-func registerTools(on server: Server, outputDirectory: URL? = nil) async {
-    let tools = catalogTools()
+func registerTools(
+    on server: Server, extraTools: [ExtraTool] = [], outputDirectory: URL? = nil
+) async {
+    let tools = catalogTools(extraTools: extraTools)
 
     await server.withMethodHandler(ListTools.self) { _ in
         return .init(tools: tools)
@@ -71,12 +99,28 @@ func registerTools(on server: Server, outputDirectory: URL? = nil) async {
 
     await server.withMethodHandler(CallTool.self) { params in
         return await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
-            await dispatch(callName: params.name, arguments: params.arguments ?? [:])
+            await dispatch(
+                callName: params.name, arguments: params.arguments ?? [:], extraTools: extraTools)
         }
     }
 }
 
-func catalogTools() -> [Tool] {
+/// Last-wins view of `extraTools` by name, in order of each name's final occurrence.
+private func resolvedExtras(_ extraTools: [ExtraTool]) -> [ExtraTool] {
+    var lastIndex: [String: Int] = [:]
+    for (i, extra) in extraTools.enumerated() { lastIndex[extra.tool.name] = i }
+    return extraTools.enumerated().filter { lastIndex[$0.element.tool.name] == $0.offset }
+        .map(\.element)
+}
+
+func catalogTools(extraTools: [ExtraTool] = []) -> [Tool] {
+    guard !extraTools.isEmpty else { return builtinCatalogTools() }
+    let extras = resolvedExtras(extraTools)
+    let overridden = Set(extras.map { $0.tool.name })
+    return builtinCatalogTools().filter { !overridden.contains($0.name) } + extras.map(\.tool)
+}
+
+private func builtinCatalogTools() -> [Tool] {
     return [
         Tool(
             name: "get_scene",
@@ -2278,7 +2322,16 @@ func parseRenderOptions(_ value: Value?) -> RenderPreviewTool.Options {
     return opts
 }
 
-func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Result {
+func dispatch(
+    callName: String, arguments: [String: Value], extraTools: [ExtraTool] = []
+) async -> CallTool.Result {
+    if let extra = resolvedExtras(extraTools).first(where: { $0.tool.name == callName }) {
+        do {
+            return try await extra.handler(arguments)
+        } catch {
+            return ToolText("\(callName) failed: \(error)", isError: true).asCallToolResult()
+        }
+    }
     switch callName {
     case "ping":
         return ToolText("pong").asCallToolResult()
@@ -2589,7 +2642,8 @@ func dispatch(callName: String, arguments: [String: Value]) async -> CallTool.Re
         if category == "mcp_tools" {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let payload = ToolCatalog(tools: catalogTools(), count: catalogTools().count)
+            let catalog = catalogTools(extraTools: extraTools)
+            let payload = ToolCatalog(tools: catalog, count: catalog.count)
             if let data = try? encoder.encode(payload),
                 let str = String(data: data, encoding: .utf8)
             {
