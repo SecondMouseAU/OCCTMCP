@@ -12,7 +12,8 @@ import ScriptHarness
 /// Holds the source of the most recent script run in this MCP session.
 /// Updated by the (yet-to-be-ported) execute_script handler in Phase 5.4.
 public actor ScriptHistoryStore {
-    public static let shared = ScriptHistoryStore()
+    private static let scope = DirectoryScoped<ScriptHistoryStore> { ScriptHistoryStore() }
+    public static var shared: ScriptHistoryStore { scope.current }
     private var lastSource: String?
     public func set(_ source: String) { self.lastSource = source }
     public func get() -> String? { return lastSource }

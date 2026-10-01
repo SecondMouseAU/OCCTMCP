@@ -33,6 +33,7 @@ The scene is a directory (the **output directory**) containing:
 - `annotations.json` — a sidecar holding `dimensions[]` and `primitives[]` independently of the manifest, used by `add_dimension`, `add_scene_primitive`, and `render_preview`.
 
 **Output directory resolution** (first match wins):
+0. The `outputDirectory` passed to `makeOCCTMCPServer(outputDirectory:)` by an embedding host (a task-local override set around each tool call)
 1. `OCCTMCP_OUTPUT_DIR` environment variable
 2. iCloud Drive — `~/Library/Mobile Documents/com~apple~CloudDocs/OCCTSwiftScripts/output/`
 3. Local fallback — `~/.occtswift-scripts/output/`

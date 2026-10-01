@@ -92,7 +92,8 @@ public enum ReconstructError: Error, CustomStringConvertible, Sendable {
 }
 
 public actor ReconstructRegistry {
-    public static let shared = ReconstructRegistry()
+    private static let scope = DirectoryScoped<ReconstructRegistry> { ReconstructRegistry() }
+    public static var shared: ReconstructRegistry { scope.current }
 
     /// #95/#92: node addressing and attribute storage are both `GraphUID`-based,
     /// not raw `NodeRef(kind, index)`. The `<kind>:<index>` wire format

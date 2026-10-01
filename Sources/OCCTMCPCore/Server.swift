@@ -45,7 +45,12 @@ let signModeDescription = """
 /// Build a fully-configured MCP server with every OCCTMCP tool registered.
 ///
 /// Caller is responsible for `start(transport:)` and `waitUntilCompleted()`.
-public func makeOCCTMCPServer() async -> Server {
+///
+/// `outputDirectory` is where this server reads and writes its scene (manifest, body files,
+/// sidecars). `nil` keeps the usual resolution: `OCCTMCP_OUTPUT_DIR`, then iCloud Drive, then
+/// `~/.occtswift-scripts/output`. Two servers built with different directories can run in one
+/// process; each sees only its own scene and keeps its own selection, zone and history state.
+public func makeOCCTMCPServer(outputDirectory: URL? = nil) async -> Server {
     let server = Server(
         name: OCCTMCPVersion.serverName,
         version: OCCTMCPVersion.serverVersion,
@@ -53,11 +58,11 @@ public func makeOCCTMCPServer() async -> Server {
             tools: .init(listChanged: false)
         )
     )
-    await registerTools(on: server)
+    await registerTools(on: server, outputDirectory: outputDirectory)
     return server
 }
 
-func registerTools(on server: Server) async {
+func registerTools(on server: Server, outputDirectory: URL? = nil) async {
     let tools = catalogTools()
 
     await server.withMethodHandler(ListTools.self) { _ in
@@ -65,7 +70,9 @@ func registerTools(on server: Server) async {
     }
 
     await server.withMethodHandler(CallTool.self) { params in
-        return await dispatch(callName: params.name, arguments: params.arguments ?? [:])
+        return await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
+            await dispatch(callName: params.name, arguments: params.arguments ?? [:])
+        }
     }
 }
 

@@ -51,7 +51,8 @@ public struct ProvenanceRecord: Codable, Sendable {
 /// per-call `ProvenanceStore(outputDir:)` constructed a fresh instance
 /// (and thus a fresh, unshared "isolation domain") for each one.
 public actor ProvenanceStore {
-    public static let shared = ProvenanceStore()
+    private static let scope = DirectoryScoped<ProvenanceStore> { ProvenanceStore() }
+    public static var shared: ProvenanceStore { scope.current }
 
     public init() {}
 

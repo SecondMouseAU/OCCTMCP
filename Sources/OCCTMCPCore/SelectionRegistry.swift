@@ -273,7 +273,8 @@ public struct AnchorSnapshot: Sendable, Codable {
 
 /// Single source of truth for selection metadata across an MCP session.
 public actor SelectionRegistry {
-    public static let shared = SelectionRegistry()
+    private static let scope = DirectoryScoped<SelectionRegistry> { SelectionRegistry() }
+    public static var shared: SelectionRegistry { scope.current }
 
     private var snapshots: [String: AnchorSnapshot] = [:]
     /// selectionId → the recorded anchor, `uid` (#182) included: there is
