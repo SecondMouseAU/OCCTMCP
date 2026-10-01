@@ -75,6 +75,9 @@ public enum OppositeFaces {
             for candidate in candidates {
                 let (overlaps, used) = overlap(base, candidate.plane)
                 if overlaps {
+                    // Count only fallbacks that produced a reported hit; a pair the bbox test
+                    // rejected changes no result.
+                    if method == .exact && used == .bbox { fallbackCount += 1 }
                     return Hit(
                         index: candidate.plane.index, distance: candidate.distance,
                         method: used.rawValue)
@@ -91,7 +94,6 @@ public enum OppositeFaces {
                 let b = second.map { Self.project($0, origin: base.center, basis: basis) }
                 return (PolygonOverlap.overlaps(a, b, scale: extent), .exact)
             }
-            if method == .exact { fallbackCount += 1 }
             let a = Self.projectedBox(base.bounds, origin: base.center, basis: basis)
             let b = Self.projectedBox(other.bounds, origin: base.center, basis: basis)
             let tolerance = max(1e-9, 1e-6 * extent)
@@ -206,7 +208,8 @@ enum PolygonOverlap {
                 let length = simd_length(direction)
                 guard length > tolerance else { continue }
                 let inward = SIMD2(-direction.y, direction.x) / length
-                let probe = (p + q) * 0.5 + inward * offset
+                // Clamp to the edge length so the probe stays inside a thin polygon.
+                let probe = (p + q) * 0.5 + inward * min(offset, 0.1 * length)
                 if strictlyInside(probe, poly, tolerance)
                     && strictlyInside(probe, other, tolerance)
                 {

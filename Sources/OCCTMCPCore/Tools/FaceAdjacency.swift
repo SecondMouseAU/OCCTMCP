@@ -33,6 +33,8 @@ public enum FaceAdjacency {
         /// Faces with none are absent.
         public let neighbours: [Int: [Neighbour]]
         /// The AAG node of the first occurrence of each face that has one.
+        ///
+        /// Internal use only: `AAGNode` is not `Encodable`, so do not encode a `Graph`.
         public let nodes: [Int: AAGNode]
     }
 
@@ -71,6 +73,8 @@ public enum FaceAdjacency {
             guard first != second else { continue }
             let key = Key(lower: min(first, second), upper: max(first, second))
             let label = convexityLabel(edge.convexity)
+            // When one face pair is joined by edges of differing convexity, report the label
+            // of the occurrence pair with the most shared edges (the dominant connection).
             if var existing = merged[key] {
                 existing.count += edge.sharedEdgeCount
                 if edge.sharedEdgeCount > existing.best {

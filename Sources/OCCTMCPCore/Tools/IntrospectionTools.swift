@@ -309,6 +309,7 @@ public enum IntrospectionTools {
                 if let hi = filter.maxArea, a > hi { continue }
                 rows.append((i, face, kind, a))
             }
+            // Only guard unbounded work: an explicit `limit` is the caller's consent to the cost.
             if wantsRelations, limit == nil, rows.count > relations.maxUnlimitedFaces {
                 return .init(
                     "includeNeighbors/oppositeFaces on \(rows.count) faces needs a `limit` or a `filter`"
@@ -347,7 +348,7 @@ public enum IntrospectionTools {
             }
             if let finder, finder.fallbackCount > 0 {
                 warnings.append(
-                    "oppositeMethod exact could not trace an outline for \(finder.fallbackCount) face pair test(s); the bbox test decided those (see oppositeFace.method)."
+                    "oppositeMethod exact could not trace an outline for \(finder.fallbackCount) reported oppositeFace hit(s); the bbox test decided those (see oppositeFace.method)."
                 )
             }
             totalResultsBeforeLimit = rows.count

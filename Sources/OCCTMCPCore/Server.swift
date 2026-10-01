@@ -224,9 +224,9 @@ func catalogTools() -> [Tool] {
                             .string("edges-class"),
                         ]),
                     ]),
-                    "face": .object(["type": .string("integer")]),
-                    "edge": .object(["type": .string("integer")]),
-                    "vertex": .object(["type": .string("integer")]),
+                    "face": .object(["type": .string("integer"), "minimum": .int(0)]),
+                    "edge": .object(["type": .string("integer"), "minimum": .int(0)]),
+                    "vertex": .object(["type": .string("integer"), "minimum": .int(0)]),
                     "class": .object([
                         "type": .string("string"),
                         "enum": .array([
