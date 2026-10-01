@@ -10,7 +10,8 @@ import Foundation
 import ScriptHarness
 
 public actor SceneHistory {
-    public static let shared = SceneHistory()
+    private static let scope = DirectoryScoped<SceneHistory> { SceneHistory() }
+    public static var shared: SceneHistory { scope.current }
 
     public static let maxSnapshots = 10
 

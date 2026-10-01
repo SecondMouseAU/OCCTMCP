@@ -66,9 +66,17 @@ public struct ExtraTool: Sendable {
 /// Build a fully-configured MCP server with every OCCTMCP tool registered.
 ///
 /// Caller is responsible for `start(transport:)` and `waitUntilCompleted()`.
+///
 /// `extraTools` are listed after the built-ins and take precedence over a
 /// built-in of the same name; see `ExtraTool`.
-public func makeOCCTMCPServer(extraTools: [ExtraTool] = []) async -> Server {
+///
+/// `outputDirectory` is where this server reads and writes its scene (manifest, body files,
+/// sidecars). `nil` keeps the usual resolution: `OCCTMCP_OUTPUT_DIR`, then iCloud Drive, then
+/// `~/.occtswift-scripts/output`. Two servers built with different directories can run in one
+/// process; each sees only its own scene and keeps its own selection, zone and history state.
+public func makeOCCTMCPServer(extraTools: [ExtraTool] = [], outputDirectory: URL? = nil) async
+    -> Server
+{
     let server = Server(
         name: OCCTMCPVersion.serverName,
         version: OCCTMCPVersion.serverVersion,
@@ -76,11 +84,13 @@ public func makeOCCTMCPServer(extraTools: [ExtraTool] = []) async -> Server {
             tools: .init(listChanged: false)
         )
     )
-    await registerTools(on: server, extraTools: extraTools)
+    await registerTools(on: server, extraTools: extraTools, outputDirectory: outputDirectory)
     return server
 }
 
-func registerTools(on server: Server, extraTools: [ExtraTool] = []) async {
+func registerTools(
+    on server: Server, extraTools: [ExtraTool] = [], outputDirectory: URL? = nil
+) async {
     let tools = catalogTools(extraTools: extraTools)
 
     await server.withMethodHandler(ListTools.self) { _ in
@@ -88,8 +98,10 @@ func registerTools(on server: Server, extraTools: [ExtraTool] = []) async {
     }
 
     await server.withMethodHandler(CallTool.self) { params in
-        return await dispatch(
-            callName: params.name, arguments: params.arguments ?? [:], extraTools: extraTools)
+        return await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
+            await dispatch(
+                callName: params.name, arguments: params.arguments ?? [:], extraTools: extraTools)
+        }
     }
 }
 

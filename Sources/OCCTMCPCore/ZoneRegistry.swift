@@ -280,7 +280,8 @@ public struct ZonesStore: Sendable {
 /// a restart so a later `zone_continuity_sweep` call can resolve one minted
 /// in an earlier process.
 public actor ZoneRegistry {
-    public static let shared = ZoneRegistry()
+    private static let scope = DirectoryScoped<ZoneRegistry> { ZoneRegistry() }
+    public static var shared: ZoneRegistry { scope.current }
 
     private var records: [String: ZoneRecord] = [:]
     private var hasSynced = false

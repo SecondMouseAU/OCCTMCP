@@ -163,6 +163,13 @@ public enum ExecuteScriptTool {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args
         process.currentDirectoryURL = cacheDir
+        // The script's `ScriptContext` resolves its output directory from the
+        // environment, so a host-supplied directory has to reach the child that way.
+        if let hostDirectory = OCCTMCPPaths.outputDirectoryOverride {
+            var childEnvironment = ProcessInfo.processInfo.environment
+            childEnvironment[OCCTMCPPaths.envOverrideKey] = hostDirectory
+            process.environment = childEnvironment
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
