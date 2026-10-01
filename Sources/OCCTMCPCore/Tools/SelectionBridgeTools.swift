@@ -117,9 +117,11 @@ public enum SelectionBridgeTools {
         public let kind: String
         public let index: Int
         public let scheme: String
-        /// "attention" (the agent's own marker) or "selection" (the human's
-        /// selection). Always written, so the request never depends on the
-        /// host's default for an absent field.
+        /// Where the request applies: "attention" or "selection".
+        ///
+        /// "attention" is the agent's own marker and "selection" is the human's
+        /// selection. Always written, so the request never depends on the host's
+        /// default for an absent field.
         public let target: String
         public let question: String?
     }
@@ -129,6 +131,7 @@ public enum SelectionBridgeTools {
         public let outcome: String
         public let reason: String?
         /// Where an applied request landed ("attention" or "selection").
+        ///
         /// Absent on hosts that predate the field.
         public var target: String? = nil
     }
