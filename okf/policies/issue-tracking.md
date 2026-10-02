@@ -3,7 +3,11 @@ type: policy
 title: Issue labels and project-board tracking
 description: Every issue carries a type:* and priority:* label; a multi-phase initiative gets tracked on its own dedicated project board rather than folded into the repo's default backlog view.
 tags: [policy, issues, labels, project-board, triage]
-timestamp: 2026-08-04
+generated: { by: claude-code/sonnet-5, at: 2026-08-04 }
+sources:
+  - { id: occtswift-471, resource: https://github.com/SecondMouseAU/OCCTSwift/issues/471, usage_count: 1 }
+  - { id: occtswift-377, resource: https://github.com/SecondMouseAU/OCCTSwift/issues/377, usage_count: 3 }
+usage_window: { from: 2026-07-27, to: 2026-09-07 }
 ---
 
 # Issue labels and project-board tracking

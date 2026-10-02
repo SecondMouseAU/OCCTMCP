@@ -3,7 +3,12 @@ type: policy
 title: Code structure
 description: New code defaults to one type (or tight family) per file, organized by the repo's own existing domain vocabulary; a repo that already has blob files remediates them as a scoped, dedicated initiative rather than folding the cleanup into routine issues.
 tags: [policy, structure, refactor, duplication]
-timestamp: 2026-08-04
+generated: { by: claude-code/sonnet-5, at: 2026-08-04 }
+sources:
+  - { id: occtswift-377, resource: https://github.com/SecondMouseAU/OCCTSwift/issues/377, usage_count: 3 }
+  - { id: occtreconstruct-450, resource: https://github.com/SecondMouseAU/OCCTReconstruct/issues/450, usage_count: 1 }
+  - { id: occtreconstruct-555, resource: https://github.com/SecondMouseAU/OCCTReconstruct/issues/555, usage_count: 1 }
+usage_window: { from: 2026-07-27, to: 2026-09-07 }
 ---
 
 # Code structure

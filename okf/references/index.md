@@ -1,24 +1,5 @@
----
-type: reference
-title: References index
-resource: https://github.com/SecondMouseAU/OCCTMCP
-tags: [index, references]
-description: SDK, docs, and upstream references for OCCTMCP.
-timestamp: 2026-06-22
----
-
 # References
 
-- **Docs site** — in-repo `docs/` (Jekyll): `docs/index.md`, `docs/guides/`, `docs/reference/`.
-- **MCP Swift SDK** — the official `modelcontextprotocol/swift-sdk`, the external MCP
-  transport/protocol dependency. <https://github.com/modelcontextprotocol/swift-sdk> /
-  <https://swiftpackageindex.com/modelcontextprotocol/swift-sdk>
-- **OCCTSwift ecosystem map** — how OCCTMCP sits over the kernel, viewport, bridge, and AIS
-  layers. <https://github.com/SecondMouseAU/OCCTSwift/blob/main/docs/ecosystem.md>
-- **OpenCASCADE Technology (OCCT)** — the underlying C++ kernel (OCCT 8.0.0p1 cohort), reached
-  via the OCCTSwift family. <https://dev.opencascade.org/>
-- **OCCTReconstruct** — the reconstruction *engine* (surface fitting, congruence detection); the
-  `reconstruct_*` tools here are the annotate-and-persist layer.
-  <https://github.com/gsdali/OCCTReconstruct>
-- **Swift Package Index** — package page (`main` is what SPI tracks; driven by `.spi.yml`).
-- **License** — LGPL-2.1-or-later; see `LICENSE`.
+* [External dependencies, and what each version floor buys](external-dependencies.md) - Every dependency of both implementations with the reason its floor is where it is, so a bump is a decision rather than a guess.
+* [History wiring and selectionId remap](history-and-remap.md) - How a selectionId survives a mutation: the three remap rungs, the per-tool history path, and the identity hazards (instance-scoped UIDs, TShape identity in findNode, enumeration-order labels) that make a remap silently wrong rather than failing.
+* [The execute_script template](script-template.md) - The structure every script passed to execute_script must follow, and what each call in it does.

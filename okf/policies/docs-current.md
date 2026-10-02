@@ -3,7 +3,7 @@ type: policy
 title: Documentation updates are mandatory
 description: Docs update with every release — or every PR for repos not yet on stable semver. See Release discipline.
 tags: [policy, docs, release, semver]
-timestamp: 2026-06-27
+generated: { by: claude-code/sonnet-5, at: 2026-06-27 }
 ---
 
 # Documentation updates are mandatory

@@ -3,7 +3,7 @@ type: policy
 title: Writing style — no em-dashes, banned words
 description: No em-dashes anywhere; specific hedge/filler/sycophancy words and phrases (honest/honestly, "you're right") banned outright, in code, docs, commit messages, PR bodies, and third-party messages.
 tags: [policy, style, writing, agents]
-timestamp: 2026-07-24
+generated: { by: claude-code/sonnet-5, at: 2026-07-24 }
 ---
 
 # Writing style (all prose and comments)

@@ -3,7 +3,10 @@ type: policy
 title: "Documentation lookup: `context` first"
 description: Look docs up via context (ecosystem), context7 (external), then other repos' docs. Never training-data recall.
 tags: [policy, docs, context, context7, agents]
-timestamp: 2026-08-22
+generated: { by: human:gsdali, at: 2026-08-22 }
+sources:
+  - { id: context-117, resource: https://github.com/neuledge/context/issues/117, usage_count: 1 }
+usage_window: { from: 2026-07-27, to: 2026-09-07 }
 ---
 
 # Documentation lookup: `context` first

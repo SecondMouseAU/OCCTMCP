@@ -3,7 +3,10 @@ type: policy
 title: Search before building
 description: Search this repo and its dependencies meticulously before writing new code, rather than recreating something that already exists.
 tags: [policy, duplication, refactor, agents]
-timestamp: 2026-07-26
+generated: { by: claude-code/sonnet-5, at: 2026-07-26 }
+sources:
+  - { id: occtmcp-125, resource: https://github.com/SecondMouseAU/OCCTMCP/issues/125, usage_count: 1 }
+usage_window: { from: 2026-07-27, to: 2026-09-07 }
 ---
 
 # Search before building
