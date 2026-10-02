@@ -1,10 +1,11 @@
 ---
+okf_version: "0.2"
 type: repo
 title: OCCTMCP
 resource: https://github.com/SecondMouseAU/OCCTMCP
 tags: [mcp, llm, cad, occt, opencascade, swift, kernel]
 description: An MCP server giving LLMs the ability to author, inspect, and iterate on 3D CAD models with OpenCASCADE via the OCCTSwift family.
-timestamp: 2026-06-22
+generated: { by: claude-code/opus-5, at: 2026-06-22 }
 ---
 
 # OCCTMCP
@@ -37,12 +38,12 @@ macOS 15+) and the original **Node / TypeScript** server (37 tools, shells out t
 
 ## Components
 
-See [`components/`](components/index.md) — the `OCCTMCPCore` library, the `occtmcp-server`
+See [`components/`](components/index.md): the `OCCTMCPCore` library, the `occtmcp-server`
 executable, and the tool catalogue.
 
 ## References
 
-See [`references/`](references/index.md) — the published docs site, the MCP Swift SDK,
+See [`references/`](references/index.md): the published docs site, the MCP Swift SDK,
 OpenCASCADE upstream, and the ecosystem map.
 
 ## Notes

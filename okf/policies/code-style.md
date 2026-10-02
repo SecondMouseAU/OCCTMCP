@@ -3,7 +3,14 @@ type: policy
 title: Code style
 description: Swift naming/API shape follows the Swift API Design Guidelines, formatting follows Google's Swift Style Guide via swift-format, and doc comments stay terse; docs/ is the single source of truth for design rationale, not a second copy of it. Rolled out gradually via an exemption manifest, not a big-bang sweep, with a commit-trailer carve-out for forced cross-repo dependency migrations.
 tags: [policy, style, swift, docs, agents]
-timestamp: 2026-08-19
+generated: { by: human:gsdali, at: 2026-08-19 }
+sources:
+  - { id: occtmcp-175, resource: https://github.com/SecondMouseAU/OCCTMCP/issues/175, usage_count: 1 }
+  - { id: occtmcp-176, resource: https://github.com/SecondMouseAU/OCCTMCP/issues/176, usage_count: 1 }
+  - { id: occtmcp-177, resource: https://github.com/SecondMouseAU/OCCTMCP/issues/177, usage_count: 1 }
+  - { id: occtmcp-179, resource: https://github.com/SecondMouseAU/OCCTMCP/issues/179, usage_count: 1 }
+  - { id: occtmcp-173, resource: https://github.com/SecondMouseAU/OCCTMCP/issues/173, usage_count: 1 }
+usage_window: { from: 2026-07-27, to: 2026-09-07 }
 ---
 
 # Code style

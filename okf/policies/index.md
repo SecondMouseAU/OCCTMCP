@@ -1,0 +1,9 @@
+# Policies
+
+* [Code structure](code-structure.md) - New code defaults to one type (or tight family) per file, organized by the repo's own existing domain vocabulary; a repo that already has blob files remediates them as a scoped, dedicated initiative rather than folding the cleanup into routine issues.
+* [Code style](code-style.md) - Swift naming/API shape follows the Swift API Design Guidelines, formatting follows Google's Swift Style Guide via swift-format, and doc comments stay terse; docs/ is the single source of truth for design rationale, not a second copy of it. Rolled out gradually via an exemption manifest, not a big-bang sweep, with a commit-trailer carve-out for forced cross-repo dependency migrations.
+* [Documentation lookup: `context` first](context-first.md) - Look docs up via context (ecosystem), context7 (external), then other repos' docs. Never training-data recall.
+* [Documentation updates are mandatory](docs-current.md) - Docs update with every release — or every PR for repos not yet on stable semver. See Release discipline.
+* [Issue labels and project-board tracking](issue-tracking.md) - Every issue carries a type:* and priority:* label; a multi-phase initiative gets tracked on its own dedicated project board rather than folded into the repo's default backlog view.
+* [Search before building](search-before-building.md) - Search this repo and its dependencies meticulously before writing new code, rather than recreating something that already exists.
+* [Writing style — no em-dashes, banned words](writing-style.md) - No em-dashes anywhere; specific hedge/filler/sycophancy words and phrases (honest/honestly, "you're right") banned outright, in code, docs, commit messages, PR bodies, and third-party messages.
