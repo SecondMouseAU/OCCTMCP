@@ -18,7 +18,18 @@ import { readFile } from "fs/promises";
 import { WASI } from "node:wasi";
 import { preopenDirs } from "./wasi-preopens.js";
 
+/** The module uses WebAssembly exception handling (exnref), which V8 enables by default from Node 22. */
+const MIN_NODE_MAJOR = 22;
+
 async function main(): Promise<number> {
+  const major = Number(process.versions.node.split(".")[0]);
+  if (major < MIN_NODE_MAJOR) {
+    process.stderr.write(
+      `wasi-run: the WASI occtkit needs Node ${MIN_NODE_MAJOR} or newer; this is ${process.version}. ` +
+        `Node 20 and 21 fail to compile the module ("invalid value type 'noexternref'").\n`
+    );
+    return 2;
+  }
   const [wasmPath, ...args] = process.argv.slice(2);
   if (!wasmPath) {
     process.stderr.write("usage: wasi-run <occtkit.wasm> <occtkit args...>\n");
