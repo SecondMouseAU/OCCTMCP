@@ -5,8 +5,42 @@ nav_order: 6
 
 # WebAssembly core (plan and tool classification)
 
-Status: plan only. Nothing in this document has been built or run. The measurements below are
-read off source, not off a wasm build, and each one says what would confirm it.
+Status: working for the Node server. A WASI `occtkit` builds (OCCTSwiftScripts, branch
+`claude/wasm-occtkit`) and the Node tools run through it on Linux. Measured results are in
+[Measured](#measured). Not done: a native-vs-wasm parity run (needs a Mac) and the Swift server.
+
+## Use it
+
+```bash
+# in OCCTSwiftScripts: Scripts/build-wasm.sh  ->  .build/out/Products/Release-webassembly-wasm32/occtkit.wasm
+npm run build
+OCCTMCP_OCCTKIT_WASM=/path/to/occtkit.wasm node dist/index.js
+```
+
+`OCCTMCP_OCCTKIT_WASM` wins over an `occtkit` on `$PATH`. The module runs under Node's `node:wasi`
+through `dist/wasi-run.js`, which preopens the scene output directory, the temp directory, the
+current directory and any in `OCCTMCP_WASI_PREOPEN` at their host paths, because WASI has no working
+directory and the tools pass absolute paths. Tools whose verb is not in the WASI build
+(`execute_script`, `render_preview`, `graph_ml`, `simplify_mesh`, `--serve`) return the verb's
+"Unknown subcommand" error. The unit tests assume the variable is unset (several fake a native
+`occtkit`); the integration test `tests/integration/wasm-occtkit.test.mjs` needs it set and skips
+itself otherwise.
+
+## Measured
+
+Linux x86_64, swift.org 6.4.0, wasm SDK 6.4.0, wasi-sdk 34.0, Node 22. Two 10 mm cubes offset by 5
+in x and y, through the real tool functions (`tests/integration/wasm-occtkit.test.mjs`):
+
+| Tool | Expected | Got |
+|---|---|---|
+| compute_metrics volume, area | 1000, 600 | 999.9999999999998, 599.9999999999999 |
+| compute_metrics centre of mass | (5, 5, 5) | (5, 5, 5) to 1e-15 |
+| boolean_op intersect, union, subtract | 250, 1750, 750 | within 1e-13 of each |
+| measure_distance apart, overlapping | 10, 0 | 10, 0 |
+| check_thickness | 10 | 9.9999 |
+
+Build cost: about 2 minutes cold (OCCTSwift is compiled), about 30 seconds incremental. The module
+is 144 MB unoptimised. Each verb call is a fresh process and takes about 0.42 s for a small BREP (three runs, 0.42 to 0.46 s), most of it loading the module.
 
 ## Why
 
@@ -39,17 +73,17 @@ OCCTSwift alone.
 
 ## Work, in order
 
-1. **OCCTSwiftScripts**: add a `OCCTSWIFT_WASI` branch to `Package.swift` (the same switch OCCTSwift
-   uses), an `occtkit-wasm` executable target over the verbs above, and move the `occtkit` entry code
-   to `FoundationEssentials` and the explicit libc import (otherwise the module grows by about 10 MB
-   brotli). `--serve` reads stdin and writes stdout, which WASI provides.
-2. **This repo**: a third branch in `resolveOcctkit()` that runs `occtkit.wasm` through `node:wasi`
-   with the output directory preopened, selected by `OCCTMCP_OCCTKIT_WASM=<path>`. Native `occtkit`
-   stays the default.
-3. **Parity**: run each verb natively and on wasm over the same BREPs and diff the JSON, as
-   valvegear's `cad/wasm/parity.sh` does. OCCTSwift records at least one known behaviour difference
-   (`gp_Dir` zero-norm validation does not raise on wasm, OCCTSwift#2891), so parity is a gate, not
-   an assumption.
+1. **OCCTSwiftScripts** (done, OCCTSwiftScripts#126): an `OCCTSWIFT_WASI` branch in `Package.swift`
+   that keeps only OCCTSwift, excludes the sources that need Metal, SQLite3 or processes, and a WASI
+   `Registry`. `--serve` is off because its output capture uses `dup2`, which WASI lacks. Still to
+   do there: `FoundationEssentials` instead of `Foundation` (about 10 MB brotli, OCCTSwift#2761),
+   `simplify-mesh` once OCCTSwiftMesh builds for wasm, and a CI job for the wasm target.
+2. **This repo** (done): `OCCTMCP_OCCTKIT_WASM` in `resolveOcctkit()`, `src/wasi-run.ts`,
+   `src/wasi-preopens.ts`, unit tests and the integration test above.
+3. **Parity** (not done): run each verb natively and on wasm over the same BREPs and diff the JSON,
+   as valvegear's `cad/wasm/parity.sh` does. OCCTSwift records at least one known behaviour
+   difference (`gp_Dir` zero-norm validation does not raise on wasm, OCCTSwift#2891), so parity is a
+   gate, not an assumption. Needs a Mac for the native side.
 4. **Swift server (separate, later)**: the 42 Swift-only tools need the Viewport types split out of
    the Metal target, the MCP Swift SDK's swift-nio transport replaced, and OCCTSwiftIO gated. Not
    needed for the Node route.
@@ -68,7 +102,7 @@ mentions a type is counted, so treat the Viewport columns as an upper bound.
 
 ## Known costs
 
-- The wasm module is about 99 MB uncompressed (17 MB brotli), per OCCTSwift's own measurement.
+- OCCTSwift measured a small wasm module at about 99 MB uncompressed (17 MB brotli); this one is 144 MB before size work.
 - No release of OCCTSwift carries wasm support yet, so a build pins a branch or revision.
 - Building needs the swift.org 6.4.0 toolchain and its wasm SDK, plus a prebuilt 38 MB kernel.
 - Per-domain test targets have never been compiled for wasm (OCCTSwift#2793).
