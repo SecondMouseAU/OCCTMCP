@@ -18,7 +18,7 @@ OCCTMCP_OCCTKIT_WASM=/path/to/occtkit.wasm node dist/index.js
 ```
 
 `OCCTMCP_OCCTKIT_WASM` wins over an `occtkit` on `$PATH`. The module runs under Node's `node:wasi`
-through `dist/wasi-run.js` (Node 22 or newer: Node 20 and 21 cannot compile the module, and the runner says so), which preopens the scene output directory, the temp directory, the
+through `dist/wasi-run.js` (Node 22 or newer: Node 20 and 21 cannot compile the module, and the runner says so. Prefer Node 24 or newer: valvegear's `vg-cad` module segfaults inside V8's garbage collector on Node 22.22.0 when it writes a large STEP file, and runs cleanly on 24.21.0 and 26.10.0; the small cube tests here are fine on 22), which preopens the scene output directory, the temp directory, the
 current directory and any in `OCCTMCP_WASI_PREOPEN` at their host paths, because WASI has no working
 directory and the tools pass absolute paths. Tools whose verb is not in the WASI build
 (`execute_script`, `render_preview`, `graph_ml`, `simplify_mesh`, `--serve`) return the verb's
