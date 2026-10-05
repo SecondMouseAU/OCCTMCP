@@ -40,7 +40,7 @@ in x and y, through the real tool functions (`tests/integration/wasm-occtkit.tes
 | check_thickness | 10 | 9.9999 |
 
 Build cost: about 2 minutes cold (OCCTSwift is compiled), about 30 seconds incremental. The module
-is 144 MB unoptimised. Each verb call is a fresh process and takes about 0.42 s for a small BREP (three runs, 0.42 to 0.46 s), most of it loading the module.
+is 144 MB unoptimised. Each verb call is a fresh process and takes about 0.42 s for a small BREP (three runs, 0.42 to 0.46 s).
 
 ## Why
 
