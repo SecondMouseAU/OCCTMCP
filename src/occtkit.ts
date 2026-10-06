@@ -40,16 +40,16 @@ async function onPath(): Promise<boolean> {
 }
 
 export async function resolveOcctkit(): Promise<OcctkitInvocation> {
-  if (cache) return cache;
-
   const wasm = process.env.OCCTMCP_OCCTKIT_WASM;
   if (wasm) {
     if (!existsSync(wasm)) {
       throw new Error(`OCCTMCP_OCCTKIT_WASM is set but ${wasm} does not exist.`);
     }
-    cache = wasmInvocation(wasm);
-    return cache;
+    // Not cached: the variable can change between calls (tests toggle it) and building this is cheap.
+    return wasmInvocation(wasm);
   }
+
+  if (cache) return cache;
 
   if (await onPath()) {
     cache = { command: "occtkit", baseArgs: [] };

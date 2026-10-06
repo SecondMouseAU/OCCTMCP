@@ -93,8 +93,7 @@ describe("geometry tools on the WASI occtkit", { skip }, () => {
   });
 
   it("check_thickness: a 10 mm cube is 10 mm thick", async () => {
-    const t = (await verb.checkThickness("a")).content[0].text;
-    const d = JSON.parse(t.slice(t.indexOf("{")));
+    const d = json(await verb.checkThickness("a"));
     near(d.minThickness, 10, 1e-3);
   });
 

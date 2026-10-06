@@ -11,7 +11,8 @@
  * any directories in OCCTMCP_WASI_PREOPEN (separated by the platform path delimiter). Relative
  * paths do not resolve under WASI; the tools pass absolute ones.
  *
- * stdin, stdout and stderr are inherited, and the module's exit code becomes this process's.
+ * stdin, stdout and stderr are inherited, the environment is this process's, and the module's exit
+ * code becomes this process's.
  */
 
 import { readFile } from "fs/promises";
@@ -22,7 +23,7 @@ import { preopenDirs } from "./wasi-preopens.js";
 const MIN_NODE_MAJOR = 22;
 
 async function main(): Promise<number> {
-  const major = Number(process.versions.node.split(".")[0]);
+  const major = parseInt(process.versions.node, 10);
   if (major < MIN_NODE_MAJOR) {
     process.stderr.write(
       `wasi-run: the WASI occtkit needs Node ${MIN_NODE_MAJOR} or newer; this is ${process.version}. ` +
@@ -40,7 +41,10 @@ async function main(): Promise<number> {
   const wasi = new WASI({
     version: "preview1",
     args: ["occtkit", ...args],
-    env: {},
+    // The same environment a native occtkit gets from execFile (verbs may read OCCTMCP_* variables).
+    env: Object.fromEntries(
+      Object.entries(process.env).filter((e): e is [string, string] => typeof e[1] === "string")
+    ),
     preopens,
     returnOnExit: true,
   });
