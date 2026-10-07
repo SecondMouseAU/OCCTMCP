@@ -33,10 +33,13 @@ jobs:
           # Pinned to the revision Package.resolved already holds for OCCTSwiftScripts, so the pin
           # moves with the dependency instead of needing its own owner, and a red run points at
           # this repo's own change rather than at upstream HEAD.
-          rev="$(python3 -c "import json;print(next(p['state']['revision'] for p in json.load(open('Package.resolved'))['pins'] if p['identity']=='occtswiftscripts'))")"
-          git clone https://github.com/SecondMouseAU/OCCTSwiftScripts.git "$RUNNER_TEMP/OCCTSwiftScripts"
-          cd "$RUNNER_TEMP/OCCTSwiftScripts"
-          git checkout "$rev"
+          rev="$(python3 scripts/pinned-revision.py occtswiftscripts)"
+          # Fetch the one pinned commit rather than cloning history.
+          dest="$RUNNER_TEMP/OCCTSwiftScripts"
+          git init -q "$dest"
+          git -C "$dest" fetch -q --depth 1 https://github.com/SecondMouseAU/OCCTSwiftScripts.git "$rev"
+          git -C "$dest" checkout -q FETCH_HEAD
+          cd "$dest"
           swift build -c release --product occtkit
           echo "OCCTKIT_BIN=$PWD/.build/release/occtkit" >> "$GITHUB_ENV"
           test -x .build/release/occtkit
