@@ -1,0 +1,43 @@
+name: integration
+
+# Node end-to-end suite (tests/integration), which drives a real `occtkit`. Nightly and on
+# demand, not on every PR: it is slow and needs occtkit, which a stock runner does not carry.
+#
+# NOT blocking and NOT part of `ci-gate` in tests.yml. It becomes eligible once it has a run
+# of greens (see okf/policies/required-status-checks.md in OCCTSwift for the rule).
+#
+# The occtkit source is a build input this repo does not own (OCCTSwiftScripts), so the
+# "Build occtkit" step below is the open question tracked in the CI PR: until a runner can
+# produce the binary, the job fails loudly rather than skipping, so it cannot read as green.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  node-integration:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc
+
+      - name: Build occtkit
+        run: |
+          git clone --depth 1 https://github.com/SecondMouseAU/OCCTSwiftScripts.git "$RUNNER_TEMP/OCCTSwiftScripts"
+          cd "$RUNNER_TEMP/OCCTSwiftScripts"
+          swift build -c release --product occtkit
+          echo "OCCTKIT_BIN=$PWD/.build/release/occtkit" >> "$GITHUB_ENV"
+          test -x .build/release/occtkit
+
+      - name: integration tests
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          ln -sf "$OCCTKIT_BIN" "$HOME/.local/bin/occtkit"
+          PATH="$HOME/.local/bin:$PATH" npm run test:integration

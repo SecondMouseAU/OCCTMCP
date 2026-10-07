@@ -24,7 +24,14 @@ struct ExtraToolTests {
 
     @Test("no extras leaves the catalog identical")
     func noExtrasUnchanged() {
-        #expect(catalogTools(extraTools: []).map(\.name) == catalogTools().map(\.name))
+        // Not `catalogTools(extraTools: [])` against `catalogTools()`: the default argument
+        // is `[]`, so that compares a call with itself. Build with an extra first, then
+        // check a later extras-free catalog carries no residue of it.
+        _ = catalogTools(extraTools: [Self.extra("host_tool", reply: "hi")])
+        let names = catalogTools().map(\.name)
+        #expect(!names.contains("host_tool"))
+        #expect(Set(names).count == names.count, "built-in tool names must be unique")
+        #expect(names.contains("query_topology"))
     }
 
     @Test("extra is listed after the built-ins and is callable")

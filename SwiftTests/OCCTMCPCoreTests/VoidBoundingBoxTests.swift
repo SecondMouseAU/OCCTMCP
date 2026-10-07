@@ -70,9 +70,12 @@ struct VoidBoundingBoxTests {
         let store = try scene(bodyId: "empty", shape: try voidShape())
 
         let result = await IntrospectionTools.computeMetrics(
-            bodyId: "empty", metrics: ["boundingBox"], store: store)
+            bodyId: "empty", metrics: ["boundingBox", "surfaceArea"], store: store)
 
         #expect(!result.isError, "unexpected error: \(result.text)")
+        // Positive control: the call computed something, so the absence below is the
+        // boundingBox guard and not an empty report.
+        #expect(result.text.contains("surfaceArea"))
         // Absent, not zeroed: `MetricsReport.boundingBox` is Optional and
         // Encodable drops a nil, the same shape `boundingBoxOptimal` always had.
         #expect(!result.text.contains("boundingBox"))
