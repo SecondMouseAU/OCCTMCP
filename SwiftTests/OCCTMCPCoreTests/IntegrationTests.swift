@@ -217,9 +217,8 @@ struct IntegrationTests {
         }
         #expect(firstEntry["fate"] as? String == "preserved",
                 "expected history-based remap to preserve, got: \(firstEntry["fate"] ?? "<nil>")")
-        if let conf = firstEntry["confidenceMm"] as? Double {
-            #expect(conf == 0, "history-based remap should report confidenceMm=0, got \(conf)")
-        }
+        let conf = try #require(firstEntry["confidenceMm"] as? Double, "confidenceMm missing: the history path must report it")
+        #expect(conf == 0, "history-based remap should report confidenceMm=0, got \(conf)")
     }
 
     @Test("render_preview overlays a linear dimension on the rendered PNG")
@@ -602,9 +601,8 @@ struct IntegrationTests {
         )
         // confidenceMm: 0 means the history path returned the answer
         // (centroid heuristic always returns a positive distance).
-        if let conf = entry["confidenceMm"] as? Double {
-            #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
-        }
+        let conf = try #require(entry["confidenceMm"] as? Double, "confidenceMm missing: the history path must report it")
+        #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
     }
 
     @Test("history-based remap survives apply_feature via FeatureReconstructor.histories")
@@ -710,9 +708,8 @@ struct IntegrationTests {
             fate == "preserved" || fate == "split",
             "apply_feature(hole) history should resolve to preserved or split (got \(fate))"
         )
-        if let conf = entry["confidenceMm"] as? Double {
-            #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
-        }
+        let conf = try #require(entry["confidenceMm"] as? Double, "confidenceMm missing: the history path must report it")
+        #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
     }
 
     @Test("history-based remap survives apply_feature(fillet) post-OCCTSwift v1.0.4")
@@ -813,9 +810,8 @@ struct IntegrationTests {
             fate == "preserved" || fate == "split",
             "fillet history should resolve to preserved or split (got \(fate))"
         )
-        if let conf = entry["confidenceMm"] as? Double {
-            #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
-        }
+        let conf = try #require(entry["confidenceMm"] as? Double, "confidenceMm missing: the history path must report it")
+        #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
     }
 
     @Test("remap_selection resolves cleanly across TWO chained apply_feature hops on the same body (#90/#91/#93)")
@@ -954,9 +950,8 @@ struct IntegrationTests {
             fate == "preserved" || fate == "split",
             "two-hop chain should resolve to preserved or split via history (got \(fate)); fate=approximate/lost with a nonzero confidenceMm means the retained lineage broke between hops and remap_selection fell back to the centroid heuristic"
         )
-        if let conf = entry["confidenceMm"] as? Double {
-            #expect(conf == 0, "history path should report confidenceMm=0 (got \(conf)); nonzero means the centroid heuristic answered instead of history")
-        }
+        let conf = try #require(entry["confidenceMm"] as? Double, "confidenceMm missing: the history path must report it")
+        #expect(conf == 0, "history path should report confidenceMm=0 (got \(conf)); nonzero means the centroid heuristic answered instead of history")
     }
 
     @Test("selection survives heal_shape (#93): history path when available, graceful fallback otherwise")
@@ -2192,9 +2187,8 @@ struct IntegrationTests {
         let newIds = entry["newSelectionIds"] as? [String] ?? []
         #expect(fate == "split", "top face crossed by a slot should split (got \(fate))")
         #expect(newIds.count == 2, "expected 2 successor faces from the slot cut, got \(newIds.count): \(newIds)")
-        if let conf = entry["confidenceMm"] as? Double {
-            #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
-        }
+        let conf = try #require(entry["confidenceMm"] as? Double, "confidenceMm missing: the history path must report it")
+        #expect(conf == 0, "history path should report confidenceMm=0, got \(conf)")
     }
 
     @Test("history-based remap: a face fully consumed by a boolean reports fate=lost, not a false match (#90/#93)")
