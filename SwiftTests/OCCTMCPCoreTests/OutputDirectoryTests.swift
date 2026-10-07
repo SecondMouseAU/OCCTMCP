@@ -65,6 +65,25 @@ struct OutputDirectoryTests {
         }
     }
 
+    @Test("ProvenanceStore.shared is one stable instance per directory, distinct across directories")
+    func provenanceStoreIdentity() async throws {
+        let dirA = try makeScene(bodyId: "alpha")
+        let dirB = try makeScene(bodyId: "beta")
+        defer {
+            try? FileManager.default.removeItem(at: dirA)
+            try? FileManager.default.removeItem(at: dirB)
+        }
+        // #157: a store constructed per call raced on provenance.json, because each call got
+        // its own actor. The concurrency tests in ProvenanceStoreTests build one private
+        // instance, so they cannot see `shared` regress to a fresh instance per access.
+        let (a1, a2) = await OCCTMCPPaths.withOutputDirectory(dirA) {
+            (ProvenanceStore.shared, ProvenanceStore.shared)
+        }
+        let b = await OCCTMCPPaths.withOutputDirectory(dirB) { ProvenanceStore.shared }
+        #expect(a1 === a2, "shared must return the same instance within one directory")
+        #expect(a1 !== b, "different directories must not share one store")
+    }
+
     @Test("selection and zone registries do not leak between directories")
     func registriesIsolated() async throws {
         let dirA = try makeScene(bodyId: "alpha")
