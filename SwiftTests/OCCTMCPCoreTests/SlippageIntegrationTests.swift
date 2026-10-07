@@ -375,23 +375,27 @@ struct SlippageSweepAxisTests {
     @MainActor
     @Test("old-format zones.json record (no slippage key): decodes fine, sweep falls back to PCA cleanly")
     func oldFormatSidecarCompatibility() async throws {
-        let dir = NSTemporaryDirectory() + "occtmcp-slippagesweep-oldformat-\(UUID().uuidString)"
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let (store, dir) = try freshScene("oldformat")
         defer { try? FileManager.default.removeItem(atPath: dir) }
-        let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
-        let descriptor = BodyDescriptor(id: "box", file: "box.brep", color: [1, 1, 1, 1])
-        let manifest = ScriptManifest(version: 1, timestamp: Date(), description: "old-format sidecar", bodies: [descriptor])
-        let store = ManifestStore(path: "\(dir)/manifest.json")
-        try store.write(manifest)
-        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(dir)/box.brep"))
+        // The open tube, not a Shape.box: a box face is 2 triangles, below the slippage
+        // sample floor, so its zones carry no slippage and stripping the key is a no-op.
+        let stlPath = "\(dir)/tube.stl"
+        try SlippageClassificationTests.writeOpenTubeSTL(to: stlPath)
+        let importResult = await IOTools.importFile(
+            inputPath: stlPath, format: .stl, idPrefix: "tube", store: store, history: SceneHistory()
+        )
+        let imported = try JSONDecoder().decode(ImportReport.self, from: Data(importResult.text.utf8))
+        let bodyId = try #require(imported.addedBodyIds.first)
 
         let registry = ZoneRegistry()
         let segResult = await MeshZoneTools.segmentMeshZones(
-            bodyId: "box", minRegionTriangles: 1, render: false, registry: registry, store: store
+            bodyId: bodyId, minRegionTriangles: 1, render: false, registry: registry, store: store
         )
         #expect(!segResult.isError, "segment_mesh_zones failed: \(segResult.text)")
         let seg = try JSONDecoder().decode(ZoneReport.self, from: Data(segResult.text.utf8))
-        let zoneId = try #require(seg.zones.first?.id)
+        let barrel = try #require(seg.zones.max(by: { $0.triangleCount < $1.triangleCount }))
+        _ = try #require(barrel.slippage, "precondition: the barrel must carry slippage before it is stripped")
+        let zoneId = barrel.id
 
         // Simulate a pre-#109 zones.json by stripping the "slippage" key
         // from every zone record BY HAND (raw JSON manipulation, not by
@@ -402,6 +406,8 @@ struct SlippageSweepAxisTests {
         let data = try Data(contentsOf: URL(fileURLWithPath: zonesPath))
         var root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         var zones = try #require(root["zones"] as? [[String: Any]])
+        let withKey = zones.filter { $0["slippage"] != nil }.count
+        #expect(withKey > 0, "nothing to strip: the sidecar never held a slippage key")
         for i in zones.indices { zones[i].removeValue(forKey: "slippage") }
         root["zones"] = zones
         let stripped = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
@@ -417,7 +423,7 @@ struct SlippageSweepAxisTests {
         // zone_continuity_sweep against the stripped registry must still
         // work cleanly, falling back to PCA (no crash, no error).
         let sweep = await ZoneSweepTool.zoneContinuitySweep(
-            bodyId: "box", zoneId: zoneId, render: false, registry: reloaded, store: store
+            bodyId: bodyId, zoneId: zoneId, render: false, registry: reloaded, store: store
         )
         #expect(!sweep.isError, "unexpected error: \(sweep.text)")
         let sr = try JSONDecoder().decode(SweepReport.self, from: Data(sweep.text.utf8))
