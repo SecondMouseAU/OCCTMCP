@@ -87,6 +87,20 @@ struct TopologyIdentityTests {
             guard let node = graph.findNode(for: vShape) else { return false }
             return node.index != i
         }
+
+        // The name promises graphIndex(...) is not a no-op, so call it: on every divergent
+        // edge and vertex it must return the graph's index, not the enumeration fallback.
+        for (i, edge) in edgeDivergences {
+            let edgeShape = try #require(Shape.fromEdge(edge))
+            let node = try #require(graph.findNode(for: edgeShape))
+            let got = SelectionTools.graphIndex(for: edgeShape, kind: .edge, in: graph, fallback: i)
+            #expect(got == node.index && got != i, "edge \(i): graphIndex returned \(got), graph index is \(node.index)")
+        }
+        for (i, vShape) in vertexDivergences {
+            let node = try #require(graph.findNode(for: vShape))
+            let got = SelectionTools.graphIndex(for: vShape, kind: .vertex, in: graph, fallback: i)
+            #expect(got == node.index && got != i, "vertex \(i): graphIndex returned \(got), graph index is \(node.index)")
+        }
         #expect(
             !vertexDivergences.isEmpty,
             "expected at least one vertex where subShapes(ofType: .vertex) order != graph index; if this ever becomes empty, OCCTSwift's vertex ordering changed (worth re-checking, not a real failure)"
