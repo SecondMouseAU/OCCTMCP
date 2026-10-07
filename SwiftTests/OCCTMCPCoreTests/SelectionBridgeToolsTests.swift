@@ -212,6 +212,7 @@ struct SelectionBridgeToolsTests {
 
         let result = await SelectionBridgeTools.getSelection(store: store)
         #expect(result.isError, "a running host with no selection.json at all must be an explicit error")
+        #expect(result.text.contains("selection.json is missing"), "wrong error: \(result.text)")
     }
 
     @Test("get_selection: torn/malformed selection.json -> explicit error, not swallowed into an empty result")
@@ -229,6 +230,7 @@ struct SelectionBridgeToolsTests {
 
         let result = await SelectionBridgeTools.getSelection(store: store)
         #expect(result.isError, "malformed JSON must be reported as an explicit error")
+        #expect(result.text.contains("is malformed"), "wrong error: \(result.text)")
     }
 
     // ── highlight_selection: writes request, generates id, atomic write ──
@@ -262,10 +264,12 @@ struct SelectionBridgeToolsTests {
         let badKind = await SelectionBridgeTools.highlightSelection(
             bodyId: "box", kind: "diamond", index: 0, scheme: "replace", store: store)
         #expect(badKind.isError)
+        #expect(badKind.text.contains("unknown kind 'diamond'"), "wrong error: \(badKind.text)")
 
         let badScheme = await SelectionBridgeTools.highlightSelection(
             bodyId: "box", kind: "face", index: 0, scheme: "toggle-ish", store: store)
         #expect(badScheme.isError)
+        #expect(badScheme.text.contains("unknown scheme 'toggle-ish'"), "wrong error: \(badScheme.text)")
 
         #expect(
             !FileManager.default.fileExists(atPath: "\(dir)/highlight_requests"),
@@ -456,6 +460,7 @@ struct SelectionBridgeToolsTests {
         let badTarget = await SelectionBridgeTools.highlightSelection(
             bodyId: "box", kind: "face", index: 0, scheme: "replace", target: "everything", store: store)
         #expect(badTarget.isError)
+        #expect(badTarget.text.contains("unknown target 'everything'"), "wrong error: \(badTarget.text)")
 
         let body = await SelectionBridgeTools.highlightSelection(
             bodyId: "box", kind: "body", index: 0, scheme: "replace", store: store)

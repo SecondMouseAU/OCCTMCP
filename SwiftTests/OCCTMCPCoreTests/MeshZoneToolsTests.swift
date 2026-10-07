@@ -239,6 +239,7 @@ struct ZoneSweepMathTests {
             stationCount: 4, missed: { _ in true }, signals: { _, _ in nil },
             toleranceMm: 0.5, lateralToleranceMm: 0.5
         )
+        #expect(verdicts.count == 4)
         #expect(verdicts.allSatisfy { $0 == .missed })
         #expect(runs.isEmpty)
     }

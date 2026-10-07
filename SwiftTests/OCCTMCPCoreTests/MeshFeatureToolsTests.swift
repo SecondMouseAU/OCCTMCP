@@ -274,6 +274,7 @@ struct MeshFeatureToolsTests {
         let withoutPoints = await MeshFeatureTools.detectMeshFeatures(bodyId: bodyId, render: false, store: store)
         #expect(!withoutPoints.isError, "unexpected error: \(withoutPoints.text)")
         let rWithout = try JSONDecoder().decode(FeatureReport.self, from: Data(withoutPoints.text.utf8))
+        #expect(rWithout.rings.count == 4)
         #expect(rWithout.rings.allSatisfy { $0.points == nil })
 
         let result = await MeshFeatureTools.detectMeshFeatures(
@@ -286,6 +287,7 @@ struct MeshFeatureToolsTests {
             let points = try #require(ring.points, "ring \(ring.id) missing points with includePoints:true")
             // Closed ring: point count equals edgeCount (no wraparound duplicate).
             #expect(points.count == ring.edgeCount)
+            #expect(points.count >= segments, "ring \(ring.id) has only \(points.count) points")
             #expect(points.allSatisfy { $0.count == 3 })
 
             // Every point sits at the ring's own radius (router or rinner) about

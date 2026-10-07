@@ -233,6 +233,7 @@ struct MeshZoneIntegrationTests {
             bodyId: bodyId, zoneId: front.id, render: false, registry: registry, store: store
         )
         #expect(staleSweep.isError)
+        #expect(staleSweep.text.contains("Unknown zoneId"), "wrong error: \(staleSweep.text)")
     }
 
     @MainActor
