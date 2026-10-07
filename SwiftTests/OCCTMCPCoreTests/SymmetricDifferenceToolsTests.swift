@@ -172,9 +172,8 @@ struct SymmetricDifferenceToolsTests {
         #expect(r.reliable)
         #expect(abs(r.symmetricDifferenceVolumeMm3) < 1.0, "identical bodies should read ~0 symmetric difference, got \(r.symmetricDifferenceVolumeMm3)")
         #expect(abs(r.fromVolumeMm3 - r.referenceVolumeMm3) < 1.0)
-        if let fe = r.fromExactVolumeMm3 {
-            #expect(abs(fe - 1000.0) < 0.5, "a 10x10x10 box has exact volume 1000")
-        }
+        let fe = try #require(r.fromExactVolumeMm3, "a closed solid must report its exact volume")
+        #expect(abs(fe - 1000.0) < 0.5, "a 10x10x10 box has exact volume 1000")
     }
 
     @MainActor
@@ -238,11 +237,16 @@ struct SymmetricDifferenceToolsTests {
         let r = try decode(result)
 
         #expect(!r.referenceWatertight, "the 5-face fixture is deliberately missing its +Z cap")
-        #expect(r.warnings.contains { $0.contains(openBodyId) || $0.lowercased().contains("watertight") })
+        #expect(
+            r.warnings.contains { $0.contains(openBodyId) && $0.lowercased().contains("watertight") },
+            "expected a watertight warning naming \(openBodyId), got \(r.warnings)")
         // The open shell still encloses (via generalized winding number) essentially the same
         // volume as the closed box it's missing one face of, so the estimate should still be
         // roughly sane rather than garbage/zero.
-        #expect(r.referenceVolumeMm3 > 500, "expected a substantial sampled reference volume, got \(r.referenceVolumeMm3)")
+        // The closed twin is 1000 mm^3; allow the sampler's own standard error rather than a
+        // floor that a 50% error would still clear.
+        let tol = max(100.0, 4 * r.estimatedStdErrMm3)
+        #expect(abs(r.referenceVolumeMm3 - 1000.0) < tol, "expected ~1000, got \(r.referenceVolumeMm3) (stdErr \(r.estimatedStdErrMm3))")
     }
 
     @Test("classify() is orientation-agnostic on the pure function")
