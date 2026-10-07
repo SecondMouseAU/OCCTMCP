@@ -202,7 +202,7 @@ LLM read/write over an attributed reconstruction graph — annotate per-node dec
 This repo ships two implementations side-by-side:
 
 - **Swift** (`Sources/`, `Package.swift`): the **primary** server. In-process against OCCTSwift / OCCTSwiftMesh / OCCTSwiftTools / OCCTSwiftAIS / DrawingComposer using the [official Swift MCP SDK](https://swiftpackageindex.com/modelcontextprotocol/swift-sdk). 79 tools. macOS 15+ (the OCCT.xcframework arm64 platform).
-- **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary.
+- **Node / TypeScript** (`src/`, `dist/`) — the original implementation. Shells out to the `occtkit` CLI for everything Swift-side. 37 tools (the pre-v0.4 surface; selection / remap / annotations are Swift-only). Useful if you can't run a macOS binary; set `OCCTMCP_OCCTKIT_WASM` to a WASI `occtkit.wasm` to run the geometry tools on Linux (see [docs/guides/wasm-core.md](docs/guides/wasm-core.md)).
 
 Both speak stdio MCP and read/write the same manifest format.
 
