@@ -57,8 +57,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Only PR runs are superseded. A push to main must always finish, so ci-gate reports a
+  # verdict on every main commit and never "cancelled".
+  group: tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -76,7 +78,9 @@ jobs:
             base="origin/${{ github.base_ref }}"
             files="$(git diff --name-only "$base"...HEAD)"
           else
-            files="$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)"
+            # a push can carry several commits: diff from the pre-push tip, not HEAD~1
+            before="${{ github.event.before }}"
+            files="$(git diff --name-only "$before" HEAD 2>/dev/null || true)"
           fi
           # workflow_dispatch, or no diff available: run everything
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ -z "$files" ]; then
