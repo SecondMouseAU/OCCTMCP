@@ -12,7 +12,7 @@ struct PingTests {
 
     @Test("server exposes exactly 79 tools (#189 adds get_selection, #190 adds highlight_selection)")
     func toolCount() async throws {
-        #expect(catalogTools().count == 79)
+        #expect(catalogTools().count == 7900)
     }
 
     @Test("ping handler returns pong")
