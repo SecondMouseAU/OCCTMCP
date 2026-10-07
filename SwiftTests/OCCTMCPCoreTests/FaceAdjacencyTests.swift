@@ -193,7 +193,9 @@ struct FaceAdjacencyTests {
         let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
         var r = relations(neighbors: true)
         r.neighborLimit = 2
-        let (_, rows) = try await query(box, relations: r)
+        let (result, rows) = try await query(box, relations: r)
+        #expect(!result.isError)
+        #expect(rows.count == 6)
         for row in rows {
             #expect((row["neighbors"] as? [Row])?.count == 2)
             #expect(row["neighborCount"] as? Int == 4)
@@ -235,6 +237,7 @@ struct FaceAdjacencyTests {
         let obj = try #require(
             try JSONSerialization.jsonObject(with: Data(result.text.utf8)) as? Row)
         #expect(obj["warnings"] == nil)
+        #expect(rows.count == 6)
         for row in rows {
             #expect(Set(row.keys) == ["id", "index", "surfaceType", "area", "center", "normal"])
         }
@@ -250,6 +253,7 @@ struct FaceAdjacencyTests {
         let obj = try #require(
             try JSONSerialization.jsonObject(with: Data(queried.text.utf8)) as? Row)
         let rows = try #require(obj["results"] as? [Row])
+        #expect(rows.count == 6)
         let selected = await SelectionTools.selectTopology(
             bodyId: "part", kind: "face", store: store, registry: SelectionRegistry())
         let selectionObj = try #require(

@@ -18,6 +18,21 @@ import OCCTSwift
 import ScriptHarness
 @testable import OCCTMCPCore
 
+/// A tool failure is a normal JSON-RPC `result` carrying `isError: true`, not an `error`
+/// member, so `resp["error"] == nil` holds even when the tool failed.
+private func expectToolOK(
+    _ resp: [String: Value], _ message: String = "tool call failed",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    #expect(resp["error"] == nil, "\(message): \(resp)", sourceLocation: sourceLocation)
+    guard case .object(let result)? = resp["result"] else {
+        Issue.record("\(message): no result object in \(resp)", sourceLocation: sourceLocation)
+        return
+    }
+    #expect(
+        result["isError"] != .bool(true), "\(message): \(resp)", sourceLocation: sourceLocation)
+}
+
 @Suite("stdio integration", .serialized)
 struct IntegrationTests {
 
@@ -175,7 +190,7 @@ struct IntegrationTests {
             ])
         ))
         let transformResp = try harness.recv(timeout: 30)
-        #expect(transformResp["error"] == nil)
+        expectToolOK(transformResp)
 
         // 3. remap_selection: should find the face via history (fate
         //    preserved), not via centroid heuristic
@@ -281,7 +296,7 @@ struct IntegrationTests {
             ])
         ))
         let dimResp = try harness.recv(timeout: 5)
-        #expect(dimResp["error"] == nil)
+        expectToolOK(dimResp)
 
         // Render and assert the PNG was produced + non-trivial.
         let pngPath = "\(scene)/render.png"
@@ -300,7 +315,7 @@ struct IntegrationTests {
             ])
         ))
         let renderResp = try harness.recv(timeout: 30)
-        #expect(renderResp["error"] == nil)
+        expectToolOK(renderResp)
 
         let attrs = try FileManager.default.attributesOfItem(atPath: pngPath)
         let size = (attrs[.size] as? Int) ?? 0
@@ -362,7 +377,7 @@ struct IntegrationTests {
             ])
         ))
         let resp = try harness.recv(timeout: 30)
-        #expect(resp["error"] == nil)
+        expectToolOK(resp)
         guard case .object(let result)? = resp["result"],
               case .array(let content)? = result["content"],
               case .object(let first)? = content.first,
@@ -462,7 +477,7 @@ struct IntegrationTests {
             ])
         ))
         let dimResp = try harness.recv(timeout: 10)
-        #expect(dimResp["error"] == nil)
+        expectToolOK(dimResp)
         guard case .object(let dimResult)? = dimResp["result"],
               case .array(let dimContent)? = dimResult["content"],
               case .object(let dimFirst)? = dimContent.first,
@@ -556,7 +571,7 @@ struct IntegrationTests {
             ])
         ))
         let boolResp = try harness.recv(timeout: 30)
-        #expect(boolResp["error"] == nil)
+        expectToolOK(boolResp)
 
         // remap_selection should resolve the prior face via history.
         try harness.send(.init(
@@ -659,15 +674,15 @@ struct IntegrationTests {
                     "feature": .object([
                         "id": .string("h1"),
                         "kind": .string("hole"),
-                        "axisPoint": .array([.double(5), .double(5), .double(0)]),
-                        "axisDirection": .array([.double(0), .double(0), .double(1)]),
+                        "axis_point": .array([.double(5), .double(5), .double(0)]),
+                        "axis_direction": .array([.double(0), .double(0), .double(1)]),
                         "diameter": .double(4),
                     ]),
                 ]),
             ])
         ))
         let applyResp = try harness.recv(timeout: 30)
-        #expect(applyResp["error"] == nil, "apply_feature errored: \(applyResp)")
+        expectToolOK(applyResp, "apply_feature errored: \(applyResp)")
 
         try harness.send(.init(
             id: 62, method: "tools/call",
@@ -770,7 +785,7 @@ struct IntegrationTests {
             ])
         ))
         let applyResp = try harness.recv(timeout: 30)
-        #expect(applyResp["error"] == nil, "apply_feature(fillet) errored: \(applyResp)")
+        expectToolOK(applyResp, "apply_feature(fillet) errored: \(applyResp)")
 
         try harness.send(.init(
             id: 72, method: "tools/call",
@@ -881,15 +896,15 @@ struct IntegrationTests {
                     "feature": .object([
                         "id": .string("h1"),
                         "kind": .string("hole"),
-                        "axisPoint": .array([.double(5), .double(5), .double(0)]),
-                        "axisDirection": .array([.double(0), .double(0), .double(1)]),
+                        "axis_point": .array([.double(5), .double(5), .double(0)]),
+                        "axis_direction": .array([.double(0), .double(0), .double(1)]),
                         "diameter": .double(4),
                     ]),
                 ]),
             ])
         ))
         let hop1Resp = try harness.recv(timeout: 30)
-        #expect(hop1Resp["error"] == nil, "apply_feature(hole) errored: \(hop1Resp)")
+        expectToolOK(hop1Resp, "apply_feature(hole) errored: \(hop1Resp)")
 
         // Hop 2: fillet, in place, on the SAME body. This is the hop that
         // fails pre-#93: hop 2's apply_feature used to reload the body
@@ -911,7 +926,7 @@ struct IntegrationTests {
             ])
         ))
         let hop2Resp = try harness.recv(timeout: 30)
-        #expect(hop2Resp["error"] == nil, "apply_feature(fillet) errored: \(hop2Resp)")
+        expectToolOK(hop2Resp, "apply_feature(fillet) errored: \(hop2Resp)")
 
         try harness.send(.init(
             id: 83, method: "tools/call",
@@ -1006,7 +1021,7 @@ struct IntegrationTests {
             ])
         ))
         let healResp = try harness.recv(timeout: 30)
-        #expect(healResp["error"] == nil, "heal_shape errored: \(healResp)")
+        expectToolOK(healResp, "heal_shape errored: \(healResp)")
 
         try harness.send(.init(
             id: 86, method: "tools/call",
@@ -1081,7 +1096,7 @@ struct IntegrationTests {
             ])
         ))
         let t1 = try harness.recv(timeout: 10)
-        #expect(t1["error"] == nil, "first transform_body errored: \(t1)")
+        expectToolOK(t1, "first transform_body errored: \(t1)")
 
         // Out-of-band rewrite: mimics execute_script writing a brand new
         // body file directly, bypassing every tool in this process. A
@@ -1109,7 +1124,7 @@ struct IntegrationTests {
             ])
         ))
         let t2 = try harness.recv(timeout: 10)
-        #expect(t2["error"] == nil, "second transform_body errored: \(t2)")
+        expectToolOK(t2, "second transform_body errored: \(t2)")
 
         try harness.send(.init(
             id: 89, method: "tools/call",
@@ -1187,7 +1202,7 @@ struct IntegrationTests {
             ])
         ))
         let mirrorResp = try harness.recv(timeout: 30)
-        #expect(mirrorResp["error"] == nil, "mirror_or_pattern errored: \(mirrorResp)")
+        expectToolOK(mirrorResp, "mirror_or_pattern errored: \(mirrorResp)")
         if case .object(let mr)? = mirrorResp["result"],
            case .array(let mc)? = mr["content"],
            case .object(let mf)? = mc.first,
@@ -1828,7 +1843,7 @@ struct IntegrationTests {
             ])
         ))
         let mirrorResp = try harness.recv(timeout: 30)
-        #expect(mirrorResp["error"] == nil, "mirror_or_pattern errored: \(mirrorResp)")
+        expectToolOK(mirrorResp, "mirror_or_pattern errored: \(mirrorResp)")
 
         // Step 2 (#132 fix under test): remove "mirror-src" via the real
         // tool. Pre-#156 this only dropped the manifest entry + BREP file
@@ -1843,7 +1858,7 @@ struct IntegrationTests {
             ])
         ))
         let removeResp = try harness.recv(timeout: 10)
-        #expect(removeResp["error"] == nil, "remove_body errored: \(removeResp)")
+        expectToolOK(removeResp, "remove_body errored: \(removeResp)")
 
         // Step 3: reuse the SAME id "mirror-src" for a brand-new, totally
         // unrelated body. Done out-of-band (direct BREP write + manifest
@@ -1987,7 +2002,7 @@ struct IntegrationTests {
             ])
         ))
         let addResp = try harness.recv(timeout: 5)
-        #expect(addResp["error"] == nil)
+        expectToolOK(addResp)
 
         // sidecar should now exist with our trihedron
         let sidecarPath = "\(scene)/annotations.json"
@@ -2007,7 +2022,7 @@ struct IntegrationTests {
             ])
         ))
         let removeResp = try harness.recv(timeout: 5)
-        #expect(removeResp["error"] == nil)
+        expectToolOK(removeResp)
 
         let raw2 = try Data(contentsOf: URL(fileURLWithPath: sidecarPath))
         let decoded2 = try JSONDecoder().decode(AnnotationsSidecar.self, from: raw2)
@@ -2053,7 +2068,7 @@ struct IntegrationTests {
             ])
         ))
         let pingResp = try harness.recv(timeout: 5)
-        #expect(pingResp["error"] == nil)
+        expectToolOK(pingResp)
 
         // get_scene: should round-trip our seeded manifest
         try harness.send(.init(
@@ -2152,7 +2167,7 @@ struct IntegrationTests {
             ])
         ))
         let boolResp = try harness.recv(timeout: 30)
-        #expect(boolResp["error"] == nil, "boolean subtract errored: \(boolResp)")
+        expectToolOK(boolResp, "boolean subtract errored: \(boolResp)")
 
         try harness.send(.init(
             id: 72, method: "tools/call",
@@ -2256,7 +2271,7 @@ struct IntegrationTests {
             ])
         ))
         let boolResp = try harness.recv(timeout: 30)
-        #expect(boolResp["error"] == nil, "boolean subtract errored: \(boolResp)")
+        expectToolOK(boolResp, "boolean subtract errored: \(boolResp)")
 
         try harness.send(.init(
             id: 82, method: "tools/call",

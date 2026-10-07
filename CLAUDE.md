@@ -12,6 +12,7 @@ file into every session, which is the cost this layout exists to avoid.
 | touch selection, remap, or anything history-aware | [`okf/references/history-and-remap.md`](okf/references/history-and-remap.md) |
 | change the Node server | [`okf/components/node-server.md`](okf/components/node-server.md) |
 | write or debug a script for `execute_script` | [`okf/references/script-template.md`](okf/references/script-template.md), [`okf/components/execute-script.md`](okf/components/execute-script.md) |
+| write or change a test, or a CI job | [`okf/policies/prove-the-test-fails.md`](okf/policies/prove-the-test-fails.md) |
 | bump a dependency floor | [`okf/references/external-dependencies.md`](okf/references/external-dependencies.md) |
 | write a new type, helper, or tool | [`okf/policies/search-before-building.md`](okf/policies/search-before-building.md) |
 | add a file, or split one | [`okf/policies/code-structure.md`](okf/policies/code-structure.md) |

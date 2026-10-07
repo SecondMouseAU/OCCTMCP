@@ -20,8 +20,6 @@ name: tests
 # macOS-only: the OCCTSwift dependency ships as a macOS xcframework, the same
 # reasoning OCCTSwiftScripts' own tests.yml uses.
 #
-# Baseline at rollout: 218 tests passing.
-#
 # "Check Package.resolved is current" (#185): this runner never has a local sibling
 # checkout (Package.swift's useLocalSibling gate only matches a `../<name>` folder,
 # which doesn't exist on a fresh actions/checkout), so `swift package resolve` here
@@ -34,24 +32,74 @@ name: tests
 # committed lockfile that fell out of sync with Package.swift (most likely from a
 # local-sibling dev machine never touching the OCCT pins) is caught before build.
 
+# Regression layout (ci-regression-integration):
+#   changes     classifies the diff; the expensive jobs hang off it.
+#   swift       build + test on the real published dependency graph.
+#   node        tsc + the node:test unit suite (needs no occtkit), on Linux.
+#   ci-gate     the one job to require on main. `if: always()` so it reports even
+#               when a needed job is skipped or fails; it fails on any failed or
+#               cancelled need, and on a skip the `changes` job did not ask for.
+#
+# There is deliberately NO workflow-level `paths` / `paths-ignore` filter. A workflow a
+# path filter skips reports no check at all, so a required status would sit forever on
+# "Expected, waiting for status to be reported". Path logic lives in `changes` instead.
+#
+# Node uses `npx tsc`, not `npm run build`: the `prebuild` hook regenerates
+# src/api-reference.ts from ~/Projects/OCCTSwift, which only exists on a dev machine.
+#
+# The Node end-to-end suite (tests/integration, needs occtkit) is in integration.yml.
+
 on:
   push:
-    paths:
-      - 'Sources/**'
-      - 'SwiftTests/**'
-      - 'Package.*'
-      - '.github/workflows/tests.yml'
+    branches:
+      - main
   pull_request:
-    paths:
-      - 'Sources/**'
-      - 'SwiftTests/**'
-      - 'Package.*'
-      - '.github/workflows/tests.yml'
   workflow_dispatch:
 
+concurrency:
+  # Only PR runs are superseded. A push to main must always finish, so ci-gate reports a
+  # verdict on every main commit and never "cancelled".
+  group: tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  tests:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      swift: ${{ steps.filter.outputs.swift }}
+      node: ${{ steps.filter.outputs.node }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            files="$(git diff --name-only "$base"...HEAD)"
+          else
+            # a push can carry several commits: diff from the pre-push tip, not HEAD~1
+            before="${{ github.event.before }}"
+            files="$(git diff --name-only "$before" HEAD 2>/dev/null || true)"
+          fi
+          # workflow_dispatch, or no diff available: run everything
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ -z "$files" ]; then
+            echo "swift=true" >> "$GITHUB_OUTPUT"; echo "node=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "$files"
+          if echo "$files" | grep -qE '^(Sources/|SwiftTests/|Package\.|\.github/workflows/tests\.yml)'; then
+            echo "swift=true" >> "$GITHUB_OUTPUT"; else echo "swift=false" >> "$GITHUB_OUTPUT"; fi
+          if echo "$files" | grep -qE '^(src/|tests/|package(-lock)?\.json|tsconfig\.json|scripts/|\.github/workflows/tests\.yml)'; then
+            echo "node=true" >> "$GITHUB_OUTPUT"; else echo "node=false" >> "$GITHUB_OUTPUT"; fi
+
+  swift:
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
     runs-on: macos-15
+    # OCCTMCP_FORCE_REMOTE_DEPS makes the published-graph resolution explicit rather than an
+    # accident of there being no sibling checkout on the runner.
+    env:
+      OCCTMCP_FORCE_REMOTE_DEPS: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -74,4 +122,49 @@ jobs:
         run: swift build
 
       - name: swift test
-        run: swift test
+        run: swift test 2>&1 | tee swift-test.log; exit "${PIPESTATUS[0]}"
+
+      - name: Upload test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-test-log
+          path: swift-test.log
+
+  node:
+    needs: changes
+    if: needs.changes.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: tsc
+        run: npx tsc
+      - name: unit tests
+        run: npm test
+
+  ci-gate:
+    if: always()
+    needs: [changes, swift, node]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every needed job to have passed or been legitimately skipped
+        run: |
+          fail=0
+          check() { # name result wanted
+            case "$2" in
+              success) ;;
+              skipped) if [ "$3" = "true" ]; then echo "::error::$1 was skipped but changes asked for it"; fail=1; fi ;;
+              *) echo "::error::$1 finished as $2"; fail=1 ;;
+            esac
+          }
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "::error::changes finished as ${{ needs.changes.result }}"; fail=1
+          fi
+          check swift "${{ needs.swift.result }}" "${{ needs.changes.outputs.swift }}"
+          check node "${{ needs.node.result }}" "${{ needs.changes.outputs.node }}"
+          exit $fail
