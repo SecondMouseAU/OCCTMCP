@@ -81,9 +81,15 @@ struct TriBVHTests {
         ]
         let tris: [(UInt32, UInt32, UInt32)] = [(0, 1, 2), (3, 4, 5)]
         let bvh = try #require(TriBVH(vertices: verts, triangles: tris))
-        // Ray toward the degenerate triangle's location only.
-        let hit = bvh.firstHit(origin: SIMD3(0.3, 0.01, 5), direction: SIMD3(0, 0, -1))
-        #expect(hit == nil)
+        // Ray straight through the degenerate triangle's collapsed edge (y=0, z=0), at
+        // x=0.5: the worst case for a phantom hit. A ray that merely passes near it
+        // (y=0.01) cannot reach it even with a broken epsilon, so it proves nothing.
+        #expect(bvh.firstHit(origin: SIMD3(0.5, 0, 5), direction: SIMD3(0, 0, -1)) == nil)
+        #expect(bvh.firstHit(origin: SIMD3(0.3, 0.01, 5), direction: SIMD3(0, 0, -1)) == nil)
+        // Control: the real triangle in the same BVH is still hit, so a nil above is the
+        // degenerate triangle being ignored, not the BVH returning nothing.
+        let real = try #require(bvh.firstHit(origin: SIMD3(10.2, 10.2, 5), direction: SIMD3(0, 0, -1)))
+        #expect(real.triangleIndex == 1)
     }
 
     @Test("Moller-Trumbore rejects a degenerate triangle directly (det ~ 0)")
@@ -172,6 +178,12 @@ struct TriBVHTests {
         let hits = bvh.kNearestTriangles(to: SIMD3(2.5, 2.5, 3), k: 5)
         #expect(hits.count == 5)
         #expect(zip(hits, hits.dropFirst()).allSatisfy { $0.distance <= $1.distance })
+        // Sorted and capped is not nearest. (2.5, 2.5) is the middle of cell (2, 2), whose two
+        // triangles (indices 24 and 25) are both at distance exactly 3; every other triangle
+        // is strictly farther, so a pruning bug that returns any other five fails here.
+        #expect(Set(hits.prefix(2).map(\.triangleIndex)) == [24, 25])
+        #expect(abs(hits[0].distance - 3) < 1e-9 && abs(hits[1].distance - 3) < 1e-9)
+        #expect(hits[2].distance > 3 + 1e-6)
     }
 
     @Test("nearestTriangle finds a large sparse triangle a k-nearest-VERTEX search would miss (#116)")
