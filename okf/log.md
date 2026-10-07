@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-10-07 (b)
+
+* **Update**: `policies/prove-the-test-fails.md` adopted in full from OCCTSwift (it was a pointer), with a "What this repo adds" section recording the shapes found by the #211 audit. No ecosystem issue filed, by decision.
+
 ## 2026-10-07
 
 * **Update**: CI hardening. `tests.yml` gained a `changes` job, a Node job and a `ci-gate` aggregate; `integration.yml` added for the nightly Node end-to-end run. Added `policies/prove-the-test-fails.md` (pointer to the OCCTSwift canonical text) and `references/ci.md`. Test audit: integration tests now read `result.isError` (the old `resp["error"] == nil` could not see a tool failure, and hid two `apply_feature` calls sent with camelCase keys the decoder rejects); `ExtraToolTests`, `FaceAdjacencyTests`, `VoidBoundingBoxTests` tightened. Bundle confirmed on OKF 0.2 by hand; the hub's `okf validate --strict` would not build on the local toolchain.
