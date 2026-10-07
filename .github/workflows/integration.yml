@@ -6,9 +6,9 @@ name: integration
 # NOT blocking and NOT part of `ci-gate` in tests.yml. It becomes eligible once it has a run
 # of greens (see okf/policies/required-status-checks.md in OCCTSwift for the rule).
 #
-# The occtkit source is a build input this repo does not own (OCCTSwiftScripts), so the
-# "Build occtkit" step below is the open question tracked in the CI PR: until a runner can
-# produce the binary, the job fails loudly rather than skipping, so it cannot read as green.
+# The occtkit source is a build input this repo does not own (OCCTSwiftScripts), pinned to the
+# revision in Package.resolved. Until a runner has produced the binary green, the job fails
+# loudly rather than skipping, so it cannot read as green.
 
 on:
   schedule:
@@ -18,7 +18,7 @@ on:
 jobs:
   node-integration:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,8 +30,13 @@ jobs:
 
       - name: Build occtkit
         run: |
-          git clone --depth 1 https://github.com/SecondMouseAU/OCCTSwiftScripts.git "$RUNNER_TEMP/OCCTSwiftScripts"
+          # Pinned to the revision Package.resolved already holds for OCCTSwiftScripts, so the pin
+          # moves with the dependency instead of needing its own owner, and a red run points at
+          # this repo's own change rather than at upstream HEAD.
+          rev="$(python3 -c "import json;print(next(p['state']['revision'] for p in json.load(open('Package.resolved'))['pins'] if p['identity']=='occtswiftscripts'))")"
+          git clone https://github.com/SecondMouseAU/OCCTSwiftScripts.git "$RUNNER_TEMP/OCCTSwiftScripts"
           cd "$RUNNER_TEMP/OCCTSwiftScripts"
+          git checkout "$rev"
           swift build -c release --product occtkit
           echo "OCCTKIT_BIN=$PWD/.build/release/occtkit" >> "$GITHUB_ENV"
           test -x .build/release/occtkit

@@ -22,8 +22,8 @@ struct ExtraToolTests {
         return nil
     }
 
-    @Test("no extras leaves the catalog identical")
-    func noExtrasUnchanged() {
+    @Test("extras do not leak into a later extras-free catalog")
+    func extrasDoNotLeakIntoLaterCalls() {
         // Not `catalogTools(extraTools: [])` against `catalogTools()`: the default argument
         // is `[]`, so that compares a call with itself. Build with an extra first, then
         // check a later extras-free catalog carries no residue of it.
