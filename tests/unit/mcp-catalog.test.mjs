@@ -26,7 +26,7 @@ describe("mcp_tools catalog", () => {
       (k) => server._registeredTools[k].enabled
     ).length;
     assert.equal(catalog.count, registeredCount);
-    assert.ok(catalog.count >= 30, `expected >= 30 tools, got ${catalog.count}`);
+    assert.ok(catalog.count >= 3000, `expected >= 30 tools, got ${catalog.count}`);
   });
 
   it("includes the core tools", () => {
