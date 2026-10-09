@@ -167,7 +167,9 @@ public enum FeatureTools {
                     "Failed to write manifest: \(error.localizedDescription)", isError: true)
             }
         } else {
-            do { try store.write(manifest) } catch {
+            do {
+                try store.write(manifest)
+            } catch {
                 return .init(
                     "Failed to write manifest: \(error.localizedDescription)", isError: true)
             }
