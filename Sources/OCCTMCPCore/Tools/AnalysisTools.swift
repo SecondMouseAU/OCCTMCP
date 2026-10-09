@@ -342,7 +342,7 @@ public enum AnalysisTools {
             let graph = try GraphIO.buildGraph(from: shape)
             let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("occtmcp-graphml-\(UUID().uuidString).json")
-            try BREPGraphJSONExporter.export(graph, to: tempURL, description: description)
+            try BREPGraphJSONExporter.export(graph, to: tempURL, description: description, shape: shape)
             defer { try? FileManager.default.removeItem(at: tempURL) }
             let data = try Data(contentsOf: tempURL)
             // Augment the exporter JSON with a convexity-attributed face-adjacency
