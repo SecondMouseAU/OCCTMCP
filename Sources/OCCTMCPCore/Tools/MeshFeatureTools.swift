@@ -120,7 +120,7 @@ public enum MeshFeatureTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("detect_mesh_features: \(error)", isError: true)
         }
         let shape = loaded.shape
 

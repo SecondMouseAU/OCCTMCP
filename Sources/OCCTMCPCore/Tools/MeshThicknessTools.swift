@@ -83,7 +83,7 @@ public enum MeshThicknessTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("mesh_thickness: \(error)", isError: true)
         }
         let shape = loaded.shape
 

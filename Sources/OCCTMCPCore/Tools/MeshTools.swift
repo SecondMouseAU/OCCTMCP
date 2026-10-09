@@ -43,7 +43,7 @@ public enum MeshTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("generate_mesh: \(error)", isError: true)
         }
         var params = MeshParameters.default
         params.deflection = linearDeflection
@@ -117,7 +117,7 @@ public enum MeshTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("simplify_mesh: \(error)", isError: true)
         }
         var params = MeshParameters.default
         params.deflection = linearDeflection
