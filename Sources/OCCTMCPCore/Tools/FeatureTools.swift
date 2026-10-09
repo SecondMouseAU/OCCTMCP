@@ -38,15 +38,15 @@ public enum FeatureTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         guard let body = manifest.body(withId: bodyId) else {
-            return .init("Body not found: \(bodyId)")
+            return .init("Body not found: \(bodyId)", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let inputPath = "\(outputDir)/\(body.file)"
         guard FileManager.default.fileExists(atPath: inputPath) else {
-            return .init("BREP file missing: \(inputPath)")
+            return .init("BREP file missing: \(inputPath)", isError: true)
         }
 
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
@@ -83,7 +83,7 @@ public enum FeatureTools {
 
         let isInPlace = outputBodyId == nil || outputBodyId == bodyId
         if !isInPlace, let id = outputBodyId, manifest.bodies.contains(where: { $0.id == id }) {
-            return .init("Output body id \"\(id)\" already exists.")
+            return .init("Output body id \"\(id)\" already exists.", isError: true)
         }
         let outputPath =
             isInPlace
@@ -152,17 +152,27 @@ public enum FeatureTools {
                     roughness: body.roughness,
                     metallic: body.metallic
                 ))
-            try? store.write(
-                ScriptManifest(
-                    version: manifest.version,
-                    timestamp: Date(),
-                    description: manifest.description,
-                    bodies: bodies,
-                    graphs: manifest.graphs,
-                    metadata: manifest.metadata
-                ))
+            do {
+                try store.write(
+                    ScriptManifest(
+                        version: manifest.version,
+                        timestamp: Date(),
+                        description: manifest.description,
+                        bodies: bodies,
+                        graphs: manifest.graphs,
+                        metadata: manifest.metadata
+                    ))
+            } catch {
+                return .init(
+                    "Failed to write manifest: \(error.localizedDescription)", isError: true)
+            }
         } else {
-            try? store.write(manifest)
+            do {
+                try store.write(manifest)
+            } catch {
+                return .init(
+                    "Failed to write manifest: \(error.localizedDescription)", isError: true)
+            }
         }
 
         return IntrospectionTools.encode(
