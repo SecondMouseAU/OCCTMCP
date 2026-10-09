@@ -19,7 +19,7 @@
 //   host.lock                            : empty file, host holds LOCK_EX for its lifetime
 //   host.json                            : {pid, startedAt, hostName, hostVersion, schemaVersion}
 //   selection.json                       : {selections: [{bodyId,kind,index,uid?}], revision, updatedAt}
-//   highlight_requests/<id>.json         : written here: {id,bodyId,kind,index,scheme,target,question?}
+//   highlight_requests/<id>.json         : written here: {id,bodyId,kind,index,scheme,target,question?,label?}
 //   highlight_requests/handled/<id>.json : written by the host: {outcome,reason?,target?}
 //
 // Every writer (ours included) uses atomic write (temp name + rename, i.e.
@@ -124,6 +124,10 @@ public enum SelectionBridgeTools {
         /// default for an absent field.
         public let target: String
         public let question: String?
+        /// Short free-text name for an attention highlight, absent when not supplied.
+        ///
+        /// Only written under `target: "attention"`.
+        public let label: String?
     }
 
     /// A `highlight_requests/handled/<id>.json` response, written by the host.
@@ -389,6 +393,8 @@ public enum SelectionBridgeTools {
     static let validSchemes = ["replace", "add", "remove", "xor"]
     static let validTargets = ["attention", "selection"]
     public static let defaultTarget = "attention"
+    /// Longest `label` accepted, counted in characters.
+    public static let maxLabelLength = 80
     public static let defaultTimeoutSeconds: Double = 5.0
     public static let defaultPollIntervalSeconds: Double = 0.1
 
@@ -439,6 +445,7 @@ public enum SelectionBridgeTools {
         scheme: String,
         target: String = defaultTarget,
         question: String? = nil,
+        label: String? = nil,
         store: ManifestStore = ManifestStore(),
         timeoutSeconds: Double = defaultTimeoutSeconds,
         pollIntervalSeconds: Double = defaultPollIntervalSeconds
@@ -478,6 +485,28 @@ public enum SelectionBridgeTools {
             )
         }
 
+        // A label names the agent's attention marker; under target "selection"
+        // it has nothing to attach to, so it is ignored there (not validated,
+        // not written).
+        var writtenLabel: String? = nil
+        if target == "attention", let label {
+            guard !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return ToolText(
+                    "highlight_selection: label must not be empty or whitespace-only. "
+                        + "Omit it to send no label.",
+                    isError: true
+                )
+            }
+            guard label.count <= maxLabelLength else {
+                return ToolText(
+                    "highlight_selection: label is limited to \(maxLabelLength) characters; "
+                        + "received \(label.count).",
+                    isError: true
+                )
+            }
+            writtenLabel = label
+        }
+
         let outputDir = (store.path as NSString).deletingLastPathComponent
 
         guard HostLock.checkLiveness(outputDir: outputDir) == .hostRunning else {
@@ -494,7 +523,7 @@ public enum SelectionBridgeTools {
         let id = UUID().uuidString
         let request = HighlightRequest(
             id: id, bodyId: bodyId, kind: kind, index: index, scheme: scheme,
-            target: target, question: question)
+            target: target, question: question, label: writtenLabel)
 
         let requestsDir = "\(outputDir)/highlight_requests"
         let handledDir = "\(requestsDir)/handled"

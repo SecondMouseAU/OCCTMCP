@@ -472,6 +472,117 @@ struct SelectionBridgeToolsTests {
             "a rejected request must never be written")
     }
 
+    // ── highlight_selection label (#209) ──
+
+    /// The raw JSON object of the one request file a call wrote.
+    private func rawRequest(_ dir: String) throws -> [String: Any] {
+        let files = try FileManager.default.contentsOfDirectory(atPath: "\(dir)/highlight_requests")
+            .filter { $0.hasSuffix(".json") }
+        #expect(files.count == 1, "expected exactly one request file, found \(files)")
+        let name = try #require(files.first)
+        let data = try Data(contentsOf: URL(fileURLWithPath: "\(dir)/highlight_requests/\(name)"))
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    @Test("highlight_selection (#209): a label is written into an attention request")
+    func highlightLabelWrittenForAttention() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        let result = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 1, scheme: "replace", label: "mounting face",
+            store: store, timeoutSeconds: 0.1, pollIntervalSeconds: 0.02)
+        #expect(!result.isError)
+        let raw = try rawRequest(dir)
+        #expect(raw["target"] as? String == "attention")
+        #expect(raw["label"] as? String == "mounting face")
+    }
+
+    @Test("highlight_selection (#209): a label under target selection is ignored, not written")
+    func highlightLabelIgnoredForSelection() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        // An over-long label is also ignored here: nothing to attach to, so no validation.
+        let tooLong = String(repeating: "x", count: 200)
+        let result = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 1, scheme: "replace", target: "selection",
+            label: tooLong, store: store, timeoutSeconds: 0.1, pollIntervalSeconds: 0.02)
+        #expect(!result.isError, "unexpected error: \(result.text)")
+        let raw = try rawRequest(dir)
+        #expect(raw["target"] as? String == "selection")
+        #expect(raw["label"] == nil)
+    }
+
+    @Test("highlight_selection (#209): without a label the request has no label key")
+    func highlightNoLabelKeyWhenAbsent() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        _ = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 1, scheme: "replace",
+            store: store, timeoutSeconds: 0.1, pollIntervalSeconds: 0.02)
+        let raw = try rawRequest(dir)
+        #expect(Set(raw.keys) == ["id", "bodyId", "kind", "index", "scheme", "target"])
+    }
+
+    @Test("highlight_selection (#209): exactly 80 characters is accepted, 81 is rejected naming the limit")
+    func highlightLabelLengthBoundary() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        let tooLong = String(repeating: "a", count: 81)
+        let rejected = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 1, scheme: "replace", label: tooLong, store: store)
+        #expect(rejected.isError)
+        #expect(rejected.text.contains("80"), "limit missing: \(rejected.text)")
+        #expect(rejected.text.contains("81"), "received length missing: \(rejected.text)")
+        #expect(
+            !FileManager.default.fileExists(atPath: "\(dir)/highlight_requests"),
+            "a rejected label must write nothing")
+
+        let exact = String(repeating: "a", count: 80)
+        let accepted = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 1, scheme: "replace", label: exact,
+            store: store, timeoutSeconds: 0.1, pollIntervalSeconds: 0.02)
+        #expect(!accepted.isError, "unexpected error: \(accepted.text)")
+        let raw = try rawRequest(dir)
+        #expect((raw["label"] as? String)?.count == 80)
+    }
+
+    @Test("highlight_selection (#209): empty and whitespace-only labels are rejected without writing")
+    func highlightLabelRejectsBlank() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        let blanks = ["", "   ", "\n\t "]
+        #expect(blanks.count == 3)
+        for blank in blanks {
+            let result = await SelectionBridgeTools.highlightSelection(
+                bodyId: "box", kind: "face", index: 1, scheme: "replace", label: blank, store: store)
+            #expect(result.isError, "blank label \(blank.debugDescription) was accepted")
+            #expect(result.text.contains("label must not be empty"), "wrong error: \(result.text)")
+        }
+        #expect(
+            !FileManager.default.fileExists(atPath: "\(dir)/highlight_requests"),
+            "a rejected label must write nothing")
+    }
+
     @Test("highlight_selection (#200): the host's handled target is surfaced in the result")
     func highlightSurfacesHandledTarget() async throws {
         let store = try scene([])
