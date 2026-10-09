@@ -77,7 +77,7 @@ public enum IntrospectionTools {
         do {
             loaded = try loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("compute_metrics: \(error)", isError: true)
         }
         let shape = loaded.shape
 
@@ -282,7 +282,7 @@ public enum IntrospectionTools {
         do {
             loaded = try loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("query_topology: \(error)", isError: true)
         }
         let shape = loaded.shape
         var warnings: [String] = []
@@ -434,7 +434,7 @@ public enum IntrospectionTools {
             from = try loadShape(bodyId: fromBodyId, store: store)
             to = try loadShape(bodyId: toBodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("measure_distance: \(error)", isError: true)
         }
 
         if !computeContacts {

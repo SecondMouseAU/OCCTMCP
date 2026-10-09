@@ -57,7 +57,7 @@ public enum SelectionTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("select_topology: \(error)", isError: true)
         }
         // #91: shape.faces()/.edges()/.vertices() enumeration order is
         // NOT guaranteed to equal the graph's own per-kind node index
