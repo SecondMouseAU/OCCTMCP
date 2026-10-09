@@ -40,20 +40,20 @@ public enum AssemblyTools {
         let path: String
         if let p = inputPath {
             guard FileManager.default.fileExists(atPath: p) else {
-                return .init("File not found: \(p)")
+                return .init("File not found: \(p)", isError: true)
             }
             path = p
         } else if let id = bodyId {
             guard let manifest = try? store.read() else {
-                return .init("No scene loaded.")
+                return .init("No scene loaded.", isError: true)
             }
             guard let body = manifest.body(withId: id) else {
-                return .init("Body not found: \(id)")
+                return .init("Body not found: \(id)", isError: true)
             }
             let outputDir = (store.path as NSString).deletingLastPathComponent
             path = "\(outputDir)/\(body.file)"
         } else {
-            return .init("inspect_assembly requires either bodyId or inputPath.")
+            return .init("inspect_assembly requires either bodyId or inputPath.", isError: true)
         }
 
         let ext = (path as NSString).pathExtension.lowercased()
@@ -94,7 +94,7 @@ public enum AssemblyTools {
                 return .init("Failed to load XBF: \(error.localizedDescription)", isError: true)
             }
         default:
-            return .init("Unsupported extension '\(ext)' for inspect_assembly.")
+            return .init("Unsupported extension '\(ext)' for inspect_assembly.", isError: true)
         }
 
         var components = 0
@@ -240,7 +240,7 @@ extension AssemblyTools {
         metadata: AssemblyMetadata
     ) async -> ToolText {
         guard FileManager.default.fileExists(atPath: inputPath) else {
-            return .init("File not found: \(inputPath)")
+            return .init("File not found: \(inputPath)", isError: true)
         }
         let ext = (inputPath as NSString).pathExtension.lowercased()
         let document: Document
@@ -259,7 +259,7 @@ extension AssemblyTools {
             case "xbf":
                 document = try Document.load(from: URL(fileURLWithPath: inputPath))
             default:
-                return .init("Unsupported extension '.\(ext)'. Pass STEP or XBF.")
+                return .init("Unsupported extension '.\(ext)'. Pass STEP or XBF.", isError: true)
             }
         } catch {
             return .init("Failed to load document: \(error.localizedDescription)", isError: true)
@@ -275,10 +275,10 @@ extension AssemblyTools {
             target = main
         case .component:
             guard let id = componentId else {
-                return .init("componentId is required when scope=component.")
+                return .init("componentId is required when scope=component.", isError: true)
             }
             guard let node = document.node(at: id) else {
-                return .init("No component with labelId \(id) in document.")
+                return .init("No component with labelId \(id) in document.", isError: true)
             }
             target = node
         }
