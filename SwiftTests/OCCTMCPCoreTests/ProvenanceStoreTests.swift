@@ -129,10 +129,16 @@ struct ProvenanceStoreTests {
             }
         }
 
-        // Whichever interleaving actually happened, the file must be
-        // internally consistent (a valid decode, not a torn write): every
-        // `pre*` id is gone (clear supersedes it), and the final state is
-        // exactly whatever set of `post*` upserts landed after the clear.
+        // Whichever interleaving actually happened, the file must be a valid decode (not a torn
+        // write): every `pre*` id is gone (clear supersedes it), and what remains is only `post*`
+        // upserts that landed after the clear. The file is decoded directly, because
+        // `store.read` maps an undecodable file to an empty dictionary.
+        let sidecar = URL(fileURLWithPath: "\(outputDir)/provenance.json")
+        if FileManager.default.fileExists(atPath: sidecar.path) {
+            let decoded = try JSONDecoder().decode(
+                [String: ProvenanceRecord].self, from: Data(contentsOf: sidecar))
+            #expect(decoded.keys.allSatisfy { $0.hasPrefix("post") }, "only post* may survive")
+        }
         let final = await store.read(outputDir: outputDir)
         for i in 0..<50 {
             #expect(final["pre\(i)"] == nil, "pre\(i) should not survive a clear()")
@@ -141,5 +147,16 @@ struct ProvenanceStoreTests {
             #expect(key.hasPrefix("post"), "unexpected surviving key \(key)")
             #expect(record.sourceBodyId.hasPrefix("post-src"))
         }
+
+        // A clear must leave the store usable: an upsert after it persists, and exactly the
+        // post* survivors plus the new id are in the file. An empty final state above would
+        // pass without this.
+        await store.upsert(
+            bodyId: "after-clear", record: provenanceRecord(source: "after-src"), outputDir: outputDir)
+        let afterwards = try JSONDecoder().decode(
+            [String: ProvenanceRecord].self, from: Data(contentsOf: sidecar))
+        let record = try #require(afterwards["after-clear"], "an upsert after clear() was lost")
+        #expect(record.sourceBodyId == "after-src")
+        #expect(Set(afterwards.keys) == Set(final.keys).union(["after-clear"]))
     }
 }
