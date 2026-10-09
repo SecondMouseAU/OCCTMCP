@@ -7,6 +7,7 @@
 // response against that fixture.
 
 import Foundation
+import MCP
 import Testing
 import OCCTSwift
 import ScriptHarness
@@ -560,6 +561,49 @@ struct SelectionBridgeToolsTests {
         #expect(!accepted.isError, "unexpected error: \(accepted.text)")
         let raw = try rawRequest(dir)
         #expect((raw["label"] as? String)?.count == 80)
+    }
+
+    @Test("highlight_selection (#209): the MCP dispatch passes `label` through to the request")
+    func labelReachesTheRequestThroughTheServer() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        // Through the server, not SelectionBridgeTools.highlightSelection directly: the
+        // `label: arguments["label"]?.stringValue` line in Server.swift is the only thing
+        // between the wire and the tool, and the direct-call tests cannot see it.
+        let (clientTransport, serverTransport) = await InMemoryTransport.createConnectedPair()
+        let server = await makeOCCTMCPServer(outputDirectory: URL(fileURLWithPath: dir))
+        try await server.start(transport: serverTransport)
+        let client = Client(name: "test", version: "1")
+        _ = try await client.connect(transport: clientTransport)
+
+        let args: [String: Value] = [
+            "bodyId": .string("box"), "kind": .string("face"), "index": .int(1),
+            "scheme": .string("replace"), "target": .string("attention"),
+            "label": .string("mounting face"), "timeoutSeconds": .double(0.2),
+        ]
+        let (content, _) = try await client.callTool(name: "highlight_selection", arguments: args)
+        var text = ""
+        if case .text(let t, _, _) = content.first { text = t }
+        let r = try JSONDecoder().decode(HighlightResultMirror.self, from: Data(text.utf8))
+        let id = try #require(r.id, "no request id in \(text)")
+        let raw = try #require(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: URL(fileURLWithPath: "\(dir)/highlight_requests/\(id).json")))
+                as? [String: Any])
+        #expect(raw["label"] as? String == "mounting face")
+
+        // And the validation is reachable from the wire too.
+        var tooLong = args
+        tooLong["label"] = .string(String(repeating: "x", count: 81))
+        let (rejected, isError) = try await client.callTool(name: "highlight_selection", arguments: tooLong)
+        var rejectedText = ""
+        if case .text(let t, _, _) = rejected.first { rejectedText = t }
+        #expect(isError == true, "an 81-character label must be rejected through the server: \(rejectedText)")
+        #expect(rejectedText.contains("80"), "wrong error: \(rejectedText)")
     }
 
     @Test("highlight_selection (#209): empty and whitespace-only labels are rejected without writing")
