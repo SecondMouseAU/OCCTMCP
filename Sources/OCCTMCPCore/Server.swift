@@ -854,7 +854,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "highlight_selection",
             description:
-                "Ask the live viewport host to highlight one sub-shape (SecondMouseAU/OCCTSwiftInteraction#17: writes <output_dir>/highlight_requests/<id>.json, polls highlight_requests/handled/<id>.json for the real outcome). target picks what is marked: \"attention\" (default) is the agent's own marker, one entity at a time, which leaves the human's selection untouched; \"selection\" changes the human's selection. Requests with a question always land in the selection, whatever target says. scheme mirrors OCCTSwiftAIS.SelectionScheme and applies to the attention slot unless target is \"selection\" (attention: replace/add set the marker, remove clears it if it matches, xor toggles it). With target \"selection\", replace DISCARDS the human's current selection; use add, remove or xor to keep it. kind \"body\" is rejected under attention (no whole-body marker): pass target \"selection\". bodyId/kind/index are written through unvalidated against the live scene (this tool has no other access to check them); an unknown bodyId or out-of-range index still comes back as the host's own rejected outcome through the same poll, not a client-side pre-check. Returns outcome=\"noHost\" immediately (no request written) if no viewport host is running, \"timeout\" if the host never writes a handled/ response within the deadline, or the host's own applied/rejected/superseded outcome.",
+                "Ask the live viewport host to highlight one sub-shape (SecondMouseAU/OCCTSwiftInteraction#17: writes <output_dir>/highlight_requests/<id>.json, polls highlight_requests/handled/<id>.json for the real outcome). target picks what is marked: \"attention\" (default) is the agent's own marker, one entity at a time, which leaves the human's selection untouched; \"selection\" changes the human's selection. Requests with a question always land in the selection, whatever target says. Optional label (max 80 characters, not empty) names the attention marker in words and is written into the request as `label`; under target \"selection\" it is ignored (not validated, not written). A host on OCCTSwiftInteraction 3.0.0-beta.4 or later shows it beside the marker; an older host ignores the extra key. Also ignored when `question` is given, because a request with a question always selects. scheme mirrors OCCTSwiftAIS.SelectionScheme and applies to the attention slot unless target is \"selection\" (attention: replace/add set the marker, remove clears it if it matches, xor toggles it). With target \"selection\", replace DISCARDS the human's current selection; use add, remove or xor to keep it. kind \"body\" is rejected under attention (no whole-body marker): pass target \"selection\". bodyId/kind/index are written through unvalidated against the live scene (this tool has no other access to check them); an unknown bodyId or out-of-range index still comes back as the host's own rejected outcome through the same poll, not a client-side pre-check. Returns outcome=\"noHost\" immediately (no request written) if no viewport host is running, \"timeout\" if the host never writes a handled/ response within the deadline, or the host's own applied/rejected/superseded outcome.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -883,6 +883,12 @@ private func builtinCatalogTools() -> [Tool] {
                         "type": .string("string"),
                         "description": .string(
                             "Optional natural-language context for the host to show alongside the highlight, e.g. when confirming an ambiguous pick with a human."
+                        ),
+                    ]),
+                    "label": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Optional short text naming what the attention marker points at (1 to 80 characters, not whitespace-only). Only applies to target \"attention\" without a `question`; ignored under \"selection\" and when `question` is given. Shown beside the marker by hosts on OCCTSwiftInteraction 3.0.0-beta.4 or later."
                         ),
                     ]),
                     "timeoutSeconds": .object([
@@ -2511,6 +2517,7 @@ func dispatch(
             bodyId: bodyId, kind: kind, index: index, scheme: scheme,
             target: arguments["target"]?.stringValue ?? SelectionBridgeTools.defaultTarget,
             question: arguments["question"]?.stringValue,
+            label: arguments["label"]?.stringValue,
             timeoutSeconds: timeout
         ).asCallToolResult()
 

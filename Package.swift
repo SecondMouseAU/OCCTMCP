@@ -139,7 +139,7 @@ let package = Package(
         // OCCTSwiftTools/OCCTSwiftAIS repos are archived, not deleted, so their tags stay
         // resolvable, but this repo has no reason to keep depending on the archived line once the
         // one blocker is gone.
-        occtDep("OCCTSwiftInteraction", from: "3.0.0-beta.1"),
+        occtDep("OCCTSwiftInteraction", from: "3.0.0-beta.4"),  // >=3.0.0-beta.4 (#209): the optional `label` on a highlight_requests payload (OCCTSwiftInteraction#35/#36), shown beside the agent attention marker
         // OCCTSwiftIO is a transitive dependency of OCCTSwiftScripts / OCCTSwiftTools,
         // declared open-endedly (`from: 1.0.x`-ish) in their manifests. Was capped to
         // the 1.0.x line here to dodge a heavy mesh-IO stack (SwiftPMX / SwiftGLTF /
