@@ -2,9 +2,9 @@
 // exporter, so every nodes.edges[] entry carries `convexity` and `dihedralAngle`.
 
 import Foundation
-import Testing
-import OCCTSwift
 @testable import OCCTMCPCore
+import OCCTSwift
+import Testing
 
 @Suite("graph_ml per-edge convexity (#231)")
 struct GraphMLEdgeConvexityTests {
