@@ -38,7 +38,7 @@ public enum SceneTools {
         await history.snapshot(store: store)
 
         guard let target = manifest.body(withId: bodyId) else {
-            return .init("Body not found: \(bodyId)")
+            return .init("Body not found: \(bodyId)", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let bodyFile = "\(outputDir)/\(target.file)"
@@ -118,10 +118,11 @@ public enum SceneTools {
         await history.snapshot(store: store)
 
         guard let target = manifest.body(withId: bodyId) else {
-            return .init("Body not found: \(bodyId)")
+            return .init("Body not found: \(bodyId)", isError: true)
         }
         if manifest.bodies.contains(where: { $0.id == newBodyId }) {
-            return .init("Cannot rename: a body with id \"\(newBodyId)\" already exists.")
+            return .init(
+                "Cannot rename: a body with id \"\(newBodyId)\" already exists.", isError: true)
         }
 
         let updatedBodies = manifest.bodies.map { body -> BodyDescriptor in
@@ -193,7 +194,8 @@ public enum SceneTools {
     ) async -> ToolText {
         if !update.anyFieldSet {
             return .init(
-                "No appearance fields provided. Pass at least one of: color, opacity, roughness, metallic, name."
+                "No appearance fields provided. Pass at least one of: color, opacity, roughness, metallic, name.",
+                isError: true
             )
         }
         if let c = update.color, c.count != 3 && c.count != 4 {
@@ -205,7 +207,7 @@ public enum SceneTools {
         await history.snapshot(store: store)
 
         guard let target = manifest.body(withId: bodyId) else {
-            return .init("Body not found: \(bodyId)")
+            return .init("Body not found: \(bodyId)", isError: true)
         }
 
         var newColor = target.color
