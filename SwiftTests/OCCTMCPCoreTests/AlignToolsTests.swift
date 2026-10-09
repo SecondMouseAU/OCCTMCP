@@ -135,9 +135,14 @@ struct AlignToolsTests {
         let transformed = try #require(source.transformed(matrix: matrix12(fromRowMajor: r.transform)))
         let refBounds = try #require(reference.bounds)
         let gotBounds = try #require(transformed.bounds)
-        // Coarse stage only — a looser envelope than bestFit's tight recovery ("within a few mm").
-        #expect(simd_length(gotBounds.min - refBounds.min) < 5.0)
-        #expect(simd_length(gotBounds.max - refBounds.max) < 5.0)
+        // Control: the fixture really starts far from the reference (about 69 mm at the min
+        // corner), so landing near it is the pre-align's doing and not the fixture's.
+        let sourceBounds = try #require(source.bounds)
+        #expect(simd_length(sourceBounds.min - refBounds.min) > 50.0)
+        // The fixture is a clean rigid copy, so the PCA/bbox pose is exact up to mesh noise
+        // (measured about 1e-6 mm). 0.05 mm is far inside a 1 mm error and far outside the noise.
+        #expect(simd_length(gotBounds.min - refBounds.min) < 0.05)
+        #expect(simd_length(gotBounds.max - refBounds.max) < 0.05)
     }
 
     // ── 3. apply: true end-to-end ────────────────────────────────────────
@@ -152,19 +157,23 @@ struct AlignToolsTests {
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let sourcePath = "\(outputDir)/\(sourceBody.file)"
 
+        let backdated = Date(timeIntervalSinceNow: -3600)
+        try FileManager.default.setAttributes([.modificationDate: backdated], ofItemAtPath: store.path)
+
         let result = await AlignTools.alignBodies(
             bodyId: "source", referenceBodyId: "reference", apply: true, store: store
         )
         #expect(!result.isError, "unexpected error: \(result.text)")
         let r = try JSONDecoder().decode(AlignReport.self, from: Data(result.text.utf8))
         #expect(r.applied)
+        let attrs = try FileManager.default.attributesOfItem(atPath: store.path)
+        let manifestMtime = try #require(attrs[.modificationDate] as? Date)
 
+        // The manifest rewrite is what triggers the viewport's live reload. Timestamps inside
+        // the manifest are second-precision, so the proof is the file's mtime, backdated first.
+        #expect(manifestMtime > backdated, "apply: true must rewrite manifest.json")
         let afterManifest = try #require(try store.read())
-        // >= not >: ManifestStore round-trips timestamps through ISO8601 (second-precision, no
-        // fractional seconds), so two writes within the same wall-clock second — routine for a
-        // fast in-process test — decode as EQUAL even though `store.write` did call `Date()` again.
-        // The BREP re-load below is the real, unambiguous proof the write happened.
-        #expect(afterManifest.timestamp >= beforeManifest.timestamp, "manifest timestamp must not go backwards")
+        #expect(afterManifest.bodies.map(\.id) == beforeManifest.bodies.map(\.id))
 
         // The BREP file on disk now holds the aligned shape — the unambiguous proof the write
         // actually happened, independent of timestamp granularity.

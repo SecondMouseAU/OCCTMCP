@@ -77,31 +77,15 @@ struct SelectionRegistryTests {
         #expect(await registry.count() == 0)
     }
 
-    /// Interleaves many concurrent `record` calls with several concurrent
-    /// `clear` calls on the same actor instance. Because Swift actors only
-    /// serialize the body of a single call, this reproduces the exact
-    /// window #135 was about: a task can land on the actor between what
-    /// used to be a separate `count()` read and the following `clear()`.
+    /// The `clear()` primitive's count matches its removal under concurrent record calls.
     ///
-    /// The invariant checked: every recorded selection is either still live
-    /// at the end, or was counted by exactly one `clear()` call's return
-    /// value; none can be lost in between. That only holds when `clear()`
-    /// computes its count and performs the removal in one atomic actor hop
-    /// (the fix); a split count()-then-clear() can let a just-added
-    /// selection be swept up by the removal without ever being reflected in
-    /// any reported `cleared` value, breaking the invariant.
+    /// Every recorded selection is either still live at the end or counted by exactly one
+    /// `clear()` return value.
     ///
-    /// #151 note: this test validates the NEW `Int`-returning `clear()`
-    /// primitive's atomicity going forward (a regression guard against, e.g.,
-    /// a future `await` sneaking into `clear()`'s body and breaking its
-    /// single-hop guarantee). It does NOT literally reproduce the original
-    /// #135 bug: that race lived in the CALLER-level composition
-    /// (`IntrospectionRegistryTools.clearSelections` doing a separate
-    /// `count()` then a separate `clear()`), and the pre-fix `clear()`
-    /// returned `Void`, so this test — written against the current `Int`
-    /// signature — can't even compile against that code to demonstrate it
-    /// failing there. Don't read a future untouched pass here as evidence
-    /// some hypothetical reverted caller-level version would also pass.
+    /// This guards only the `clear()` primitive (for example a future `await` in its body). It
+    /// cannot detect #135, whose race lived in the caller (`clearSelections` calling `count()` and
+    /// then `clear()`). A tool-layer version of this test was tried against that split and never
+    /// went red (see #212), so no test here claims to cover it.
     @Test("clear() stays atomic with its own count under concurrent record/clear calls")
     func clearIsAtomicUnderConcurrency() async throws {
         let registry = SelectionRegistry()

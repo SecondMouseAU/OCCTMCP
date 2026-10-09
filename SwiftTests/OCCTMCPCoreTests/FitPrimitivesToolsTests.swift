@@ -260,6 +260,47 @@ struct FitPrimitivesToolsTests {
         #expect(scores.dihedral >= 0 && scores.dihedral <= 1)
         #expect(scores.ransac >= 0 && scores.ransac <= 1)
         #expect(scores.chosen == "dihedral" || scores.chosen == "ransac")
+
+        // Both candidates fit a clean tube perfectly, so the scores tie and the choice is not
+        // under test here; the result must still be the one cylinder the tube is made of.
+        #expect(abs(scores.dihedral - scores.ransac) < 1e-9, "expected a tie, got \(scores)")
+        #expect(r.primitives.count == 1, "expected one cylinder, got \(r.primitives.map(\.kind))")
+        let barrel = try #require(r.primitives.first)
+        #expect(barrel.kind == "cylinder")
+        #expect(barrel.supportTriangles == 240)
+    }
+
+    @MainActor
+    @Test("strategy \"auto\" picks the higher-scoring candidate and returns that candidate's primitives")
+    func autoStrategyPicksHigherScorer() async throws {
+        let (store, dir) = try freshScene("autopick")
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let stlPath = "\(dir)/panelsphere.stl"
+        try Self.writePanelAndSphereSTL(to: stlPath)
+        let importResult = await IOTools.importFile(
+            inputPath: stlPath, format: .stl, idPrefix: "autopick", store: store, history: SceneHistory()
+        )
+        #expect(!importResult.isError, "import failed: \(importResult.text)")
+        let imported = try JSONDecoder().decode(ImportReport.self, from: Data(importResult.text.utf8))
+        let bodyId = try #require(imported.addedBodyIds.first)
+
+        // A tight inlier epsilon starves RANSAC on the sphere's facets (score 0.0) while the
+        // dihedral grower still scores 1.0, so the two scores differ and "chosen" is decidable.
+        let result = await FitPrimitivesTools.fitPrimitives(
+            bodyId: bodyId, strategy: .auto, inlierEpsilonMm: 0.05, render: false, store: store
+        )
+        #expect(!result.isError, "fit_primitives failed: \(result.text)")
+        let r = try JSONDecoder().decode(FitReport.self, from: Data(result.text.utf8))
+        let scores = try #require(r.strategyScores)
+        // A margin, not just an ordering: 1.0 against 0.0 on this fixture, so a ceiling of 0.5
+        // leaves room for numerical noise and still fails if the fixture stops separating them.
+        #expect(scores.dihedral - scores.ransac > 0.5, "fixture no longer separates the scores: \(scores)")
+        #expect(scores.chosen == "dihedral", "chosen must be the higher scorer, got \(scores)")
+
+        // The dihedral candidate's regions: the sphere (12*2 + 9*12*2 = 240 triangles) and the
+        // 6x6 panel (72 triangles), largest first.
+        #expect(r.primitives.map(\.kind) == ["sphere", "plane"])
+        #expect(r.primitives.map(\.supportTriangles) == [12 * 2 + 9 * 12 * 2, 6 * 6 * 2])
     }
 
     // ── Dispatch: an unrecognized strategy errors, never silently defaults ──
