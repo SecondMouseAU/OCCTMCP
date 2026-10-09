@@ -197,15 +197,15 @@ public enum CorrespondenceTools {
         registry: SelectionRegistry = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded.")
+            return .init("No scene loaded.", isError: true)
         }
         guard let targetBody = manifest.body(withId: targetBodyId) else {
-            return .init("Target body not found: \(targetBodyId)")
+            return .init("Target body not found: \(targetBodyId)", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let targetPath = "\(outputDir)/\(targetBody.file)"
         guard FileManager.default.fileExists(atPath: targetPath) else {
-            return .init("Target BREP missing or unreadable: \(targetPath)")
+            return .init("Target BREP missing or unreadable: \(targetPath)", isError: true)
         }
         // #91/#93: resolve through the retained lineage graph so target
         // sub-shape indices below are graph indices (correct for a later
@@ -216,7 +216,7 @@ public enum CorrespondenceTools {
             targetLineage = try await HistoryRegistry.shared.currentInput(
                 bodyId: targetBodyId, path: targetPath)
         } catch {
-            return .init("Target BREP missing or unreadable: \(targetPath)")
+            return .init("Target BREP missing or unreadable: \(targetPath)", isError: true)
         }
         let targetShape = targetLineage.shape
         let targetGraph = targetLineage.graph
