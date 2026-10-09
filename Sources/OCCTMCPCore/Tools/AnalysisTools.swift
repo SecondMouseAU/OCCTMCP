@@ -29,13 +29,13 @@ public enum AnalysisTools {
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let targets: [BodyDescriptor]
         if let id = bodyId {
             guard let body = manifest.body(withId: id) else {
-                return .init("Body not found: \(id)")
+                return .init("Body not found: \(id)", isError: true)
             }
             targets = [body]
         } else {
@@ -106,7 +106,7 @@ public enum AnalysisTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("\(error)", isError: true)
         }
         return IntrospectionTools.encode(
             buildFeatureReport(shape: loaded.shape, bodyId: bodyId, kinds: kinds)
@@ -182,7 +182,9 @@ public enum AnalysisTools {
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
         if bodyIds.count < 2 {
-            return .init("analyze_clearance needs at least 2 body ids; got \(bodyIds.count).")
+            return .init(
+                "analyze_clearance needs at least 2 body ids; got \(bodyIds.count).",
+                isError: true)
         }
         var loaded: [(id: String, shape: Shape)] = []
         for id in bodyIds {
@@ -190,7 +192,7 @@ public enum AnalysisTools {
                 let l = try IntrospectionTools.loadShape(bodyId: id, store: store)
                 loaded.append((id, l.shape))
             } catch {
-                return .init("\(error)")
+                return .init("\(error)", isError: true)
             }
         }
 
@@ -242,7 +244,7 @@ public enum AnalysisTools {
 
     public static func graphValidate(brepPath: String) async -> ToolText {
         guard FileManager.default.fileExists(atPath: brepPath) else {
-            return .init("BREP file not found: \(brepPath)")
+            return .init("BREP file not found: \(brepPath)", isError: true)
         }
         do {
             let shape = try Shape.loadBREP(fromPath: brepPath)
@@ -268,7 +270,7 @@ public enum AnalysisTools {
 
     public static func graphCompact(brepPath: String, outputPath: String) async -> ToolText {
         guard FileManager.default.fileExists(atPath: brepPath) else {
-            return .init("BREP file not found: \(brepPath)")
+            return .init("BREP file not found: \(brepPath)", isError: true)
         }
         do {
             let shape = try Shape.loadBREP(fromPath: brepPath)
@@ -305,7 +307,7 @@ public enum AnalysisTools {
 
     public static func graphDedup(brepPath: String, outputPath: String) async -> ToolText {
         guard FileManager.default.fileExists(atPath: brepPath) else {
-            return .init("BREP file not found: \(brepPath)")
+            return .init("BREP file not found: \(brepPath)", isError: true)
         }
         do {
             let shape = try Shape.loadBREP(fromPath: brepPath)
@@ -333,7 +335,7 @@ public enum AnalysisTools {
         description: String? = nil
     ) async -> ToolText {
         guard FileManager.default.fileExists(atPath: brepPath) else {
-            return .init("BREP file not found: \(brepPath)")
+            return .init("BREP file not found: \(brepPath)", isError: true)
         }
         do {
             let shape = try Shape.loadBREP(fromPath: brepPath)
@@ -430,7 +432,7 @@ public enum AnalysisTools {
         edgeClass: String?
     ) async -> ToolText {
         guard FileManager.default.fileExists(atPath: brepPath) else {
-            return .init("BREP file not found: \(brepPath)")
+            return .init("BREP file not found: \(brepPath)", isError: true)
         }
         do {
             let shape = try Shape.loadBREP(fromPath: brepPath)
@@ -524,7 +526,7 @@ public enum AnalysisTools {
 
     public static func featureRecognize(brepPath: String) async -> ToolText {
         guard FileManager.default.fileExists(atPath: brepPath) else {
-            return .init("BREP file not found: \(brepPath)")
+            return .init("BREP file not found: \(brepPath)", isError: true)
         }
         do {
             let shape = try Shape.loadBREP(fromPath: brepPath)

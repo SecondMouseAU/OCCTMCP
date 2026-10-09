@@ -37,10 +37,11 @@ public enum DrawingTools {
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         guard !bodyIds.isEmpty else {
-            return .init("generate_drawing requires `bodyId` or a non-empty `bodyIds`.")
+            return .init(
+                "generate_drawing requires `bodyId` or a non-empty `bodyIds`.", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
 
@@ -48,11 +49,11 @@ public enum DrawingTools {
         var loaded: [(id: String, name: String, shape: Shape)] = []
         for id in bodyIds {
             guard let body = manifest.body(withId: id) else {
-                return .init("Body not found: \(id)")
+                return .init("Body not found: \(id)", isError: true)
             }
             let inputPath = "\(outputDir)/\(body.file)"
             guard FileManager.default.fileExists(atPath: inputPath) else {
-                return .init("BREP file missing: \(inputPath)")
+                return .init("BREP file missing: \(inputPath)", isError: true)
             }
             do {
                 let shape = try Shape.loadBREP(fromPath: inputPath)
@@ -64,14 +65,14 @@ public enum DrawingTools {
         }
 
         guard case .object = spec else {
-            return .init("`spec` must be a JSON object.")
+            return .init("`spec` must be a JSON object.", isError: true)
         }
         let drawingSpec: DrawingSpec
         do {
             let specData = try JSONEncoder().encode(spec)
             drawingSpec = try JSONDecoder().decode(DrawingSpec.self, from: specData)
         } catch {
-            return .init("Invalid DrawingSpec: \(error.localizedDescription)")
+            return .init("Invalid DrawingSpec: \(error.localizedDescription)", isError: true)
         }
 
         let result: DrawingComposerResult

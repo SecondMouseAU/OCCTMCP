@@ -30,7 +30,7 @@ public enum IOTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard FileManager.default.fileExists(atPath: inputPath) else {
-            return .init("BREP file not found: \(inputPath)")
+            return .init("BREP file not found: \(inputPath)", isError: true)
         }
         let manifestExists = (try? store.read()) != nil
         let manifest: ScriptManifest =
@@ -42,7 +42,8 @@ public enum IOTools {
 
         let resolvedId = bodyId ?? defaultBodyId(from: inputPath)
         if manifest.bodies.contains(where: { $0.id == resolvedId }) {
-            return .init("Body id \"\(resolvedId)\" already exists. Pass a different bodyId.")
+            return .init(
+                "Body id \"\(resolvedId)\" already exists. Pass a different bodyId.", isError: true)
         }
         let shape: Shape
         do {
@@ -79,15 +80,19 @@ public enum IOTools {
                 file: outFile,
                 color: color
             ))
-        try? store.write(
-            ScriptManifest(
-                version: manifest.version,
-                timestamp: Date(),
-                description: manifest.description ?? "Imported via read_brep",
-                bodies: bodies,
-                graphs: manifest.graphs,
-                metadata: manifest.metadata
-            ))
+        do {
+            try store.write(
+                ScriptManifest(
+                    version: manifest.version,
+                    timestamp: Date(),
+                    description: manifest.description ?? "Imported via read_brep",
+                    bodies: bodies,
+                    graphs: manifest.graphs,
+                    metadata: manifest.metadata
+                ))
+        } catch {
+            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+        }
 
         return IntrospectionTools.encode(
             LoadReport(
@@ -146,10 +151,12 @@ public enum IOTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard FileManager.default.fileExists(atPath: inputPath) else {
-            return .init("File not found: \(inputPath)")
+            return .init("File not found: \(inputPath)", isError: true)
         }
         guard let resolved = ImportFormat.resolve(path: inputPath, hint: format) else {
-            return .init("Could not determine format from extension. Pass `format` explicitly.")
+            return .init(
+                "Could not determine format from extension. Pass `format` explicitly.",
+                isError: true)
         }
 
         let shape: Shape
@@ -202,15 +209,19 @@ public enum IOTools {
         await history.snapshot(store: store)
         var bodies = manifest.bodies
         bodies.append(BodyDescriptor(id: id, file: outFile))
-        try? store.write(
-            ScriptManifest(
-                version: manifest.version,
-                timestamp: Date(),
-                description: manifest.description ?? "Imported via import_file",
-                bodies: bodies,
-                graphs: manifest.graphs,
-                metadata: manifest.metadata
-            ))
+        do {
+            try store.write(
+                ScriptManifest(
+                    version: manifest.version,
+                    timestamp: Date(),
+                    description: manifest.description ?? "Imported via import_file",
+                    bodies: bodies,
+                    graphs: manifest.graphs,
+                    metadata: manifest.metadata
+                ))
+        } catch {
+            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+        }
 
         return IntrospectionTools.encode(
             ImportReport(
@@ -232,7 +243,7 @@ public enum IOTools {
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let bodies: [BodyDescriptor]
@@ -242,13 +253,14 @@ public enum IOTools {
             let found = Set(bodies.compactMap { $0.id })
             let missing = ids.filter { !found.contains($0) }
             if !missing.isEmpty {
-                return .init("Body ids not found: \(missing.joined(separator: ", "))")
+                return .init(
+                    "Body ids not found: \(missing.joined(separator: ", "))", isError: true)
             }
         } else {
             bodies = manifest.bodies
         }
         if bodies.isEmpty {
-            return .init("No bodies to export.")
+            return .init("No bodies to export.", isError: true)
         }
 
         var shapes: [Shape] = []
