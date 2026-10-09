@@ -71,7 +71,9 @@ struct ManifestEmissionTests {
         let (content, isError) = try await client.callTool(name: tool, arguments: arguments)
         var text = ""
         if case .text(let t, _, _) = content.first { text = t }
-        #expect(isError != true, "\(tool) errored: \(text)")
+        // Stop here on a tool error: the mtime and body-list checks below would only add
+        // noise about a manifest the tool never reached.
+        try #require(isError != true, "\(tool) errored: \(text)")
         let after = try scene.mtime()
         #expect(after > before, "\(tool) did not rewrite manifest.json")
         return after

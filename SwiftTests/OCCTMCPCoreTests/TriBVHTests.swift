@@ -181,7 +181,10 @@ struct TriBVHTests {
         // Sorted and capped is not nearest. (2.5, 2.5) is the middle of cell (2, 2), whose two
         // triangles (indices 24 and 25) are both at distance exactly 3; every other triangle
         // is strictly farther, so a pruning bug that returns any other five fails here.
-        #expect(Set(hits.prefix(2).map(\.triangleIndex)) == [24, 25])
+        // Triangles are appended two per cell in gx-major order, so cell (gx, gy) owns
+        // triangle indices 2 * (gx * 5 + gy) and the next one.
+        let centreCell = 2 * 5 + 2
+        #expect(Set(hits.prefix(2).map(\.triangleIndex)) == [2 * centreCell, 2 * centreCell + 1])
         #expect(abs(hits[0].distance - 3) < 1e-9 && abs(hits[1].distance - 3) < 1e-9)
         #expect(hits[2].distance > 3 + 1e-6)
     }
