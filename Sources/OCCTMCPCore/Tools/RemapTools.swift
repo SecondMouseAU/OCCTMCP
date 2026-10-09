@@ -44,7 +44,7 @@ public enum RemapTools {
         historyRegistry: HistoryRegistry = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded.")
+            return .init("No scene loaded.", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
 

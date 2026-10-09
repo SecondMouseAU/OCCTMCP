@@ -57,7 +57,7 @@ public enum RayPickTool {
         registry: SelectionRegistry = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
 

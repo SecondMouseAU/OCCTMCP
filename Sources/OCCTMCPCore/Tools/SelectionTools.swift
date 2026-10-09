@@ -218,7 +218,8 @@ public enum SelectionTools {
             }
 
         default:
-            return .init("Unknown kind '\(kind)'. Expected one of: body, face, edge, vertex.")
+            return .init(
+                "Unknown kind '\(kind)'. Expected one of: body, face, edge, vertex.", isError: true)
         }
 
         let truncated = limit.map { entries.count > $0 } ?? false
