@@ -52,7 +52,8 @@ public enum AnnotationsTools {
                 let toSnap = await registry.snapshot(for: toId)
             else {
                 return .init(
-                    "Could not resolve linear anchors. Re-run select_topology if this is a fresh session."
+                    "Could not resolve linear anchors. Re-run select_topology if this is a fresh session.",
+                    isError: true
                 )
             }
             let a = SIMD3(fromSnap.center[0], fromSnap.center[1], fromSnap.center[2])
@@ -136,7 +137,8 @@ public enum AnnotationsTools {
                 centerArr = snap.center  // best we can do without circleCenter
             } else {
                 return .init(
-                    "Could not resolve circular edge: re-run select_topology after upgrading to capture circleCenter."
+                    "Could not resolve circular edge: re-run select_topology after upgrading to capture circleCenter.",
+                    isError: true
                 )
             }
             let value = showDiameter ? radius * 2 : radius

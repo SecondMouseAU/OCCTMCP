@@ -199,7 +199,25 @@ struct AnnotationsToolsErrorPathTests {
         defer { f.cleanup() }
         let before = try f.bytes(f.store)
         let registry = SelectionRegistry()
+        // A legacy edge snapshot with neither circleCenter nor arc length: the radial fallback
+        // has nothing to compute a radius from.
+        await registry.recordPointSnapshot(
+            selectionId: "sel:legacy#edge[0]", snapshot: AnchorSnapshot(center: [1, 0, 0]))
         let cases: [(label: String, result: ToolText, text: String)] = [
+            (
+                "linear unresolved",
+                await AnnotationsTools.addDimension(
+                    kind: .linear, anchors: ["from": "sel:x#vertex[0]", "to": "sel:x#vertex[1]"],
+                    store: f.store, registry: registry),
+                "Could not resolve linear anchors"
+            ),
+            (
+                "radial legacy snapshot without circleCenter or length",
+                await AnnotationsTools.addDimension(
+                    kind: .radial, anchors: ["circularEdge": "sel:legacy#edge[0]"],
+                    store: f.store, registry: registry),
+                "re-run select_topology after upgrading to capture circleCenter"
+            ),
             (
                 "linear missing",
                 await AnnotationsTools.addDimension(
@@ -234,7 +252,7 @@ struct AnnotationsToolsErrorPathTests {
                 "Could not resolve circular edge"
             ),
         ]
-        #expect(cases.count == 5)
+        #expect(cases.count == 7)
         for c in cases {
             #expect(c.result.text.contains(c.text), "\(c.label): \(c.result.text)")
             #expect(c.result.isError, "\(c.label)")
