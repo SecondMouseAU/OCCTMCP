@@ -163,7 +163,7 @@ public enum DeviationTools {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             toShape = try IntrospectionTools.loadShape(bodyId: toBodyId, store: store).shape
         } catch {
-            return .init("\(error)")
+            return .init("measure_deviation: \(error)", isError: true)
         }
 
         // Default deflection scales with the model so the bound is meaningful

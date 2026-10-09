@@ -158,7 +158,7 @@ public enum CrossSectionCompareTool {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             refShape = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store).shape
         } catch {
-            return .init("\(error)")
+            return .init("cross_section_compare: \(error)", isError: true)
         }
 
         guard let defl = deflection ?? DeviationTools.defaultDeflection(for: fromShape) else {

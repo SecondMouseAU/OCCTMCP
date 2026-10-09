@@ -89,7 +89,7 @@ public enum HeatmapTools {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             refShape = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store).shape
         } catch {
-            return .init("\(error)")
+            return .init("signed_deviation_heatmap: \(error)", isError: true)
         }
 
         guard let defl = deflection ?? DeviationTools.defaultDeflection(for: fromShape) else {
@@ -303,7 +303,7 @@ public enum HeatmapTools {
             solidShape = try IntrospectionTools.loadShape(bodyId: solidBodyId, store: store).shape
             meshShape = try IntrospectionTools.loadShape(bodyId: meshBodyId, store: store).shape
         } catch {
-            return .init("\(error)")
+            return .init("overlay_render: \(error)", isError: true)
         }
         let alpha = Float(max(0.05, min(0.95, transparency)))
 
