@@ -361,8 +361,11 @@ struct SlippageSweepAxisTests {
         // the panel-cube test above for a clean, uncontaminated plane
         // reading) never defaults the sweep axis to its own slippage axis.
         let top = try #require(seg.zones.first { $0.meanNormal.count == 3 && $0.meanNormal[2] > 0.5 })
-        #expect(top.slippage.map { !["cylinder", "extrusion", "revolution", "helix"].contains($0.kind) } ?? true,
-                "test premise broken: top face unexpectedly read as an axis-eligible kind (\(top.slippage?.kind ?? "nil"))")
+        // Require the slippage: with nil, selectSweepAxis falls back to PCA for a reason that has
+        // nothing to do with the plane rule this test exists to check.
+        let topSlippage = try #require(top.slippage, "test premise broken: the roof zone carries no slippage")
+        #expect(!["cylinder", "extrusion", "revolution", "helix"].contains(topSlippage.kind),
+                "test premise broken: top face unexpectedly read as an axis-eligible kind (\(topSlippage.kind))")
 
         let sweep = await ZoneSweepTool.zoneContinuitySweep(
             bodyId: bodyId, zoneId: top.id, render: false, registry: registry, store: store
