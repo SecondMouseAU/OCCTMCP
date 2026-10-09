@@ -219,7 +219,15 @@ public enum AlignTools {
             // Body file unchanged in the manifest sense (same path, new content), just bump the
             // timestamp so OCCTSwiftViewport's ScriptWatcher reloads, same as transform_body's
             // in-place branch.
-            try? store.write(loadedSource.manifest)
+            do {
+                try store.write(loadedSource.manifest)
+            } catch {
+                return .init(
+                    "Failed to write manifest: \(error.localizedDescription). The body file for "
+                        + "'\(bodyId)' was already rewritten on disk, so the viewport is stale.",
+                    isError: true
+                )
+            }
             applied = true
         }
 
