@@ -106,11 +106,12 @@ public enum GapFillerTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let current = try? store.read() else {
-            return .init("No scene loaded.")
+            return .init("No scene loaded.", isError: true)
         }
         let availableCount = await history.count()
         guard let prior = await history.snapshot(since: since) else {
-            return .init("Not enough history: requested \(since), have \(availableCount).")
+            return .init(
+                "Not enough history: requested \(since), have \(availableCount).", isError: true)
         }
         let diff = SceneTools.diffManifests(
             prev: prior, curr: current,

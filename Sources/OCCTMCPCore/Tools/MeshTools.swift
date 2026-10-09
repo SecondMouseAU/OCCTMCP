@@ -105,11 +105,12 @@ public enum MeshTools {
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
         if (targetTriangleCount == nil) == (targetReduction == nil) {
-            return .init("Pass exactly one of targetTriangleCount or targetReduction.")
+            return .init(
+                "Pass exactly one of targetTriangleCount or targetReduction.", isError: true)
         }
         let ext = (outputPath as NSString).pathExtension.lowercased()
         guard ext == "stl" || ext == "obj" else {
-            return .init("outputPath must end in .stl or .obj (got .\(ext)).")
+            return .init("outputPath must end in .stl or .obj (got .\(ext)).", isError: true)
         }
 
         let loaded: (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String)

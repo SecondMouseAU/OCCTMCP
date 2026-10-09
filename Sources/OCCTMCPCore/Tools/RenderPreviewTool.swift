@@ -123,7 +123,7 @@ public enum RenderPreviewTool {
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let targets: [BodyDescriptor]
@@ -133,13 +133,14 @@ public enum RenderPreviewTool {
             let found = Set(targets.compactMap { $0.id })
             let missing = ids.filter { !found.contains($0) }
             if !missing.isEmpty {
-                return .init("Body ids not found: \(missing.joined(separator: ", "))")
+                return .init(
+                    "Body ids not found: \(missing.joined(separator: ", "))", isError: true)
             }
         } else {
             targets = manifest.bodies
         }
         if targets.isEmpty {
-            return .init("No bodies to render.")
+            return .init("No bodies to render.", isError: true)
         }
 
         var bodies: [ViewportBody] = []

@@ -386,7 +386,8 @@ public enum IntrospectionTools {
                     ))
             }
         default:
-            return .init("Unknown entity '\(entity)'. Expected one of: face, edge, vertex.")
+            return .init(
+                "Unknown entity '\(entity)'. Expected one of: face, edge, vertex.", isError: true)
         }
 
         let truncated: Bool

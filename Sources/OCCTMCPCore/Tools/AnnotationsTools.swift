@@ -45,7 +45,8 @@ public enum AnnotationsTools {
         switch kind {
         case .linear:
             guard let fromId = anchors["from"], let toId = anchors["to"] else {
-                return .init("linear dimension requires anchors.from and anchors.to.")
+                return .init(
+                    "linear dimension requires anchors.from and anchors.to.", isError: true)
             }
             guard let fromSnap = await registry.snapshot(for: fromId),
                 let toSnap = await registry.snapshot(for: toId)
@@ -78,13 +79,15 @@ public enum AnnotationsTools {
         case .angular:
             guard let armA = anchors["armA"], let apex = anchors["apex"], let armB = anchors["armB"]
             else {
-                return .init("angular dimension requires anchors.armA, anchors.apex, anchors.armB.")
+                return .init(
+                    "angular dimension requires anchors.armA, anchors.apex, anchors.armB.",
+                    isError: true)
             }
             guard let snapA = await registry.snapshot(for: armA),
                 let snapApex = await registry.snapshot(for: apex),
                 let snapB = await registry.snapshot(for: armB)
             else {
-                return .init("Could not resolve angular anchors.")
+                return .init("Could not resolve angular anchors.", isError: true)
             }
             let pA = SIMD3(snapA.center[0], snapA.center[1], snapA.center[2])
             let pV = SIMD3(snapApex.center[0], snapApex.center[1], snapApex.center[2])
@@ -113,10 +116,10 @@ public enum AnnotationsTools {
 
         case .radial:
             guard let edgeId = anchors["circularEdge"] else {
-                return .init("radial dimension requires anchors.circularEdge.")
+                return .init("radial dimension requires anchors.circularEdge.", isError: true)
             }
             guard let snap = await registry.snapshot(for: edgeId) else {
-                return .init("Could not resolve circular edge.")
+                return .init("Could not resolve circular edge.", isError: true)
             }
             let rim = SIMD3(snap.center[0], snap.center[1], snap.center[2])
             // v0.7: prefer the geometric centre captured by select_topology.
