@@ -44,7 +44,7 @@ public enum AutoDimensionTool {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("auto_dimension: \(error)", isError: true)
         }
         // #91/#93: resolve through the retained lineage graph.
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)

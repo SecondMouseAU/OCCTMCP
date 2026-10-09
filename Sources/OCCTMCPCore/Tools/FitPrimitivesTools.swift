@@ -129,7 +129,7 @@ public enum FitPrimitivesTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("fit_primitives: \(error)", isError: true)
         }
         let shape = loaded.shape
 

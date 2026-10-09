@@ -436,7 +436,7 @@ public enum ZoneSweepTool {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("zone_continuity_sweep: \(error)", isError: true)
         }
         let shape = loaded.shape
 

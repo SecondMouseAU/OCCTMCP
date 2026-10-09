@@ -128,7 +128,7 @@ public enum VertexFitTools {
             fromShape = try IntrospectionTools.loadShape(bodyId: fromBodyId, store: store).shape
             toShape = try IntrospectionTools.loadShape(bodyId: toBodyId, store: store).shape
         } catch {
-            return .init("\(error)")
+            return .init("measure_vertex_fit: \(error)", isError: true)
         }
 
         let allVerts = fromShape.vertices()
