@@ -153,6 +153,9 @@ struct ProvenanceStoreTests {
         // pass without this.
         await store.upsert(
             bodyId: "after-clear", record: provenanceRecord(source: "after-src"), outputDir: outputDir)
+        try #require(
+            FileManager.default.fileExists(atPath: sidecar.path),
+            "provenance.json is missing after an upsert that followed clear()")
         let afterwards = try JSONDecoder().decode(
             [String: ProvenanceRecord].self, from: Data(contentsOf: sidecar))
         let record = try #require(afterwards["after-clear"], "an upsert after clear() was lost")

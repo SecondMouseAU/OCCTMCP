@@ -263,7 +263,7 @@ struct FitPrimitivesToolsTests {
 
         // Both candidates fit a clean tube perfectly, so the scores tie and the choice is not
         // under test here; the result must still be the one cylinder the tube is made of.
-        #expect(scores.dihedral == scores.ransac)
+        #expect(abs(scores.dihedral - scores.ransac) < 1e-9, "expected a tie, got \(scores)")
         #expect(r.primitives.count == 1, "expected one cylinder, got \(r.primitives.map(\.kind))")
         let barrel = try #require(r.primitives.first)
         #expect(barrel.kind == "cylinder")
@@ -292,13 +292,15 @@ struct FitPrimitivesToolsTests {
         #expect(!result.isError, "fit_primitives failed: \(result.text)")
         let r = try JSONDecoder().decode(FitReport.self, from: Data(result.text.utf8))
         let scores = try #require(r.strategyScores)
-        #expect(scores.dihedral > scores.ransac, "fixture no longer separates the scores: \(scores)")
+        // A margin, not just an ordering: 1.0 against 0.0 on this fixture, so a ceiling of 0.5
+        // leaves room for numerical noise and still fails if the fixture stops separating them.
+        #expect(scores.dihedral - scores.ransac > 0.5, "fixture no longer separates the scores: \(scores)")
         #expect(scores.chosen == "dihedral", "chosen must be the higher scorer, got \(scores)")
 
         // The dihedral candidate's regions: the sphere (12*2 + 9*12*2 = 240 triangles) and the
         // 6x6 panel (72 triangles), largest first.
         #expect(r.primitives.map(\.kind) == ["sphere", "plane"])
-        #expect(r.primitives.map(\.supportTriangles) == [240, 72])
+        #expect(r.primitives.map(\.supportTriangles) == [12 * 2 + 9 * 12 * 2, 6 * 6 * 2])
     }
 
     // ── Dispatch: an unrecognized strategy errors, never silently defaults ──
