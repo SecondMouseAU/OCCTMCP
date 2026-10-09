@@ -425,7 +425,19 @@ public enum MeshZoneTools {
             }
             if !ids.isEmpty {
                 await SceneHistory.shared.snapshot(store: store)
-                try? store.write(manifest)
+                do {
+                    try store.write(manifest)
+                } catch {
+                    // The zone bodies were never made visible: drop the files written for them.
+                    for id in ids {
+                        try? FileManager.default.removeItem(atPath: "\(outputDir)/\(id).brep")
+                    }
+                    return .init(
+                        "Failed to write manifest: \(error.localizedDescription). No zone bodies "
+                            + "were registered.",
+                        isError: true
+                    )
+                }
             }
             registeredBodyIds = ids
         }
