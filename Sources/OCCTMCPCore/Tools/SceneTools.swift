@@ -33,7 +33,7 @@ public enum SceneTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         await history.snapshot(store: store)
 
@@ -71,7 +71,7 @@ public enum SceneTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         await history.snapshot(store: store)
 
@@ -113,7 +113,7 @@ public enum SceneTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         await history.snapshot(store: store)
 
@@ -199,10 +199,11 @@ public enum SceneTools {
             )
         }
         if let c = update.color, c.count != 3 && c.count != 4 {
-            return .init("color must be [r,g,b] or [r,g,b,a]; got length \(c.count).")
+            return .init(
+                "color must be [r,g,b] or [r,g,b,a]; got length \(c.count).", isError: true)
         }
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         await history.snapshot(store: store)
 
@@ -287,12 +288,13 @@ public enum SceneTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let current = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         let availableCount = await history.count()
         guard let prior = await history.snapshot(since: since) else {
             return .init(
-                "Not enough history: requested \(since) runs back, only \(availableCount) snapshots available. Make at least \(since) state changes (execute_script or scene-mutation tools) before comparing."
+                "Not enough history: requested \(since) runs back, only \(availableCount) snapshots available. Make at least \(since) state changes (execute_script or scene-mutation tools) before comparing.",
+                isError: true
             )
         }
         let diff = diffManifests(
