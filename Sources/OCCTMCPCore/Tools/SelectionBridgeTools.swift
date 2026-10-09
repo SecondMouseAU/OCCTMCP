@@ -487,9 +487,10 @@ public enum SelectionBridgeTools {
 
         // A label names the agent's attention marker; under target "selection"
         // it has nothing to attach to, so it is ignored there (not validated,
-        // not written).
+        // not written). A request with a `question` always lands in the
+        // selection, and the host ignores a label on it, so the same applies.
         var writtenLabel: String? = nil
-        if target == "attention", let label {
+        if target == "attention", question == nil, let label {
             guard !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return ToolText(
                     "highlight_selection: label must not be empty or whitespace-only. "

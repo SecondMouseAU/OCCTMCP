@@ -521,6 +521,29 @@ struct SelectionBridgeToolsTests {
         #expect(raw["label"] == nil)
     }
 
+    @Test("highlight_selection (#209): a label on a request that carries a question is ignored, not written")
+    func highlightLabelIgnoredWithQuestion() async throws {
+        let store = try scene([])
+        let dir = dirOf(store)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+
+        // A request with a question always lands in the selection, and the host ignores a label
+        // on it (OCCTSwiftInteraction#36), so the tool neither validates nor writes one. The
+        // over-long label proves it is not validated; target is attention so only the question
+        // can be what gates it.
+        let tooLong = String(repeating: "x", count: 200)
+        let result = await SelectionBridgeTools.highlightSelection(
+            bodyId: "box", kind: "face", index: 1, scheme: "replace", target: "attention",
+            question: "Is this the datum?", label: tooLong, store: store,
+            timeoutSeconds: 0.1, pollIntervalSeconds: 0.02)
+        #expect(!result.isError, "unexpected error: \(result.text)")
+        let raw = try rawRequest(dir)
+        #expect(raw["question"] as? String == "Is this the datum?")
+        #expect(raw["label"] == nil)
+    }
+
     @Test("highlight_selection (#209): without a label the request has no label key")
     func highlightNoLabelKeyWhenAbsent() async throws {
         let store = try scene([])
