@@ -954,7 +954,7 @@ struct IntegrationTests {
         #expect(conf == 0, "history path should report confidenceMm=0 (got \(conf)); nonzero means the centroid heuristic answered instead of history")
     }
 
-    @Test("selection survives heal_shape (#93): history path when available, graceful fallback otherwise")
+    @Test("selection survives a no-op heal_shape (#93): the report says nothing changed and the selection resolves")
     func remapSurvivesHealShape() async throws {
         guard let binary = Self.binaryURL else {
             Issue.record("Binary not built, run `swift build` first.")
@@ -1018,6 +1018,32 @@ struct IntegrationTests {
         let healResp = try harness.recv(timeout: 30)
         expectToolOK(healResp, "heal_shape errored: \(healResp)")
 
+        // What heal_shape did, from its own report. No body this suite can build is changed by
+        // ShapeFix (pristine box, mesh box, unsewn faces, flipped triangles, touching boxes and a
+        // sliver wall were all probed: before == after and no history absorbed), so this test
+        // pins the no-op path honestly rather than claiming it exercised a real repair.
+        guard case .object(let hr)? = healResp["result"],
+              case .array(let hc)? = hr["content"],
+              case .object(let hf)? = hc.first,
+              let healText = hf["text"]?.stringValue,
+              let healData = healText.data(using: .utf8),
+              let heal = try JSONSerialization.jsonObject(with: healData) as? [String: Any],
+              let before = heal["before"] as? [String: Any],
+              let after = heal["after"] as? [String: Any],
+              let warnings = heal["warnings"] as? [String]
+        else {
+            Issue.record("heal_shape report shape unexpected: \(healResp)")
+            return
+        }
+        #expect(before["faceCount"] as? Int == 6 && before["edgeCount"] as? Int == 12)
+        #expect(after["faceCount"] as? Int == 6 && after["edgeCount"] as? Int == 12)
+        #expect(after["isValid"] as? Bool == true)
+        #expect(heal["outputPath"] as? String == "\(scene)/part.brep", "an in-place heal rewrites the body file")
+        #expect(warnings.contains { $0.contains("no structural change") },
+                "a pristine box heals as a no-op; got warnings \(warnings)")
+        #expect(warnings.contains { $0.contains("absorbed no records") },
+                "the no-op heal degrades to a generation reset, and says so; got warnings \(warnings)")
+
         try harness.send(.init(
             id: 86, method: "tools/call",
             params: .object([
@@ -1040,14 +1066,10 @@ struct IntegrationTests {
             return
         }
         let fate = entry["fate"] as? String ?? "<missing>"
-        // A pristine box may heal as a total no-op (healedWithFullHistory
-        // absorbing zero records), which degrades to a generation reset
-        // per the commit() decision tree, so this can't strictly assert
-        // confidenceMm == 0 the way the apply_feature/boolean_op history
-        // tests do. It can assert the selection wasn't lost or forced
-        // onto the (positive-distance) centroid heuristic's "approximate"
-        // path, which is the observable contract heal_shape promises
-        // regardless of which path served the answer.
+        // The no-op heal degrades to a generation reset per the commit() decision tree, so this
+        // can't assert a history-served answer the way the apply_feature/boolean_op tests do.
+        // It asserts the selection was not lost or pushed onto the centroid heuristic's
+        // "approximate" path.
         #expect(
             fate == "preserved" || fate == "split",
             "heal_shape should resolve to preserved or split (got \(fate))"
