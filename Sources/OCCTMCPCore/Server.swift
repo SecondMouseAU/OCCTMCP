@@ -888,7 +888,7 @@ private func builtinCatalogTools() -> [Tool] {
                     "label": .object([
                         "type": .string("string"),
                         "description": .string(
-                            "Optional short text naming what the attention marker points at (1 to 80 characters, not whitespace-only). Only applies to target \"attention\"; ignored under \"selection\". Shown beside the marker by hosts on OCCTSwiftInteraction 3.0.0-beta.4 or later."
+                            "Optional short text naming what the attention marker points at (1 to 80 characters, not whitespace-only). Only applies to target \"attention\" without a `question`; ignored under \"selection\" and when `question` is given. Shown beside the marker by hosts on OCCTSwiftInteraction 3.0.0-beta.4 or later."
                         ),
                     ]),
                     "timeoutSeconds": .object([

@@ -126,7 +126,7 @@ public enum SelectionBridgeTools {
         public let question: String?
         /// Short free-text name for an attention highlight, absent when not supplied.
         ///
-        /// Only written under `target: "attention"`.
+        /// Only written under `target: "attention"` and when no `question` is supplied.
         public let label: String?
     }
 
