@@ -155,4 +155,24 @@ struct ThrownErrorAlignFitTests {
         }
         #expect(try f.manifestBytes() == before)
     }
+    @MainActor
+    @Test("fit_primitives and zone_continuity_sweep name the tool when a zone cannot be resolved")
+    func unresolvedZoneNamesTheTool() async throws {
+        let f = try ThrownErrorAlignFixture()
+        defer { f.cleanup() }
+        let before = try f.manifestBytes()
+        let registry = ZoneRegistry()
+
+        let fit = await FitPrimitivesTools.fitPrimitives(
+            bodyId: "good", zoneId: "zone:good#99", render: false, registry: registry,
+            store: f.store)
+        check(fit, tool: "fit_primitives", reason: "Unknown zoneId", label: "unknown zone")
+
+        let sweep = await ZoneSweepTool.zoneContinuitySweep(
+            bodyId: "good", zoneId: "zone:good#99", render: false, registry: registry,
+            store: f.store)
+        check(sweep, tool: "zone_continuity_sweep", reason: "Unknown zoneId", label: "unknown zone")
+
+        #expect(try f.manifestBytes() == before)
+    }
 }

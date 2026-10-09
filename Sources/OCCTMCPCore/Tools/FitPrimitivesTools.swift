@@ -146,7 +146,7 @@ public enum FitPrimitivesTools {
                 verb: "fit", registry: registry, zonesStore: zonesStore, warnings: &warnings
             )
         } catch {
-            return .init("\(error)", isError: true)
+            return .init("fit_primitives: \(error)", isError: true)
         }
         let fitMesh = resolution.mesh
         guard fitMesh.triangleCount > 0 else {
