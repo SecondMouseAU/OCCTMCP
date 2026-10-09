@@ -44,22 +44,22 @@ public enum ConstructionTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         guard let body = manifest.body(withId: bodyId) else {
-            return .init("Body not found: \(bodyId)")
+            return .init("Body not found: \(bodyId)", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let inputPath = "\(outputDir)/\(body.file)"
         guard FileManager.default.fileExists(atPath: inputPath) else {
-            return .init("BREP file missing: \(inputPath)")
+            return .init("BREP file missing: \(inputPath)", isError: true)
         }
 
         let isInPlace = options.inPlace ?? (options.outputBodyId == nil)
         if !isInPlace, let newId = options.outputBodyId,
             manifest.bodies.contains(where: { $0.id == newId })
         {
-            return .init("Output body id \"\(newId)\" already exists.")
+            return .init("Output body id \"\(newId)\" already exists.", isError: true)
         }
 
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
@@ -155,10 +155,16 @@ public enum ConstructionTools {
                 graphs: manifest.graphs,
                 metadata: manifest.metadata
             )
-            try? store.write(updated)
+            do { try store.write(updated) } catch {
+                return .init(
+                    "Failed to write manifest: \(error.localizedDescription)", isError: true)
+            }
         } else {
             // Manifest body file unchanged; bump timestamp so the watcher reloads.
-            try? store.write(manifest)
+            do { try store.write(manifest) } catch {
+                return .init(
+                    "Failed to write manifest: \(error.localizedDescription)", isError: true)
+            }
         }
 
         let summary =
@@ -184,20 +190,21 @@ public enum ConstructionTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         guard let aBody = manifest.body(withId: aBodyId) else {
-            return .init("Body not found: \(aBodyId)")
+            return .init("Body not found: \(aBodyId)", isError: true)
         }
         guard let bBody = manifest.body(withId: bBodyId) else {
-            return .init("Body not found: \(bBodyId)")
+            return .init("Body not found: \(bBodyId)", isError: true)
         }
         let outId = outputBodyId ?? "\(op.rawValue)-\(aBodyId)-\(bBodyId)"
         if manifest.bodies.contains(where: {
             $0.id == outId && $0.id != aBodyId && $0.id != bBodyId
         }) {
             return .init(
-                "Output body id \"\(outId)\" already exists. Pass a different outputBodyId.")
+                "Output body id \"\(outId)\" already exists. Pass a different outputBodyId.",
+                isError: true)
         }
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
@@ -338,7 +345,10 @@ public enum ConstructionTools {
             graphs: manifest.graphs,
             metadata: manifest.metadata
         )
-        try? store.write(updated)
+        do { try store.write(updated) } catch {
+            return .init(
+                "Failed to write manifest: \(error.localizedDescription)", isError: true)
+        }
 
         let extra = removeInputs ? "; inputs removed" : ""
         return .init(
@@ -383,19 +393,19 @@ public enum ConstructionTools {
         history: SceneHistory = .shared
     ) async -> ToolText {
         guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.")
+            return .init("No scene loaded. Run execute_script first.", isError: true)
         }
         guard let body = manifest.body(withId: bodyId) else {
-            return .init("Body not found: \(bodyId)")
+            return .init("Body not found: \(bodyId)", isError: true)
         }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let inputPath = "\(outputDir)/\(body.file)"
         guard FileManager.default.fileExists(atPath: inputPath) else {
-            return .init("BREP file missing: \(inputPath)")
+            return .init("BREP file missing: \(inputPath)", isError: true)
         }
         let outId = outputBodyId ?? "\(kind.rawValue)-\(bodyId)"
         if manifest.bodies.contains(where: { $0.id == outId }) {
-            return .init("Output body id \"\(outId)\" already exists.")
+            return .init("Output body id \"\(outId)\" already exists.", isError: true)
         }
 
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
@@ -410,20 +420,21 @@ public enum ConstructionTools {
         switch kind {
         case .mirror:
             guard let normal = params.planeNormal else {
-                return .init("mirror requires `planeNormal`.")
+                return .init("mirror requires `planeNormal`.", isError: true)
             }
             result = shape.mirrored(planeNormal: normal, planeOrigin: params.planeOrigin ?? .zero)
         case .linear:
             guard let dir = params.direction, let spacing = params.spacing, let count = params.count
             else {
-                return .init("linear requires `direction`, `spacing`, `count`.")
+                return .init("linear requires `direction`, `spacing`, `count`.", isError: true)
             }
             result = shape.linearPattern(direction: dir, spacing: spacing, count: count)
         case .circular:
             guard let axisO = params.axisOrigin, let axisD = params.axisDirection,
                 let total = params.totalCount
             else {
-                return .init("circular requires `axisOrigin`, `axisDirection`, `totalCount`.")
+                return .init(
+                    "circular requires `axisOrigin`, `axisDirection`, `totalCount`.", isError: true)
             }
             result = shape.circularPattern(
                 axisPoint: axisO,
@@ -480,7 +491,10 @@ public enum ConstructionTools {
             graphs: manifest.graphs,
             metadata: manifest.metadata
         )
-        try? store.write(updated)
+        do { try store.write(updated) } catch {
+            return .init(
+                "Failed to write manifest: \(error.localizedDescription)", isError: true)
+        }
 
         // Mirror provenance: single-target case fits
         // find_correspondences's "one target id per source id" contract.
