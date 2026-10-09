@@ -109,7 +109,7 @@ struct MeshZoneToolsTests {
     }
 
     @MainActor
-    @Test("maxZones truncates and reports it; minRegionTriangles drops small regions and reports it")
+    @Test("maxZones truncates and reports it")
     func truncationIsAlwaysReported() async throws {
         let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
         let store = try scene([(id: "box", shape: box)])
@@ -121,6 +121,29 @@ struct MeshZoneToolsTests {
         #expect(r.zoneCount == 3)
         #expect(r.truncatedTriangleCount > 0)
         #expect(r.warnings.contains { $0.contains("maxZones=3") })
+    }
+
+    @MainActor
+    @Test("minRegionTriangles drops every small region and says so, instead of returning an empty report silently")
+    func minRegionTrianglesDropIsReported() async throws {
+        let box = try #require(Shape.box(width: 10, height: 20, depth: 30))
+        let store = try scene([(id: "box", shape: box)])
+
+        // Control: at minRegionTriangles 1 the same body yields its six faces (see the pipeline test).
+        let kept = await MeshZoneTools.segmentMeshZones(
+            bodyId: "box", minRegionTriangles: 1, render: false, registry: ZoneRegistry(), store: store)
+        let keptReport = try JSONDecoder().decode(ZoneReport.self, from: Data(kept.text.utf8))
+        #expect(keptReport.zoneCount == 6)
+
+        // A box face is two triangles, so a floor of 1000 drops all of them.
+        let dropped = await MeshZoneTools.segmentMeshZones(
+            bodyId: "box", minRegionTriangles: 1000, render: false, registry: ZoneRegistry(), store: store)
+        #expect(!dropped.isError, "unexpected error: \(dropped.text)")
+        let r = try JSONDecoder().decode(ZoneReport.self, from: Data(dropped.text.utf8))
+        #expect(r.zoneCount == 0)
+        #expect(r.truncatedTriangleCount > 0)
+        #expect(r.warnings.contains { $0.contains("minRegionTriangles=1000") }, "got \(r.warnings)")
+        #expect(r.warnings.contains { $0.contains("Segmentation produced no zones") }, "got \(r.warnings)")
     }
 
     @MainActor
