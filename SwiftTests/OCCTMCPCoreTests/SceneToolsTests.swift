@@ -60,8 +60,14 @@ struct SceneToolsTests {
         let history = SceneHistory()
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
 
+        let before = try Data(contentsOf: URL(fileURLWithPath: store.path))
         let result = await SceneTools.removeBody(bodyId: "nope", store: store, history: history)
         #expect(result.text.contains("Body not found: nope"))
+        #expect(result.isError, "an unknown body must come back as an error result")
+        #expect(
+            try Data(contentsOf: URL(fileURLWithPath: store.path)) == before,
+            "a failed remove must leave manifest.json untouched")
+        #expect(FileManager.default.fileExists(atPath: "\(dirOf(store))/alpha.brep"))
     }
 
     @Test("remove_body also drops the body's provenance record (#132)")
@@ -147,9 +153,14 @@ struct SceneToolsTests {
         let history = SceneHistory()
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
 
+        let before = try Data(contentsOf: URL(fileURLWithPath: store.path))
         let result = await SceneTools.renameBody(
             bodyId: "alpha", newBodyId: "beta", store: store, history: history)
         #expect(result.text.contains("already exists"))
+        #expect(result.isError, "a colliding rename must come back as an error result")
+        #expect(
+            try Data(contentsOf: URL(fileURLWithPath: store.path)) == before,
+            "a rejected rename must leave manifest.json untouched")
     }
 
     // ── set_appearance ──────────────────────────────────────────────────────
@@ -180,9 +191,30 @@ struct SceneToolsTests {
         let history = SceneHistory()
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
 
+        let before = try Data(contentsOf: URL(fileURLWithPath: store.path))
         let result = await SceneTools.setAppearance(
             bodyId: "alpha", update: .init(), store: store, history: history)
         #expect(result.text.contains("No appearance fields provided"))
+        #expect(result.isError, "an empty update must come back as an error result")
+        #expect(
+            try Data(contentsOf: URL(fileURLWithPath: store.path)) == before,
+            "a rejected update must leave manifest.json untouched")
+    }
+
+    @Test("set_appearance errors on an unknown body and leaves the manifest untouched")
+    func setAppearanceUnknownBody() async throws {
+        let store = try freshScene()
+        let history = SceneHistory()
+        defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
+
+        let before = try Data(contentsOf: URL(fileURLWithPath: store.path))
+        let result = await SceneTools.setAppearance(
+            bodyId: "nope", update: .init(name: "x"), store: store, history: history)
+        #expect(result.text.contains("Body not found: nope"))
+        #expect(result.isError, "an unknown body must come back as an error result")
+        #expect(
+            try Data(contentsOf: URL(fileURLWithPath: store.path)) == before,
+            "a rejected update must leave manifest.json untouched")
     }
 
     // ── compare_versions ────────────────────────────────────────────────────

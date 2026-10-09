@@ -144,6 +144,39 @@ struct HistoryRegistryLineageTests {
         )
     }
 
+    @Test("an absorb whose history belongs to a different shape degrades to a generation reset")
+    func foreignHistoryDegradesToGenerationReset() async throws {
+        let registry = HistoryRegistry()
+        let scene = NSTemporaryDirectory() + "occtmcp-lineage-foreign-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scene) }
+        let path = "\(scene)/part.brep"
+
+        let box = try #require(Shape.box(width: 10, height: 10, depth: 10))
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: path))
+        let lineage0 = try await registry.currentInput(bodyId: "part", path: path)
+        let instanceID0 = lineage0.graph.instanceID
+
+        // A real, non-nil history, but produced from an UNRELATED shape rather than from
+        // lineage0.shape. add(_:absorbing:) correlates by TShape identity, so this history has
+        // nothing to say about lineage0's graph and the registry must not present it as a
+        // continuation of that graph.
+        let stranger = try #require(Shape.box(width: 10, height: 10, depth: 10))
+        let tool = try #require(Shape.box(width: 3, height: 3, depth: 3)?.translated(by: SIMD3(5, 5, 5)))
+        let (output, foreignRef) = try #require(stranger.subtractedWithFullHistory(tool))
+        try Exporter.writeBREP(shape: output, to: URL(fileURLWithPath: path))
+
+        let committed = await registry.commit(
+            bodyId: "part", path: path, output: output, ref: foreignRef,
+            from: (lineage0.graph, lineage0.root), operationName: "test-foreign-history")
+        #expect(!committed, "history from an unrelated shape must not count as a continuation")
+
+        let lineage1 = try await registry.currentInput(bodyId: "part", path: path)
+        #expect(
+            lineage1.graph.instanceID != instanceID0,
+            "a rejected absorb should mint a NEW graph instance, not keep the old lineage")
+    }
+
     @Test("a compound-wrapped output (boolean/FeatureReconstructor results, even single-solid) still yields a trackable root for the NEXT hop")
     func compoundWrappedOutputResolvesToTrackableRoot() async throws {
         let registry = HistoryRegistry()
