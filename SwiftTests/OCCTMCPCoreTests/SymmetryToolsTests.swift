@@ -117,6 +117,9 @@ struct SymmetryToolsTests {
         // stay exactly symmetric.
         func axisIndex(_ c: SymmetryReport.Candidate) -> Int {
             let a = c.normal.map { abs($0) }
+            // The fixture is axis-aligned, so each normal is a unit vector along one axis. A
+            // slightly rotated plane would make "largest component" a guess; fail loudly instead.
+            if (a.max() ?? 0) < 0.99 { Issue.record("normal \(c.normal) is not axis-aligned") }
             return a.firstIndex(of: a.max() ?? 0) ?? -1
         }
         let byAxis = Dictionary(grouping: r.candidates, by: axisIndex)
@@ -131,7 +134,9 @@ struct SymmetryToolsTests {
         for axis in [0, 2] {
             let c = try #require(byAxis[axis]?.first, "no candidate with its normal along axis \(axis)")
             #expect(c.symmetric, "the plane normal to axis \(axis) is intact and must stay symmetric")
-            #expect(c.p95Mm < 1e-6, "axis \(axis) p95 should be numerical noise, got \(c.p95Mm)")
+            // Measured about 1e-14. 1e-4 keeps ten orders of margin for another OCCT build or
+            // machine and still sits four orders under the broken plane's ~2 mm.
+            #expect(c.p95Mm < 1e-4, "axis \(axis) p95 should be numerical noise, got \(c.p95Mm)")
         }
         #expect(r.candidates.filter { !$0.symmetric }.count == 1, "exactly one plane is broken")
         let best = try #require(r.bestPlane, "two symmetric planes exist, so bestPlane must be set")

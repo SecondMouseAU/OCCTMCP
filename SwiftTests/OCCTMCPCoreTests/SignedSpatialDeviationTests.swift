@@ -255,7 +255,9 @@ struct SignedSpatialDeviationTests {
         #expect(r.fromToTo.ambiguousSamples == 0)
 
         // Per-section sweep: exactly the 5 requested stations, each consistently shy by about
-        // 0.5, at the centres of 5 equal bins over the sphere's 10 mm extent.
+        // 0.5, at the centres of 5 equal bins over the sphere's 10 mm extent. `offset` is
+        // measured from the body's minimum along the sweep axis (DeviationTools documents it),
+        // so the centres are 1, 3, 5, 7, 9 and not a centred -4 ... 4.
         let sections = try #require(r.sections)
         #expect(sections.count == 5)
         for (i, section) in sections.enumerated() {
