@@ -112,13 +112,35 @@ struct SymmetryToolsTests {
         let r = try JSONDecoder().decode(SymmetryReport.self, from: Data(result.text.utf8))
 
         #expect(r.candidates.count == 3)
-        let broken = r.candidates.filter { !$0.symmetric }
-        #expect(!broken.isEmpty, "the front-wall recess should break at least one principal mirror plane")
-        for c in broken {
-            // The recess is 3mm deep; a broken plane's residual should be a
-            // sensible fraction of that, not a wild outlier from a
-            // meshing artifact.
-            #expect(c.p95Mm > 0.5 && c.p95Mm < 10, "broken-plane p95 should be in a sensible range for a 3mm recess, got \(c.p95Mm)")
+        // Which plane is which: the fixture's recess is in the front wall (the Y axis), so the
+        // plane whose normal is along Y must be the one that breaks, and the X and Z planes must
+        // stay exactly symmetric.
+        func axisIndex(_ c: SymmetryReport.Candidate) -> Int {
+            let a = c.normal.map { abs($0) }
+            // The fixture is axis-aligned, so each normal is a unit vector along one axis. A
+            // slightly rotated plane would make "largest component" a guess; fail loudly instead.
+            if (a.max() ?? 0) < 0.99 { Issue.record("normal \(c.normal) is not axis-aligned") }
+            return a.firstIndex(of: a.max() ?? 0) ?? -1
         }
+        let byAxis = Dictionary(grouping: r.candidates, by: axisIndex)
+        #expect(Set(byAxis.keys) == [0, 1, 2], "expected one candidate per principal axis, got \(byAxis.keys.sorted())")
+
+        let front = try #require(byAxis[1]?.first, "no candidate with its normal along Y")
+        #expect(!front.symmetric, "the front-wall recess must break the Y-normal plane")
+        // The recess is 3 mm deep. Measured p95 is 2.08 mm and rms 0.88 mm.
+        #expect(front.p95Mm > 1.5 && front.p95Mm < 3.0, "front-plane p95 \(front.p95Mm)")
+        #expect(front.rmsMm > 0.5 && front.rmsMm < 1.5, "front-plane rms \(front.rmsMm)")
+
+        for axis in [0, 2] {
+            let c = try #require(byAxis[axis]?.first, "no candidate with its normal along axis \(axis)")
+            #expect(c.symmetric, "the plane normal to axis \(axis) is intact and must stay symmetric")
+            // Measured about 1e-14. 1e-4 keeps ten orders of margin for another OCCT build or
+            // machine and still sits four orders under the broken plane's ~2 mm.
+            #expect(c.p95Mm < 1e-4, "axis \(axis) p95 should be numerical noise, got \(c.p95Mm)")
+        }
+        #expect(r.candidates.filter { !$0.symmetric }.count == 1, "exactly one plane is broken")
+        let best = try #require(r.bestPlane, "two symmetric planes exist, so bestPlane must be set")
+        #expect(best.symmetric)
+        #expect(axisIndex(best) != 1, "bestPlane must not be the broken plane")
     }
 }

@@ -242,17 +242,32 @@ struct SignedSpatialDeviationTests {
         // watertight reference must yield the signed figures, never nil.
         let signedMean = try #require(r.fromToTo.signedMean)
         let signedMin = try #require(r.fromToTo.signedMin)
-        #expect(signedMean < -0.25)
-        #expect(signedMean > -0.7)
-        #expect(signedMin < -0.4)                   // deepest shy ≈ −0.5
-        #expect(r.fromToTo.p95 > 0.3)
-        #expect(r.fromToTo.samples > 0)
+        // The true offset is 0.5; the tessellated inner sphere sits a little inside its own
+        // surface, so the measured mean is about -0.4775 and the extremes -0.498 / -0.465.
+        let signedMax = try #require(r.fromToTo.signedMax)
+        #expect(signedMean > -0.5 && signedMean < -0.45, "signedMean \(signedMean)")
+        #expect(signedMin > -0.505 && signedMin < -0.48, "signedMin \(signedMin)")
+        #expect(signedMax < -0.4, "every sample is shy, so signedMax stays negative: \(signedMax)")
+        #expect(signedMin <= signedMean && signedMean <= signedMax)
+        #expect(r.fromToTo.p95 > 0.48 && r.fromToTo.p95 < 0.5, "p95 \(r.fromToTo.p95)")
+        #expect(r.fromToTo.samples > 100)
+        #expect(r.fromToTo.signedSamples == r.fromToTo.samples)
+        #expect(r.fromToTo.ambiguousSamples == 0)
 
-        // Per-section sweep present and consistently shy (systematic).
+        // Per-section sweep: exactly the 5 requested stations, each consistently shy by about
+        // 0.5, at the centres of 5 equal bins over the sphere's 10 mm extent. `offset` is
+        // measured from the body's minimum along the sweep axis (DeviationTools documents it),
+        // so the centres are 1, 3, 5, 7, 9 and not a centred -4 ... 4.
         let sections = try #require(r.sections)
-        #expect(sections.count >= 3)
-        #expect(sections.contains { $0.signedMean < -0.4 })
-        #expect(sections.allSatisfy { $0.signedMean < 0.05 })
+        #expect(sections.count == 5)
+        for (i, section) in sections.enumerated() {
+            #expect(section.signedMean > -0.5 && section.signedMean < -0.44,
+                    "section \(i) signedMean \(section.signedMean)")
+            #expect(abs(section.offset - (1.0 + 2.0 * Double(i))) < 0.2,
+                    "section \(i) offset \(section.offset)")
+            #expect(section.samples > 0)
+            #expect(section.rms >= abs(section.signedMean) - 1e-9)
+        }
     }
 
     @Test("measure_deviation omits sections when no axis given")
@@ -261,8 +276,17 @@ struct SignedSpatialDeviationTests {
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
         let result = await DeviationTools.measureDeviation(
             fromBodyId: "inner", toBodyId: "outer", deflection: 0.1, store: store)
+        #expect(!result.isError, "unexpected error: \(result.text)")
         let r = try JSONDecoder().decode(DevReport.self, from: Data(result.text.utf8))
         #expect(r.sections == nil)
+        // Positive controls: the report is otherwise populated, so a nil sections array means
+        // "not requested" and not "the whole report is empty". The outer cylinder is 0.5 mm
+        // wider all round, so the outer-to-inner direction measures exactly that.
+        #expect(r.fromToTo.samples > 0)
+        #expect(r.toToFrom.samples > 0)
+        #expect(abs(r.toToFrom.mean - 0.5) < 0.01, "toToFrom.mean \(r.toToFrom.mean)")
+        #expect(abs(r.symmetricHausdorff - 0.5) < 0.01, "symmetricHausdorff \(r.symmetricHausdorff)")
+        #expect(r.signMode == "robust")
     }
 
     // ── #62: deviation_histogram ─────────────────────────────────────────
@@ -281,13 +305,14 @@ struct SignedSpatialDeviationTests {
 
         let mean = try #require(r.mean)
         let signedMin = try #require(r.signedMin)
-        #expect(mean < -0.2 && mean > -0.7)
-        #expect(signedMin < -0.4)
-        #expect(!r.buckets.isEmpty)
-        #expect(r.samples > 0)
+        #expect(mean < -0.45 && mean > -0.5, "mean \(mean)")
+        #expect(signedMin < -0.48 && signedMin > -0.505, "signedMin \(signedMin)")
+        #expect(r.buckets.count > 1)
+        #expect(r.samples > 100)
+        #expect(r.buckets.reduce(0) { $0 + $1.count } == r.samples, "every sample lands in a bucket")
         // Every |dev| ≈ 0.5 ≤ 1.0 ⇒ all within tolerance.
         let within = try #require(r.withinTolerance)
-        #expect(within > 0.9)
+        #expect(within > 0.99)
         #expect(FileManager.default.fileExists(atPath: png))
     }
 
@@ -447,9 +472,24 @@ struct SignedSpatialDeviationTests {
             deflection: 0.2, store: store)
         #expect(!result.isError, "unexpected error: \(result.text)")
         let r = try JSONDecoder().decode(HeatReport.self, from: Data(result.text.utf8))
-        #expect(r.triangles > 0)
-        #expect(r.signedMin < 0)            // shy somewhere
+        #expect(r.triangles > 100)
+        #expect(r.bands == 11, "the default band count")
+        // Every sample is about 0.5 shy (measured: min -0.498, max -0.399, mean -0.488).
+        #expect(r.signedMin > -0.505 && r.signedMin < -0.48, "signedMin \(r.signedMin)")
+        #expect(r.signedMax < -0.3, "no triangle is proud, got signedMax \(r.signedMax)")
+        #expect(r.signedMean > -0.5 && r.signedMean < -0.46, "signedMean \(r.signedMean)")
+        // The auto colormap bound is the p95 of |signed|, so it sits just under the 0.5 offset.
+        #expect(r.clamp > 0.45 && r.clamp < 0.5, "clamp \(r.clamp)")
         try expectPNG(atPath: png)
+
+        // Explicit arguments are echoed, not replaced by the defaults.
+        let explicit = await HeatmapTools.signedDeviationHeatmap(
+            fromBodyId: "inner", referenceBodyId: "outer", outputPath: dirOf(store) + "/heat5.png",
+            deflection: 0.2, bands: 5, clamp: 0.3, store: store)
+        #expect(!explicit.isError, "unexpected error: \(explicit.text)")
+        let e = try JSONDecoder().decode(HeatReport.self, from: Data(explicit.text.utf8))
+        #expect(e.bands == 5)
+        #expect(e.clamp == 0.3)
     }
 
     @MainActor
