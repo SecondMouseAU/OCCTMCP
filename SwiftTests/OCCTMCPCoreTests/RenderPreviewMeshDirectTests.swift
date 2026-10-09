@@ -118,7 +118,7 @@ struct RenderPreviewMeshDirectTests {
     }
 
     @MainActor
-    @Test("render_preview completes on a mesh-scale body")
+    @Test("render_preview completes on a mesh-scale body", .enabled(if: metalDeviceAvailable, "needs a Metal device"))
     func renderCompletes() async throws {
         let dir = NSTemporaryDirectory() + "occtmcp-meshdirect-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -136,8 +136,7 @@ struct RenderPreviewMeshDirectTests {
         let result = await RenderPreviewTool.render(
             outputPath: png, bodyIds: ["scan"], options: .init(width: 400, height: 300),
             store: store)
-        if result.isError && result.text.contains("Metal") { return }   // headless w/o GPU
         #expect(!result.isError, "unexpected error: \(result.text)")
-        #expect(FileManager.default.fileExists(atPath: png))
+        try expectPNG(atPath: png)
     }
 }

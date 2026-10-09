@@ -274,6 +274,7 @@ struct MeshFeatureToolsTests {
         let withoutPoints = await MeshFeatureTools.detectMeshFeatures(bodyId: bodyId, render: false, store: store)
         #expect(!withoutPoints.isError, "unexpected error: \(withoutPoints.text)")
         let rWithout = try JSONDecoder().decode(FeatureReport.self, from: Data(withoutPoints.text.utf8))
+        #expect(rWithout.rings.count == 4)
         #expect(rWithout.rings.allSatisfy { $0.points == nil })
 
         let result = await MeshFeatureTools.detectMeshFeatures(
@@ -286,6 +287,7 @@ struct MeshFeatureToolsTests {
             let points = try #require(ring.points, "ring \(ring.id) missing points with includePoints:true")
             // Closed ring: point count equals edgeCount (no wraparound duplicate).
             #expect(points.count == ring.edgeCount)
+            #expect(points.count >= segments, "ring \(ring.id) has only \(points.count) points")
             #expect(points.allSatisfy { $0.count == 3 })
 
             // Every point sits at the ring's own radius (router or rinner) about
@@ -441,7 +443,7 @@ struct MeshFeatureToolsTests {
     // MARK: - 7. Render: PNG file exists and is non-trivial in size
 
     @MainActor
-    @Test("render: writes a non-trivial PNG with the body surface + per-ring wireframe overlays")
+    @Test("render: writes a non-trivial PNG with the body surface + per-ring wireframe overlays", .enabled(if: metalDeviceAvailable, "needs a Metal device"))
     func renderProducesNonTrivialPNG() async throws {
         let (store, dir) = try freshScene()
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -450,15 +452,11 @@ struct MeshFeatureToolsTests {
         let bodyId = try await importSTL(stlPath, idPrefix: "cyl4", store: store)
 
         let result = await MeshFeatureTools.detectMeshFeatures(bodyId: bodyId, render: true, store: store)
-        if result.isError && result.text.contains("Metal") { return }   // headless w/o GPU
         #expect(!result.isError, "unexpected error: \(result.text)")
         let r = try JSONDecoder().decode(FeatureReport.self, from: Data(result.text.utf8))
 
         let path = try #require(r.renderPath)
-        #expect(FileManager.default.fileExists(atPath: path))
-        let attrs = try FileManager.default.attributesOfItem(atPath: path)
-        let size = (attrs[.size] as? Int) ?? 0
-        #expect(size > 1_000, "rendered PNG was only \(size) bytes; render may have produced a blank/near-empty image")
+        try expectPNG(atPath: path)
     }
 
     // MARK: - 8. Dispatch: an invalid minAngleDegrees errors

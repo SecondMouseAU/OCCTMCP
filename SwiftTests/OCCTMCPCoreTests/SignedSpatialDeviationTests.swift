@@ -437,7 +437,7 @@ struct SignedSpatialDeviationTests {
     // ── #63: heatmap + overlay (render; skip if no Metal device) ──────────
 
     @MainActor
-    @Test("signed_deviation_heatmap renders a PNG")
+    @Test("signed_deviation_heatmap renders a PNG", .enabled(if: metalDeviceAvailable, "needs a Metal device"))
     func heatmap() async throws {
         let store = try concentricSpheres()
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
@@ -445,16 +445,15 @@ struct SignedSpatialDeviationTests {
         let result = await HeatmapTools.signedDeviationHeatmap(
             fromBodyId: "inner", referenceBodyId: "outer", outputPath: png,
             deflection: 0.2, store: store)
-        if result.isError && result.text.contains("Metal") { return }   // headless w/o GPU
         #expect(!result.isError, "unexpected error: \(result.text)")
         let r = try JSONDecoder().decode(HeatReport.self, from: Data(result.text.utf8))
         #expect(r.triangles > 0)
         #expect(r.signedMin < 0)            // shy somewhere
-        #expect(FileManager.default.fileExists(atPath: png))
+        try expectPNG(atPath: png)
     }
 
     @MainActor
-    @Test("overlay_render renders a PNG")
+    @Test("overlay_render renders a PNG", .enabled(if: metalDeviceAvailable, "needs a Metal device"))
     func overlay() async throws {
         let store = try concentricSpheres()
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
@@ -462,9 +461,8 @@ struct SignedSpatialDeviationTests {
         let result = await HeatmapTools.overlayRender(
             solidBodyId: "inner", meshBodyId: "outer", outputPath: png,
             transparency: 0.4, store: store)
-        if result.isError && result.text.contains("Metal") { return }
         #expect(!result.isError, "unexpected error: \(result.text)")
-        #expect(FileManager.default.fileExists(atPath: png))
+        try expectPNG(atPath: png)
     }
 
     // ── #72: sign ambiguity against an open thin-wall reference ─────────

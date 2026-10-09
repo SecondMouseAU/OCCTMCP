@@ -36,6 +36,15 @@ struct HistoryRegistryLineageTests {
         let uid0 = try #require(
             lineage0.graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: 0)
         )
+        // Mint every face's UID, not just face 0: hop 1's tool lies wholly inside the solid
+        // (an internal void) so face 0 survives it trivially, whereas hop 2 clips a real corner
+        // and MODIFIES the three faces meeting there. Face 0 alone proves identity retention;
+        // the modified faces prove lineage tracking.
+        let allFaceUIDs = try (0..<6).map { i in
+            try #require(
+                lineage0.graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: i),
+                "no UID for face \(i)")
+        }
 
         // Hop 1: subtract a small tool box, absorbed into the retained graph.
         // Deliberately mutates lineage0.shape (the object currentInput
@@ -97,6 +106,11 @@ struct HistoryRegistryLineageTests {
         )
         let resolved = try #require(lineage2.graph.node(forUID: uid0))
         #expect(resolved.kind == Int(BRepGraph.NodeKind.face.rawValue))
+        for (i, uid) in allFaceUIDs.enumerated() {
+            #expect(
+                lineage2.graph.contains(uid: uid),
+                "face \(i)'s UID should survive both hops, including the faces hop 2's corner cut modified")
+        }
     }
 
     @Test("a failed/no-op absorb degrades to a generation reset, not a silent wrong continuation")
