@@ -38,7 +38,7 @@ public enum GapFillerTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("show_bounding_box: \(error)", isError: true)
         }
         // This tool IS the bounding box, so a body without one has no answer to
         // return. Reporting the old fabricated zero-sized box at the origin
@@ -208,7 +208,7 @@ public enum GapFillerTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("select_by_feature: \(error)", isError: true)
         }
         // #91/#93: resolve through the retained lineage graph rather than
         // trusting AAG's floorFaceIndex/faceIndex as a graph index directly;
