@@ -276,20 +276,20 @@ struct SidecarWriteFailureTests {
         let store = try scene([(id: "box", shape: try box())])
         let dir = dirOf(store)
         let provenance = ProvenanceStore()
-        try try await provenance.upsert(bodyId: "m", record: provenanceRecord(), outputDir: dir)
+        try await provenance.upsert(bodyId: "m", record: provenanceRecord(), outputDir: dir)
         let path = "\(dir)/provenance.json"
         defer { cleanup(store, locked: [path]) }
         try setImmutable(path, true)
         let before = try bytes(path)
 
         await #expect(throws: (any Error).self) {
-            try try await provenance.upsert(bodyId: "n", record: provenanceRecord(), outputDir: dir)
+            try await provenance.upsert(bodyId: "n", record: provenanceRecord(), outputDir: dir)
         }
         await #expect(throws: (any Error).self) {
-            try try await provenance.remove(bodyId: "m", outputDir: dir)
+            try await provenance.remove(bodyId: "m", outputDir: dir)
         }
         await #expect(throws: (any Error).self) {
-            try try await provenance.clear(outputDir: dir)
+            try await provenance.clear(outputDir: dir)
         }
         #expect(try bytes(path) == before)
     }
