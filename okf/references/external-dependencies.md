@@ -37,17 +37,17 @@ usage_window: { from: 2026-07-27, to: 2026-09-07 }
 
 ## Current pins (the v1.37.1 beta line)
 
-`Package.swift` is the source of truth; this is what it says as of v1.37.1-beta.3. The entries
+`Package.swift` is the source of truth; this is what it says as of v1.37.1-beta.4. The entries
 under "Swift implementation" below record why each floor moved over time and still describe the
 history, so their version numbers are older than these.
 
 | Package | Pin | Why |
 |---|---|---|
-| OCCTSwift | `exact: "4.0.0-beta.4"` | Exact, not `from:`: `v4.0.0-kernel.N` tags are pre-releases of the same package and sort above every beta, so a `from: "4.0.0-beta.4"` range silently resolves to the newest kernel tag. Move it deliberately when the next beta ships. |
-| OCCTSwiftMesh | `from: "1.7.6-beta.1"` | The beta that shares the OCCTSwift 4 pin. |
-| OCCTSwiftScripts | `from: "1.7.1-beta.1"` | Same. Provides `occtkit` plus the in-process `ScriptHarness` and `DrawingComposer`. |
-| OCCTSwiftInteraction | `from: "3.0.0-beta.1"` | Vends `OCCTSwiftTools`, `OCCTSwiftAIS` and `OCCTSwiftCADKit`. |
-| OCCTSwiftIO | `from: "2.0.0-beta.1"` | Same. |
+| OCCTSwift | `exact: "4.0.0-beta.5"` | Exact, not `from:`: `v4.0.0-kernel.N` tags are pre-releases of the same package and sort above every beta, so a `from: "4.0.0-beta.5"` range silently resolves to the newest kernel tag. Move it deliberately when the next beta ships. |
+| OCCTSwiftMesh | `from: "1.7.6-beta.3"` | The beta that shares the OCCTSwift 4 pin. |
+| OCCTSwiftScripts | `from: "1.7.1-beta.2"` | Same. Provides `occtkit` plus the in-process `ScriptHarness` and `DrawingComposer`. |
+| OCCTSwiftInteraction | `from: "3.0.0-beta.5"` | Vends `OCCTSwiftTools`, `OCCTSwiftAIS` and `OCCTSwiftCADKit`. |
+| OCCTSwiftIO | `from: "2.0.0-beta.3"` | Same. |
 | OCCTSwiftViewport | `from: "1.2.0"` | Not on the beta line. |
 | swift-sdk | `from: "0.11.0"` | MCP transport and types. |
 
