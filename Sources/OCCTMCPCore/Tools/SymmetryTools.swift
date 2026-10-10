@@ -60,7 +60,7 @@ public enum SymmetryTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("detect_symmetry: \(error)", isError: true)
         }
         let shape = loaded.shape
 

@@ -53,7 +53,7 @@ public enum EngineeringTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("check_thickness: \(error)", isError: true)
         }
         let shape = loaded.shape
         let faces = shape.faces()
