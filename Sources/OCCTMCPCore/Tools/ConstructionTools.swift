@@ -501,23 +501,32 @@ public enum ConstructionTools {
         // Linear / circular patterns produce N copies, so a single
         // TransformHint can't describe the full mapping; skip those
         // until find_correspondences grows a multi-target return type.
+        // Best effort by design: the pattern body is already in the manifest and only
+        // find_correspondences' default transformHint is lost, so warn rather than fail (#236).
+        var warning = ""
         if kind == .mirror,
             let normal = params.planeNormal
         {
-            await ProvenanceStore.shared.upsert(
-                bodyId: outId,
-                record: ProvenanceRecord(
-                    sourceBodyId: bodyId,
-                    transform: .mirror(
-                        planeOrigin: params.planeOrigin ?? .zero,
-                        planeNormal: normal
-                    )
-                ),
-                outputDir: outputDir
-            )
+            do {
+                try await ProvenanceStore.shared.upsert(
+                    bodyId: outId,
+                    record: ProvenanceRecord(
+                        sourceBodyId: bodyId,
+                        transform: .mirror(
+                            planeOrigin: params.planeOrigin ?? .zero,
+                            planeNormal: normal
+                        )
+                    ),
+                    outputDir: outputDir
+                )
+            } catch {
+                warning =
+                    " Warning: failed to write provenance.json: \(error.localizedDescription)"
+            }
         }
 
-        return .init("Pattern \(kind.rawValue) on \"\(bodyId)\" → \"\(outId)\" (\(outFile)).")
+        return .init(
+            "Pattern \(kind.rawValue) on \"\(bodyId)\" → \"\(outId)\" (\(outFile))." + warning)
     }
 
     // ── helpers ────────────────────────────────────────────────────────

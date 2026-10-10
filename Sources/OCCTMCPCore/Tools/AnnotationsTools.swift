@@ -15,6 +15,19 @@ import simd
 
 public enum AnnotationsTools {
 
+    /// Write the annotations sidecar, returning an error result when the write fails.
+    ///
+    /// A swallowed failure would report success for an annotation that was never saved (#236).
+    static func writeFailure(_ sidecar: AnnotationsStore, _ doc: AnnotationsSidecar) -> ToolText? {
+        do {
+            try sidecar.write(doc)
+            return nil
+        } catch {
+            return .init(
+                "Failed to write annotations.json: \(error.localizedDescription)", isError: true)
+        }
+    }
+
     // MARK: - add_dimension
 
     public enum DimensionKind: String { case linear, angular, radial }
@@ -70,7 +83,7 @@ public enum AnnotationsTools {
                     anchors: ["from": fromId, "to": toId],
                     value: value, label: label, anchorPoints: points
                 ))
-            try? sidecar.write(doc)
+            if let failure = writeFailure(sidecar, doc) { return failure }
             return IntrospectionTools.encode(
                 DimensionResult(
                     dimensionId: dimId, kind: "linear", value: value, unit: "mm",
@@ -108,7 +121,7 @@ public enum AnnotationsTools {
                     anchors: ["armA": armA, "apex": apex, "armB": armB],
                     value: degrees, label: label, anchorPoints: points
                 ))
-            try? sidecar.write(doc)
+            if let failure = writeFailure(sidecar, doc) { return failure }
             return IntrospectionTools.encode(
                 DimensionResult(
                     dimensionId: dimId, kind: "angular", value: degrees, unit: "deg",
@@ -153,7 +166,7 @@ public enum AnnotationsTools {
                     anchors: ["circularEdge": edgeId],
                     value: value, label: label, anchorPoints: points
                 ))
-            try? sidecar.write(doc)
+            if let failure = writeFailure(sidecar, doc) { return failure }
             return IntrospectionTools.encode(
                 DimensionResult(
                     dimensionId: dimId, kind: showDiameter ? "diameter" : "radial",
@@ -186,7 +199,7 @@ public enum AnnotationsTools {
         let primId = id ?? "prim_\(UUID().uuidString.prefix(8))"
         doc.primitives.removeAll { $0.id == primId }
         doc.primitives.append(.init(id: primId, kind: kind.rawValue, params: params))
-        try? sidecar.write(doc)
+        if let failure = writeFailure(sidecar, doc) { return failure }
         return IntrospectionTools.encode(
             PrimitiveResult(
                 primitiveId: primId, kind: kind.rawValue
@@ -210,12 +223,12 @@ public enum AnnotationsTools {
         var doc = sidecar.read()
         if let dim = doc.dimensions.first(where: { $0.id == id }) {
             doc.dimensions.removeAll { $0.id == id }
-            try? sidecar.write(doc)
+            if let failure = writeFailure(sidecar, doc) { return failure }
             return IntrospectionTools.encode(RemoveResult(removed: true, kind: dim.kind, id: id))
         }
         if let prim = doc.primitives.first(where: { $0.id == id }) {
             doc.primitives.removeAll { $0.id == id }
-            try? sidecar.write(doc)
+            if let failure = writeFailure(sidecar, doc) { return failure }
             return IntrospectionTools.encode(RemoveResult(removed: true, kind: prim.kind, id: id))
         }
         return IntrospectionTools.encode(RemoveResult(removed: false, kind: nil, id: id))

@@ -353,7 +353,12 @@ public enum MeshZoneTools {
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let zonesStore = ZonesStore(outputDir: outputDir)
         await registry.loadSidecarIfNeeded(store: zonesStore)
-        await registry.recordBatch(zoneRecords, store: zonesStore)
+        do {
+            try await registry.recordBatch(zoneRecords, store: zonesStore)
+        } catch {
+            return .init(
+                "Failed to write zones.json: \(error.localizedDescription)", isError: true)
+        }
 
         // ── optional render ────────────────────────────────────────────
         var writtenRenderPath: String? = nil

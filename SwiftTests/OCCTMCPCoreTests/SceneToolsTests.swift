@@ -77,7 +77,7 @@ struct SceneToolsTests {
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
 
         let provenance = ProvenanceStore()
-        await provenance.upsert(
+        try await provenance.upsert(
             bodyId: "alpha",
             record: ProvenanceRecord(
                 sourceBodyId: "beta",
@@ -116,7 +116,7 @@ struct SceneToolsTests {
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
 
         let provenance = ProvenanceStore()
-        await provenance.upsert(
+        try await provenance.upsert(
             bodyId: "alpha",
             record: ProvenanceRecord(
                 sourceBodyId: "beta",
