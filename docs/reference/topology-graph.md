@@ -120,6 +120,8 @@ Export a BREP's topology graph as ML-friendly JSON. Wraps `ScriptHarness BREPGra
 
 **Returns** — ML-friendly JSON containing nodes (faces, edges, vertices with UV/edge samples), edges (topology adjacency), and a `faceAdjacency` block with `{ face1, face2, convexity, sharedEdgeCount }` entries.
 
+Each `nodes.edges[]` entry also carries `convexity` (`convex`, `concave`, `smooth` or `unknown`) and `dihedralAngle` (the interior angle in radians: pi/2 on a cube edge, 3 pi/2 on an inside corner, absent when `unknown`). `unknown` is an edge that is not between exactly two faces, such as the boundary of an open shell. `meta.schemaVersion` is `1.1.0`. The Swift server passes the source shape to the exporter (#231), so it always emits these keys. The Node server relays `occtkit graph-ml` verbatim and gains them when the installed `occtkit` includes OCCTSwiftScripts#139; an older `occtkit` omits them.
+
 **Example**
 
 ```json

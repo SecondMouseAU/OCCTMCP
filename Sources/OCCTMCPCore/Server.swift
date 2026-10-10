@@ -248,7 +248,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "graph_ml",
             description:
-                "Export a BREP's topology graph as ML-friendly JSON. Pass an absolute BREP path and optionally a description. Wraps ScriptHarness BREPGraphJSONExporter, augmented with a `faceAdjacency` block ({face1,face2,convexity,sharedEdgeCount}): the convexity-attributed gAAG edge attribute, face indices in shape.faces() order.",
+                "Export a BREP's topology graph as ML-friendly JSON. Pass an absolute BREP path and optionally a description. Wraps ScriptHarness BREPGraphJSONExporter, augmented with a `faceAdjacency` block ({face1,face2,convexity,sharedEdgeCount}): the convexity-attributed gAAG edge attribute, face indices in shape.faces() order. Each nodes.edges[] entry also carries `convexity` (convex, concave, smooth or unknown) and `dihedralAngle` (interior angle in radians, absent when unknown, which is an edge not between exactly two faces such as an open shell's boundary); meta.schemaVersion is 1.1.0.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
