@@ -81,7 +81,7 @@ public enum MeshDiagnoseTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("mesh_diagnose: \(error)", isError: true)
         }
         let shape = loaded.shape
 

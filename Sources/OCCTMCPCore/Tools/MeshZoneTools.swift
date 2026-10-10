@@ -116,7 +116,7 @@ public enum MeshZoneTools {
         do {
             loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("segment_mesh_zones: \(error)", isError: true)
         }
         let shape = loaded.shape
 
