@@ -27,6 +27,8 @@ public enum CoreTools {
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
         guard FileManager.default.fileExists(atPath: store.path) else {
+            // Informational on purpose: get_scene is a read of the current state, and an empty
+            // workspace is a valid state (the Node twin answers the same way).
             return .init("No scene loaded. Run execute_script first.")
         }
         guard let manifest = try? store.read() else {

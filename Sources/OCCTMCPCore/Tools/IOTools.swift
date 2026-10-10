@@ -178,7 +178,9 @@ public enum IOTools {
             case .obj:
                 shape = try Shape.loadOBJ(fromPath: inputPath)
             case .auto:
-                return .init("Format auto-detection failed.")
+                // Unreachable: `ImportFormat.resolve` never returns `.auto`. Kept as an error so a
+                // future change to it cannot turn this into a success-shaped message.
+                return .init("Format auto-detection failed.", isError: true)
             }
         } catch {
             return .init("Import failed: \(error.localizedDescription)", isError: true)

@@ -1305,11 +1305,11 @@ struct IntegrationTests {
         let target = entry["targetSelectionId"] as? String ?? ""
         #expect(target.hasPrefix("sel:mirror-src#face["),
                 "target selectionId should resolve onto the mirror body, got \(target)")
-        if let conf = entry["confidenceMm"] as? Double {
-            // Mirror is exact for axis-aligned faces; allow a generous
-            // floor for OCCT-tessellation centroid noise.
-            #expect(conf < 0.01, "expected near-zero match distance, got \(conf)")
-        }
+        let conf = try #require(
+            entry["confidenceMm"] as? Double, "a matched entry must report confidenceMm")
+        // Mirror is exact for axis-aligned faces; allow a generous
+        // floor for OCCT-tessellation centroid noise.
+        #expect(conf < 0.01, "expected near-zero match distance, got \(conf)")
     }
 
     @Test("find_correspondences accepts a compound (translate then mirror) transform")
@@ -1421,9 +1421,9 @@ struct IntegrationTests {
                 "compound was caller-supplied; transformSource should be 'explicit'")
         #expect(entry["fate"] as? String == "matched",
                 "expected matched, got \(entry)")
-        if let conf = entry["confidenceMm"] as? Double {
-            #expect(conf < 0.01, "expected near-zero distance, got \(conf)")
-        }
+        let conf = try #require(
+            entry["confidenceMm"] as? Double, "a matched entry must report confidenceMm")
+        #expect(conf < 0.01, "expected near-zero distance, got \(conf)")
     }
 
     @Test("find_correspondences reads provenance when transform omitted (mirror_or_pattern path)")

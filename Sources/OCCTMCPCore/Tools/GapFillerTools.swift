@@ -225,7 +225,11 @@ public enum GapFillerTools {
             lineage = try await HistoryRegistry.shared.currentInput(
                 bodyId: bodyId, path: loaded.path)
         } catch {
-            return .init("\(error)")
+            // No input found that reaches this: loadShape just loaded the same file, and a
+            // loadable BREP built a graph for every shape tried (vertex, nested compounds, empty
+            // boolean results). Only a file replaced between the two loads gets here, so this is
+            // kept as a defensive error rather than a success-shaped message (#235).
+            return .init("select_by_feature: \(error)", isError: true)
         }
         let shape = lineage.shape
         let graph = lineage.graph
