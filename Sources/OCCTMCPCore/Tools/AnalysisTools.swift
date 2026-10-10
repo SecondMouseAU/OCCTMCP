@@ -277,7 +277,7 @@ public enum AnalysisTools {
             let graph = try GraphIO.buildGraph(from: shape)
             let nodesBefore = graph.stats.totalNodes
             let r = graph.compact()
-            guard let rebuilt = GraphIO.rebuildShape(from: graph) else {
+            guard let rebuilt = GraphIO.rebuildShape(from: graph, root: shape) else {
                 return .init("graph_compact failed: rebuild produced nil shape.", isError: true)
             }
             try GraphIO.writeBREP(rebuilt, to: outputPath)
@@ -313,7 +313,7 @@ public enum AnalysisTools {
             let shape = try Shape.loadBREP(fromPath: brepPath)
             let graph = try GraphIO.buildGraph(from: shape)
             let r = graph.deduplicate()
-            guard let rebuilt = GraphIO.rebuildShape(from: graph) else {
+            guard let rebuilt = GraphIO.rebuildShape(from: graph, root: shape) else {
                 return .init("graph_dedup failed: rebuild produced nil shape.", isError: true)
             }
             try GraphIO.writeBREP(rebuilt, to: outputPath)
