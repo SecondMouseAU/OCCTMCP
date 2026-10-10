@@ -98,7 +98,7 @@ public enum AlignTools {
             loadedSource = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
             loadedRef = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store)
         } catch {
-            return .init("\(error)")
+            return .init("align_bodies: \(error)", isError: true)
         }
         let sourceShape = loadedSource.shape
         let referenceShape = loadedRef.shape
