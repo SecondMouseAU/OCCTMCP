@@ -81,26 +81,26 @@ public actor ProvenanceStore {
     /// Atomic write so partial state
     /// can never be observed; actor isolation is what makes the
     /// read-modify-write cycle around that write atomic too.
-    public func upsert(bodyId: String, record: ProvenanceRecord, outputDir: String) {
+    public func upsert(bodyId: String, record: ProvenanceRecord, outputDir: String) throws {
         var current = read(outputDir: outputDir)
         current[bodyId] = record
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(current) else { return }
-        try? data.write(to: URL(fileURLWithPath: path(outputDir: outputDir)), options: .atomic)
+        let data = try encoder.encode(current)
+        try data.write(to: URL(fileURLWithPath: path(outputDir: outputDir)), options: .atomic)
     }
 
     /// Drop the record for `bodyId`.
     ///
     /// No-op if not present. Used by the
     /// scene-mutation tools that delete bodies.
-    public func remove(bodyId: String, outputDir: String) {
+    public func remove(bodyId: String, outputDir: String) throws {
         var current = read(outputDir: outputDir)
         guard current.removeValue(forKey: bodyId) != nil else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(current) else { return }
-        try? data.write(to: URL(fileURLWithPath: path(outputDir: outputDir)), options: .atomic)
+        let data = try encoder.encode(current)
+        try data.write(to: URL(fileURLWithPath: path(outputDir: outputDir)), options: .atomic)
     }
 
     /// Wipe every record.
@@ -108,7 +108,9 @@ public actor ProvenanceStore {
     /// Used by `clear_scene`, which removes every
     /// body in the scene at once: cheaper than removing each id
     /// individually, and correct since none of them survive.
-    public func clear(outputDir: String) {
-        try? FileManager.default.removeItem(atPath: path(outputDir: outputDir))
+    public func clear(outputDir: String) throws {
+        let filePath = path(outputDir: outputDir)
+        guard FileManager.default.fileExists(atPath: filePath) else { return }
+        try FileManager.default.removeItem(atPath: filePath)
     }
 }

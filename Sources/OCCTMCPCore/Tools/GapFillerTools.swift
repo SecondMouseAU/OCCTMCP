@@ -72,7 +72,7 @@ public enum GapFillerTools {
                     "max": .array(maxP.map { .number($0) }),
                 ]
             ))
-        try? sidecar.write(doc)
+        if let failure = AnnotationsTools.writeFailure(sidecar, doc) { return failure }
         return IntrospectionTools.encode(
             BoundingBoxResult(
                 primitiveId: id,
@@ -169,7 +169,7 @@ public enum GapFillerTools {
         }
         for id in diff.fileChanged { registerOverlay(bodyId: id, color: yellow, suffix: "filechg") }
 
-        try? sidecar.write(doc)
+        if let failure = AnnotationsTools.writeFailure(sidecar, doc) { return failure }
         return IntrospectionTools.encode(
             DiffOverlayResult(
                 added: diff.added,

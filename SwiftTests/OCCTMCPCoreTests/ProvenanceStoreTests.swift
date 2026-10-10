@@ -35,10 +35,10 @@ struct ProvenanceStoreTests {
         let store = ProvenanceStore()
         let total = 200
 
-        await withTaskGroup(of: Void.self) { group in
+        try await withThrowingTaskGroup(of: Void.self) { group in
             for i in 0..<total {
                 group.addTask {
-                    await store.upsert(
+                    try await store.upsert(
                         bodyId: "body\(i)",
                         record: provenanceRecord(source: "src\(i)"),
                         outputDir: outputDir
@@ -66,12 +66,12 @@ struct ProvenanceStoreTests {
         // `removeN` bodies will be concurrently removed below, `keepN`
         // bodies are never touched and must survive untouched.
         for i in 0..<removeCount {
-            await store.upsert(
+            try await store.upsert(
                 bodyId: "remove\(i)", record: provenanceRecord(source: "old\(i)"), outputDir: outputDir
             )
         }
         for i in 0..<keepCount {
-            await store.upsert(
+            try await store.upsert(
                 bodyId: "keep\(i)", record: provenanceRecord(source: "keep-src\(i)"), outputDir: outputDir
             )
         }
@@ -80,15 +80,15 @@ struct ProvenanceStoreTests {
         // dropping one body's record races `mirror_or_pattern` upserting
         // a DIFFERENT body's record, both against the same sidecar file,
         // concurrently.
-        await withTaskGroup(of: Void.self) { group in
+        try await withThrowingTaskGroup(of: Void.self) { group in
             for i in 0..<removeCount {
                 group.addTask {
-                    await store.remove(bodyId: "remove\(i)", outputDir: outputDir)
+                    try await store.remove(bodyId: "remove\(i)", outputDir: outputDir)
                 }
             }
             for i in 0..<keepCount {
                 group.addTask {
-                    await store.upsert(
+                    try await store.upsert(
                         bodyId: "new\(i)", record: provenanceRecord(source: "new-src\(i)"), outputDir: outputDir
                     )
                 }
@@ -113,16 +113,16 @@ struct ProvenanceStoreTests {
         let store = ProvenanceStore()
 
         for i in 0..<50 {
-            await store.upsert(
+            try await store.upsert(
                 bodyId: "pre\(i)", record: provenanceRecord(source: "pre-src\(i)"), outputDir: outputDir
             )
         }
 
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await store.clear(outputDir: outputDir) }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { try await store.clear(outputDir: outputDir) }
             for i in 0..<50 {
                 group.addTask {
-                    await store.upsert(
+                    try await store.upsert(
                         bodyId: "post\(i)", record: provenanceRecord(source: "post-src\(i)"), outputDir: outputDir
                     )
                 }
@@ -151,7 +151,7 @@ struct ProvenanceStoreTests {
         // A clear must leave the store usable: an upsert after it persists, and exactly the
         // post* survivors plus the new id are in the file. An empty final state above would
         // pass without this.
-        await store.upsert(
+        try await store.upsert(
             bodyId: "after-clear", record: provenanceRecord(source: "after-src"), outputDir: outputDir)
         try #require(
             FileManager.default.fileExists(atPath: sidecar.path),

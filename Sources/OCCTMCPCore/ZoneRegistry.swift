@@ -330,12 +330,12 @@ public actor ZoneRegistry {
     /// batch, THEN insert the batch) guarantees a body's zones always come
     /// from a single `segment_mesh_zones` call. Other bodies' zones are
     /// untouched.
-    public func recordBatch(_ recs: [ZoneRecord], store: ZonesStore) {
+    public func recordBatch(_ recs: [ZoneRecord], store: ZonesStore) throws {
         let bodyIds = Set(recs.map(\.bodyId))
         let stale = records.values.filter { bodyIds.contains($0.bodyId) }.map(\.zoneId)
         for k in stale { records.removeValue(forKey: k) }
         for r in recs { records[r.zoneId] = r }
-        persist(store: store)
+        try persist(store: store)
     }
 
     /// Drop zones for `bodyId`, or every zone when `bodyId` is nil.
@@ -343,17 +343,21 @@ public actor ZoneRegistry {
     /// Returns
     /// the count cleared.
     @discardableResult
-    public func clear(bodyId: String?, store: ZonesStore) -> Int {
+    public func clear(bodyId: String?, store: ZonesStore) throws -> Int {
         let toRemove =
             bodyId == nil
             ? Array(records.keys)
             : records.values.filter { $0.bodyId == bodyId }.map(\.zoneId)
         for k in toRemove { records.removeValue(forKey: k) }
-        persist(store: store)
+        try persist(store: store)
         return toRemove.count
     }
 
-    private func persist(store: ZonesStore) {
-        try? store.write(ZonesSidecar(zones: all()))
+    /// Write the in-memory zones through to `zones.json`.
+    ///
+    /// Throws so the calling tool can fail: a zone id handed to the caller must survive a restart.
+    /// The in-memory table keeps the change either way, so it stays usable for the session.
+    private func persist(store: ZonesStore) throws {
+        try store.write(ZonesSidecar(zones: all()))
     }
 }

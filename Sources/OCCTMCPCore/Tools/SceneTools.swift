@@ -57,9 +57,17 @@ public enum SceneTools {
             return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
         }
         try? FileManager.default.removeItem(atPath: bodyFile)
-        await ProvenanceStore.shared.remove(bodyId: bodyId, outputDir: outputDir)
+        // Best effort by design: the manifest write above is what removed the body, and a stale
+        // provenance record for an absent body is harmless. Report it rather than fail (#236).
+        var warning = ""
+        do {
+            try await ProvenanceStore.shared.remove(bodyId: bodyId, outputDir: outputDir)
+        } catch {
+            warning = " Warning: failed to update provenance.json: \(error.localizedDescription)"
+        }
         return .init(
             "Removed body \"\(bodyId)\" (file: \(target.file)). Remaining: \(updated.bodies.count)."
+                + warning
         )
     }
 
@@ -95,12 +103,19 @@ public enum SceneTools {
         for path in filesToRemove {
             try? FileManager.default.removeItem(atPath: path)
         }
-        await ProvenanceStore.shared.clear(outputDir: outputDir)
+        // Best effort by design, as in remove_body: the scene is already cleared (#236).
+        var warning = ""
+        do {
+            try await ProvenanceStore.shared.clear(outputDir: outputDir)
+        } catch {
+            warning = " Warning: failed to clear provenance.json: \(error.localizedDescription)"
+        }
         if !keepHistory {
             await history.clear()
         }
         return .init(
             "Cleared \(removedCount) bodies from scene." + (keepHistory ? "" : " History reset.")
+                + warning
         )
     }
 

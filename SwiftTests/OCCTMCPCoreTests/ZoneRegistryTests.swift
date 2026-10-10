@@ -37,7 +37,7 @@ struct ZoneRegistryTests {
 
         #expect(await registry.nextIndex(bodyId: "box") == 0)
 
-        await registry.recordBatch([record("box", 0), record("box", 1), record("other", 0)], store: store)
+        try await registry.recordBatch([record("box", 0), record("box", 1), record("other", 0)], store: store)
 
         #expect(await registry.nextIndex(bodyId: "box") == 2)
         #expect(await registry.nextIndex(bodyId: "other") == 1)
@@ -63,16 +63,16 @@ struct ZoneRegistryTests {
         let registry = ZoneRegistry()
 
         // First segmentation: 3 zones for "box".
-        await registry.recordBatch([record("box", 0), record("box", 1), record("box", 2)], store: store)
+        try await registry.recordBatch([record("box", 0), record("box", 1), record("box", 2)], store: store)
         // Another body, untouched by anything that follows.
-        await registry.recordBatch([record("other", 0), record("other", 1)], store: store)
+        try await registry.recordBatch([record("other", 0), record("other", 1)], store: store)
         #expect(await registry.zones(forBody: "box").count == 3)
         #expect(await registry.zones(forBody: "other").count == 2)
 
         // Re-segment "box" with params that yield fewer zones (same mesh,
         // different segmentation params — the case that used to leave
         // zone:box#2 stale-but-resolvable).
-        await registry.recordBatch([record("box", 0), record("box", 1)], store: store)
+        try await registry.recordBatch([record("box", 0), record("box", 1)], store: store)
 
         let boxZones = await registry.zones(forBody: "box")
         #expect(boxZones.map(\.index) == [0, 1])
@@ -99,7 +99,7 @@ struct ZoneRegistryTests {
         let store = ZonesStore(outputDir: dir)
 
         let first = ZoneRegistry()
-        await first.recordBatch([record("box", 0), record("box", 1)], store: store)
+        try await first.recordBatch([record("box", 0), record("box", 1)], store: store)
 
         #expect(FileManager.default.fileExists(atPath: store.path))
 
@@ -122,9 +122,9 @@ struct ZoneRegistryTests {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let store = ZonesStore(outputDir: dir)
         let registry = ZoneRegistry()
-        await registry.recordBatch([record("box", 0), record("box", 1), record("cyl", 0)], store: store)
+        try await registry.recordBatch([record("box", 0), record("box", 1), record("cyl", 0)], store: store)
 
-        let clearedBox = await registry.clear(bodyId: "box", store: store)
+        let clearedBox = try await registry.clear(bodyId: "box", store: store)
         #expect(clearedBox == 2)
         #expect(await registry.zones(forBody: "box").isEmpty)
         #expect(await registry.zones(forBody: "cyl").count == 1)
@@ -134,7 +134,7 @@ struct ZoneRegistryTests {
         await reloaded.loadSidecarIfNeeded(store: store)
         #expect(await reloaded.all().count == 1)
 
-        let clearedAll = await registry.clear(bodyId: nil, store: store)
+        let clearedAll = try await registry.clear(bodyId: nil, store: store)
         #expect(clearedAll == 1)
         #expect(await registry.all().isEmpty)
     }

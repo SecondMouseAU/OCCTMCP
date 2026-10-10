@@ -116,7 +116,12 @@ public enum RegistryIntrospectionTools {
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let zonesStore = ZonesStore(outputDir: outputDir)
         await registry.loadSidecarIfNeeded(store: zonesStore)
-        let cleared = await registry.clear(bodyId: bodyId, store: zonesStore)
-        return IntrospectionTools.encode(ClearZonesResult(cleared: cleared))
+        do {
+            let cleared = try await registry.clear(bodyId: bodyId, store: zonesStore)
+            return IntrospectionTools.encode(ClearZonesResult(cleared: cleared))
+        } catch {
+            return .init(
+                "Failed to write zones.json: \(error.localizedDescription)", isError: true)
+        }
     }
 }

@@ -102,7 +102,7 @@ struct ZoneMeshResolutionTests {
         let zonesStore = freshZonesStore("mismatch")
         let dummySignature = MeshSignature(triangleCount: 12, bboxMin: [0, 0, 0], bboxMax: [1, 1, 1])
         let rec = fixtureRecord(zoneId: "zone:other#0", bodyId: "other", deflection: 0.5, meshSignature: dummySignature)
-        await registry.recordBatch([rec], store: zonesStore)
+        try await registry.recordBatch([rec], store: zonesStore)
 
         var warnings: [String] = []
         do {
@@ -156,7 +156,7 @@ struct ZoneMeshResolutionTests {
         let registry = ZoneRegistry()
         let zonesStore = freshZonesStore("stale")
         let rec = fixtureRecord(zoneId: "zone:box#0", bodyId: "box", deflection: 0.5, meshSignature: staleSig)
-        await registry.recordBatch([rec], store: zonesStore)
+        try await registry.recordBatch([rec], store: zonesStore)
 
         var warnings: [String] = []
         do {
@@ -184,7 +184,7 @@ struct ZoneMeshResolutionTests {
         let registry = ZoneRegistry()
         let zonesStore = freshZonesStore("submesh")
         let rec = fixtureRecord(zoneId: "zone:box#0", bodyId: "box", deflection: 0.5, triangleIndices: [], meshSignature: realSig)
-        await registry.recordBatch([rec], store: zonesStore)
+        try await registry.recordBatch([rec], store: zonesStore)
 
         var warnings: [String] = []
         do {
@@ -218,7 +218,7 @@ struct ZoneMeshResolutionTests {
             zoneId: "zone:box#0", bodyId: "box", deflection: zoneDeflection,
             triangleIndices: Array(0..<triangleCount), meshSignature: sig
         )
-        await registry.recordBatch([rec], store: zonesStore)
+        try await registry.recordBatch([rec], store: zonesStore)
 
         var warnings: [String] = []
         let resolution = try await ZoneSweepTool.resolveZoneMesh(
@@ -245,7 +245,7 @@ struct ZoneMeshResolutionTests {
             zoneId: "zone:box#0", bodyId: "box", deflection: zoneDeflection,
             triangleIndices: Array(0..<triangleCount), meshSignature: sig
         )
-        await registry.recordBatch([rec], store: zonesStore)
+        try await registry.recordBatch([rec], store: zonesStore)
 
         var warnings: [String] = []
         let resolution = try await ZoneSweepTool.resolveZoneMesh(
