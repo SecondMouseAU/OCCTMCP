@@ -5,12 +5,11 @@
 // atomic replace (or the delete) fails.
 
 import Foundation
+@testable import OCCTMCPCore
 import OCCTSwift
 import ScriptHarness
 import Testing
 import simd
-
-@testable import OCCTMCPCore
 
 @Suite("A failed sidecar write is surfaced, not swallowed", .serialized)
 struct SidecarWriteFailureTests {
@@ -100,7 +99,9 @@ struct SidecarWriteFailureTests {
         #expect(doc.primitives.map(\.id) == ["p2"])
     }
 
-    @Test("remove_scene_annotation: a failed annotations write is an error for a dimension and a primitive")
+    @Test(
+        "remove_scene_annotation: a failed annotations write is an error for a dimension and a primitive"
+    )
     func removeSceneAnnotationFails() async throws {
         let store = try scene([(id: "box", shape: try box())])
         let path = try seedAnnotations(store)
@@ -112,7 +113,8 @@ struct SidecarWriteFailureTests {
         #expect(ids.count == 2)
         for id in ids {
             let result = await AnnotationsTools.removeSceneAnnotation(id: id, store: store)
-            #expect(result.text.contains("Failed to write annotations.json"), "\(id): \(result.text)")
+            #expect(
+                result.text.contains("Failed to write annotations.json"), "\(id): \(result.text)")
             #expect(result.isError, "\(id)")
         }
         #expect(try bytes(path) == before)
