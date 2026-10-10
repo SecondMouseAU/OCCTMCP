@@ -88,10 +88,9 @@ public enum AssemblyTools {
             }
             document = d
         case "xbf":
-            do {
-                document = try Document.load(from: URL(fileURLWithPath: path))
-            } catch {
-                return .init("Failed to load XBF: \(error.localizedDescription)", isError: true)
+            switch loadXBF(at: path) {
+            case .success(let d): document = d
+            case .failure(let message): return .init(message, isError: true)
             }
         default:
             return .init("Unsupported extension '\(ext)' for inspect_assembly.", isError: true)
@@ -131,6 +130,32 @@ public enum AssemblyTools {
                 totalInstances: instances,
                 totalReferences: references
             ))
+    }
+
+    enum XBFLoadResult {
+        case success(Document)
+        case failure(String)
+    }
+
+    /// Load a binary OCAF (.xbf) file with the OCAF reader, not the STEP reader.
+    ///
+    /// OCCT's `Open` segfaults on an empty file or one that is not OCAF at all, so the binary
+    /// OCAF magic is checked first and anything else is refused before the reader sees it.
+    static func loadXBF(at path: String) -> XBFLoadResult {
+        let magic = Data("BINFILE".utf8)
+        let head = FileHandle(forReadingAtPath: path).flatMap { handle -> Data? in
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: magic.count)
+        }
+        guard head == magic else {
+            return .failure(
+                "Failed to load XBF at \(path): not a binary OCAF file (no BINFILE header).")
+        }
+        let loaded = Document.loadOCAF(from: path)
+        guard let document = loaded.document, loaded.status == .ok else {
+            return .failure("Failed to load XBF at \(path): reader status \(loaded.status).")
+        }
+        return .success(document)
     }
 
     static func walk(
@@ -244,25 +269,24 @@ extension AssemblyTools {
         }
         let ext = (inputPath as NSString).pathExtension.lowercased()
         let document: Document
-        do {
-            switch ext {
-            case "step", "stp":
-                guard
-                    let d = Document.loadSTEP(
-                        from: URL(fileURLWithPath: inputPath),
-                        modes: STEPReaderModes()
-                    )
-                else {
-                    return .init("Failed to load STEP at \(inputPath).", isError: true)
-                }
-                document = d
-            case "xbf":
-                document = try Document.load(from: URL(fileURLWithPath: inputPath))
-            default:
-                return .init("Unsupported extension '.\(ext)'. Pass STEP or XBF.", isError: true)
+        switch ext {
+        case "step", "stp":
+            guard
+                let d = Document.loadSTEP(
+                    from: URL(fileURLWithPath: inputPath),
+                    modes: STEPReaderModes()
+                )
+            else {
+                return .init("Failed to load STEP at \(inputPath).", isError: true)
             }
-        } catch {
-            return .init("Failed to load document: \(error.localizedDescription)", isError: true)
+            document = d
+        case "xbf":
+            switch loadXBF(at: inputPath) {
+            case .success(let d): document = d
+            case .failure(let message): return .init(message, isError: true)
+            }
+        default:
+            return .init("Unsupported extension '.\(ext)'. Pass STEP or XBF.", isError: true)
         }
 
         let target: AssemblyNode
