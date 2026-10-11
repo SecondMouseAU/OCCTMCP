@@ -112,9 +112,11 @@ struct ExecuteScriptTests {
         }
         #expect(result.exitCode == 0)
         #expect(
-            probeSeconds < 0.8,
+            probeSeconds < 1.2,
             "the probe waited \(probeSeconds) s for a 0.3 s sleep: runProcess held the executor thread"
         )
+        // The defect holds the thread for the whole 1.5 s child, so 1.2 s separates the two with
+        // 0.9 s of scheduler margin on a loaded runner.
         // Control: the child really did run for its full duration, so the probe was not early
         // only because the child never started.
         #expect(Date().timeIntervalSince(start) >= 1.4)

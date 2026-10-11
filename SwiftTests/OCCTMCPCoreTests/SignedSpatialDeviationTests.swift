@@ -244,7 +244,8 @@ struct SignedSpatialDeviationTests {
         let signedMin = try #require(r.fromToTo.signedMin)
         // The true offset is 0.5; the tessellated inner sphere sits a little inside its own
         // surface, so the measured mean is -0.4775, the extremes -0.4978 / -0.4645 and p95 0.4924.
-        // The bands are about +-0.01 around those, narrow enough to fail a 5% scale error.
+        // The bands are about +-0.01 around those, narrow enough to fail a 5% scale error. The
+        // fixture is deterministic for a pinned OCCTSwift; re-measure after a kernel bump.
         let signedMax = try #require(r.fromToTo.signedMax)
         #expect(signedMean > -0.49 && signedMean < -0.465, "signedMean \(signedMean)")
         #expect(signedMin > -0.505 && signedMin < -0.49, "signedMin \(signedMin)")

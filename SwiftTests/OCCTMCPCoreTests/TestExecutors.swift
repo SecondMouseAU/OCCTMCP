@@ -6,6 +6,8 @@
 
 import Foundation
 
+/// `@unchecked Sendable` is safe here: the only state is a serial `DispatchQueue`, and every job
+/// goes through it.
 final class SingleThreadExecutor: TaskExecutor, @unchecked Sendable {
     private let queue = DispatchQueue(label: "occtmcp.test.single-thread-executor")
 

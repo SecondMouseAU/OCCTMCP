@@ -1048,8 +1048,9 @@ struct IntegrationTests {
         // The heal rewrote the body file in place, so the shape on disk must still be the box
         // that went in. remap_selection answers from the topology index and cannot see a body
         // that was moved, so this is the check that the heal did not change the geometry.
-        let healedBounds = try #require(try Shape.loadBREP(fromPath: "\(scene)/part.brep").bounds)
-        let boxBounds = try #require(box.bounds)
+        let healedShape = try Shape.loadBREP(fromPath: "\(scene)/part.brep")
+        let healedBounds = try #require(healedShape.bounds, "the healed part.brep has no bounding box")
+        let boxBounds = try #require(box.bounds, "the original box has no bounding box")
         #expect(simd_length(healedBounds.min - boxBounds.min) < 1e-6
                     && simd_length(healedBounds.max - boxBounds.max) < 1e-6,
                 "heal_shape changed the box: \(healedBounds) against \(boxBounds)")
