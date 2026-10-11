@@ -168,4 +168,4 @@ Write XCAF document- or component-level metadata onto an OCAF document and save 
 { "outputPath": "/Users/me/output/assembly_meta.xbf" }
 ```
 
-**Notes** — The output is always `.xbf` (binary OCAF format), regardless of the input format. To target a specific sub-component, set `scope: "component"` and provide `componentId` (zero-based index into the XCAF shape tree). Use `inspect_assembly` (see [Introspection & measurement](introspection.md#inspect_assembly)) to discover component indices first.
+**Notes** — The output is always `.xbf` (binary OCAF format), regardless of the input format. To target a specific sub-component, set `scope: "component"` and provide `componentId` (zero-based index into the XCAF shape tree). Use `inspect_assembly` (see [Introspection & measurement](introspection.md#inspect_assembly)) to discover component indices first. An `.xbf` input (such as a previous output) is read with the OCAF reader and keeps its earlier metadata. An empty file, a file without the binary OCAF `BINFILE` header, or a body the reader rejects returns an error naming the cause.

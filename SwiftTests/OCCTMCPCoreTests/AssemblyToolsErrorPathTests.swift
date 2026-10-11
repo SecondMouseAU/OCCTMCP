@@ -83,8 +83,7 @@ struct AssemblyToolsErrorPathTests {
         let txt = "\(dir)/notes.txt"
         try "x".write(toFile: txt, atomically: true, encoding: .utf8)
 
-        // A real STEP document so the component-scope checks are reached. (The tool's `.xbf`
-        // branch calls `Document.load`, which reads STEP, so an `.xbf` input cannot get there.)
+        // A real STEP document so the component-scope checks are reached.
         let box = try #require(Shape.box(width: 10, height: 10, depth: 10))
         let doc = try #require(Document.create())
         _ = doc.addShape(box)

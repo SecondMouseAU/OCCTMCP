@@ -434,4 +434,4 @@ Walk an XCAF assembly hierarchy and return the component tree with transforms.
 }
 ```
 
-**Notes** — Pass `inputPath` (not `bodyId`) to get the full multi-level component tree from a STEP/IGES/XBF file. Use [`import_file`](io.md#import_file) first if you want the assembly bodies added to the scene.
+**Notes** — Pass `inputPath` (not `bodyId`) to get the full multi-level component tree from a STEP/IGES/XBF file. An `.xbf` input (for example the output of [`set_assembly_metadata`](io.md#set_assembly_metadata)) is read with the OCAF reader; an empty, non-OCAF or unreadable `.xbf` returns an error. Use [`import_file`](io.md#import_file) first if you want the assembly bodies added to the scene.

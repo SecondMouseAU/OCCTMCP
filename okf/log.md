@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-10-11
+
+* **Update**: #234. `inspect_assembly` and `set_assembly_metadata` read `.xbf` input with `Document.loadOCAF(from:)` (the OCAF reader) instead of `Document.load(from:)` (the STEP reader), so the documented set-then-inspect round trip works. OCCT's `Open` segfaults on an empty file or a non-OCAF file, so `loadXBF` checks the `BINFILE` header first and refuses anything else with an error result.
+
 ## 2026-10-07 (b)
 
 * **Update**: `policies/prove-the-test-fails.md` adopted in full from OCCTSwift (it was a pointer), with a "What this repo adds" section recording the shapes found by the #211 audit. No ecosystem issue filed, by decision.
