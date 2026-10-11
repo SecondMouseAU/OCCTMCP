@@ -376,6 +376,48 @@ struct SlippageSweepAxisTests {
     }
 
     @MainActor
+    @Test("a clean plane zone (kind plane, axis along its normal, confident) still sweeps on PCA, not on that axis")
+    func cleanPlaneZoneSweepUsesPCA() async throws {
+        let (store, dir) = try freshScene("panelplane")
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let stlPath = "\(dir)/panelcube.stl"
+        try SlippageClassificationTests.writeDisjointPanelCubeSTL(to: stlPath)
+
+        let importResult = await IOTools.importFile(
+            inputPath: stlPath, format: .stl, idPrefix: "panel", store: store, history: SceneHistory()
+        )
+        #expect(!importResult.isError, "import failed: \(importResult.text)")
+        let imported = try JSONDecoder().decode(ImportReport.self, from: Data(importResult.text.utf8))
+        let bodyId = try #require(imported.addedBodyIds.first)
+
+        let registry = ZoneRegistry()
+        let segResult = await MeshZoneTools.segmentMeshZones(
+            bodyId: bodyId, minRegionTriangles: 1, render: false, registry: registry, store: store
+        )
+        #expect(!segResult.isError, "segment_mesh_zones failed: \(segResult.text)")
+        let seg = try JSONDecoder().decode(ZoneReport.self, from: Data(segResult.text.utf8))
+        #expect(seg.zoneCount == 6)
+
+        // Every other gate in selectSweepAxis (axisDirection present, confidence over the floor,
+        // no erosion skip) passes for these zones, so the kind check is the only thing left
+        // between a plane zone and the "slippage" axis source. The roof of the mini-carbody
+        // fixture reads as freeform with no axis, which a missing kind check cannot reach.
+        for zone in seg.zones {
+            let slip = try #require(zone.slippage, "zone \(zone.id) carries no slippage")
+            #expect(slip.kind == "plane", "test premise broken: zone \(zone.id) read as \(slip.kind)")
+            #expect(slip.axisDirection?.count == 3, "test premise broken: no axisDirection on \(zone.id)")
+            #expect(slip.confidence >= 0.25, "test premise broken: confidence \(slip.confidence) on \(zone.id)")
+
+            let sweep = await ZoneSweepTool.zoneContinuitySweep(
+                bodyId: bodyId, zoneId: zone.id, render: false, registry: registry, store: store
+            )
+            #expect(!sweep.isError, "unexpected error: \(sweep.text)")
+            let sr = try JSONDecoder().decode(SweepReport.self, from: Data(sweep.text.utf8))
+            #expect(sr.axisSource == "pca", "zone \(zone.id) (plane) swept on \(sr.axisSource)")
+        }
+    }
+
+    @MainActor
     @Test("old-format zones.json record (no slippage key): decodes fine, sweep falls back to PCA cleanly")
     func oldFormatSidecarCompatibility() async throws {
         let (store, dir) = try freshScene("oldformat")

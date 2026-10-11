@@ -16,6 +16,7 @@ import Foundation
 import Testing
 import OCCTSwift
 import ScriptHarness
+import simd
 @testable import OCCTMCPCore
 
 /// A tool failure is a normal JSON-RPC `result` carrying `isError: true`, not an `error`
@@ -1043,6 +1044,15 @@ struct IntegrationTests {
                 "a pristine box heals as a no-op; got warnings \(warnings)")
         #expect(warnings.contains { $0.contains("absorbed no records") },
                 "the no-op heal degrades to a generation reset, and says so; got warnings \(warnings)")
+
+        // The heal rewrote the body file in place, so the shape on disk must still be the box
+        // that went in. remap_selection answers from the topology index and cannot see a body
+        // that was moved, so this is the check that the heal did not change the geometry.
+        let healedBounds = try #require(try Shape.loadBREP(fromPath: "\(scene)/part.brep").bounds)
+        let boxBounds = try #require(box.bounds)
+        #expect(simd_length(healedBounds.min - boxBounds.min) < 1e-6
+                    && simd_length(healedBounds.max - boxBounds.max) < 1e-6,
+                "heal_shape changed the box: \(healedBounds) against \(boxBounds)")
 
         try harness.send(.init(
             id: 86, method: "tools/call",

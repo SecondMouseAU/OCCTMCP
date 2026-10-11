@@ -113,8 +113,8 @@ struct HistoryRegistryLineageTests {
         }
     }
 
-    @Test("a failed/no-op absorb degrades to a generation reset, not a silent wrong continuation")
-    func failedAbsorbDegradesToGenerationReset() async throws {
+    @Test("a commit with no history (ref: nil) is a generation reset; a failed absorb is covered by the foreign-history test below")
+    func noHistoryDegradesToGenerationReset() async throws {
         let registry = HistoryRegistry()
         let scene = NSTemporaryDirectory() + "occtmcp-lineage-reset-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: scene, withIntermediateDirectories: true)

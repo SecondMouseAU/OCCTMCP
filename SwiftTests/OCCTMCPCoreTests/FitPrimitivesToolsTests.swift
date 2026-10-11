@@ -264,6 +264,9 @@ struct FitPrimitivesToolsTests {
         // Both candidates fit a clean tube perfectly, so the scores tie and the choice is not
         // under test here; the result must still be the one cylinder the tube is made of.
         #expect(abs(scores.dihedral - scores.ransac) < 1e-9, "expected a tie, got \(scores)")
+        // Measured 1.0 for both: every triangle of the tube is explained by one cylinder. A range
+        // check alone accepts a fabricated 0.5 / 0.5.
+        #expect(scores.dihedral > 0.99 && scores.ransac > 0.99, "a clean tube must score ~1.0, got \(scores)")
         #expect(r.primitives.count == 1, "expected one cylinder, got \(r.primitives.map(\.kind))")
         let barrel = try #require(r.primitives.first)
         #expect(barrel.kind == "cylinder")
