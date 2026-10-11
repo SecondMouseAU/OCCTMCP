@@ -85,38 +85,40 @@ struct ExecuteScriptTests {
     }
 
     @Test(
-        "runProcess doesn't tie up cooperative-pool threads for the subprocess lifetime",
+        "runProcess doesn't block its executor thread for the subprocess lifetime",
         .timeLimit(.minutes(1))
     )
     func manyConcurrentCallsDontSerialize() async throws {
-        // Regression for #147: the pre-fix `readDataToEndOfFile()` drain
-        // parks a real thread from Swift's (core-count-sized) cooperative
-        // pool for as long as the child runs, two threads per call. Running
-        // more concurrent calls than there are cores, each with a short-lived
-        // child, proves the fix: if the pool were being exhausted, later
-        // calls' reads couldn't even start until earlier ones freed a
-        // thread, and total wall time would scale with call count rather
-        // than with the child's own duration.
-        let concurrentCalls = 20
-        let sleepSeconds = "0.4"
+        // Regression for #147: a blocking `readDataToEndOfFile()` drain holds the thread it runs
+        // on for as long as the child lives. On the default cooperative pool that is invisible,
+        // because libdispatch spawns extra threads when workers block (measured: 300 concurrent
+        // calls took 0.91 s with the blocking drain against 0.94 s fixed). So the call runs on a
+        // one-thread task executor, which cannot grow, next to a probe task that wants the same
+        // thread 0.3 s in. With a blocking drain the thread is held for the whole 1.5 s child and
+        // the probe resumes only after it; with the readabilityHandler drain the thread is free
+        // and the probe resumes on time. (Several concurrent calls would not do: all the children
+        // are spawned before the first drain blocks, so they overlap either way.)
+        let executor = SingleThreadExecutor()
         let start = Date()
-        try await withThrowingTaskGroup(of: ExecuteScriptTool.RunResult.self) { group in
-            for _ in 0..<concurrentCalls {
-                group.addTask {
-                    try await ExecuteScriptTool.runProcess(
-                        executable: "/bin/sh",
-                        args: ["-c", "sleep \(sleepSeconds)"]
-                    )
-                }
-            }
-            for try await result in group {
-                #expect(result.exitCode == 0)
-            }
+        var probeSeconds = 0.0
+        let result = try await withTaskExecutorPreference(executor) {
+            async let child = ExecuteScriptTool.runProcess(
+                executable: "/bin/sh",
+                args: ["-c", "sleep 1.5"]
+            )
+            try await Task.sleep(for: .milliseconds(300))
+            probeSeconds = Date().timeIntervalSince(start)
+            return try await child
         }
-        let elapsed = Date().timeIntervalSince(start)
-        // Genuinely parallel: ~0.4s plus scheduling/process-spawn overhead.
-        // Serialized on a starved pool would approach concurrentCalls * 0.4s
-        // (8s); 3s is a generous middle threshold.
-        #expect(elapsed < 3.0)
+        #expect(result.exitCode == 0)
+        #expect(
+            probeSeconds < 1.2,
+            "the probe waited \(probeSeconds) s for a 0.3 s sleep: runProcess held the executor thread"
+        )
+        // The defect holds the thread for the whole 1.5 s child, so 1.2 s separates the two with
+        // 0.9 s of scheduler margin on a loaded runner.
+        // Control: the child really did run for its full duration, so the probe was not early
+        // only because the child never started.
+        #expect(Date().timeIntervalSince(start) >= 1.4)
     }
 }

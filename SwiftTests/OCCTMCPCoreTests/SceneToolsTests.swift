@@ -46,6 +46,7 @@ struct SceneToolsTests {
 
         let result = await SceneTools.removeBody(bodyId: "alpha", store: store, history: history)
         #expect(result.text.contains("Removed body \"alpha\""))
+        #expect(!result.isError, "a successful remove is not an error result: \(result.text)")
 
         let updated = try store.read()
         #expect(updated?.bodies.count == 1)
@@ -102,6 +103,7 @@ struct SceneToolsTests {
 
         let result = await SceneTools.clearScene(keepHistory: false, store: store, history: history)
         #expect(result.text.contains("Cleared 2 bodies"))
+        #expect(!result.isError, "a successful clear is not an error result: \(result.text)")
 
         let updated = try store.read()
         #expect(updated?.bodies.isEmpty == true)
@@ -142,9 +144,11 @@ struct SceneToolsTests {
         let result = await SceneTools.renameBody(
             bodyId: "alpha", newBodyId: "alpha2", store: store, history: history)
         #expect(result.text.contains("\"alpha\" → \"alpha2\""))
+        #expect(!result.isError, "a successful rename is not an error result: \(result.text)")
 
         let updated = try store.read()
         #expect(updated?.bodies.first(where: { $0.file == "alpha.brep" })?.id == "alpha2")
+        #expect(updated?.bodies.map(\.id) == ["alpha2", "beta"], "only alpha is renamed, beta stays put")
     }
 
     @Test("rename_body rejects collisions")
@@ -178,11 +182,15 @@ struct SceneToolsTests {
             history: history
         )
         #expect(result.text.contains("Updated appearance of \"alpha\""))
+        #expect(!result.isError, "a successful update is not an error result: \(result.text)")
 
         let updated = try store.read()
         let alpha = updated?.body(withId: "alpha")
         #expect(alpha?.color == [0.2, 0.4, 0.6, 0.5])
         #expect(alpha?.name == "Alpha part")
+        let beta = updated?.body(withId: "beta")
+        #expect(beta?.color == [0, 1, 0, 1], "beta must not pick up alpha's appearance")
+        #expect(beta?.name == nil)
     }
 
     @Test("set_appearance rejects empty input")
@@ -236,9 +244,19 @@ struct SceneToolsTests {
         )
         try store.write(updated)
 
+        let beforeCompare = try Data(contentsOf: URL(fileURLWithPath: store.path))
         let result = await SceneTools.compareVersions(since: 1, store: store, history: history)
+        #expect(!result.isError, "unexpected error: \(result.text)")
         #expect(result.text.contains("\"added\""))
         #expect(result.text.contains("\"gamma\""))
+        let diff = try #require(
+            try JSONSerialization.jsonObject(with: Data(result.text.utf8)) as? [String: Any])
+        #expect(diff["added"] as? [String] == ["gamma"], "only gamma was added: \(result.text)")
+        #expect(diff["removed"] as? [String] == [], "nothing was removed: \(result.text)")
+        #expect(diff["unchanged"] as? [String] == ["alpha", "beta"], "alpha and beta are untouched: \(result.text)")
+        #expect(
+            try Data(contentsOf: URL(fileURLWithPath: store.path)) == beforeCompare,
+            "compare_versions is read-only and must leave manifest.json untouched")
     }
 
     @Test("compare_versions errors when history is too shallow")
@@ -247,7 +265,12 @@ struct SceneToolsTests {
         let history = SceneHistory()
         defer { try? FileManager.default.removeItem(atPath: dirOf(store)) }
 
+        let before = try Data(contentsOf: URL(fileURLWithPath: store.path))
         let result = await SceneTools.compareVersions(since: 5, store: store, history: history)
         #expect(result.text.contains("Not enough history"))
+        #expect(result.isError, "a too-shallow history must come back as an error result")
+        #expect(
+            try Data(contentsOf: URL(fileURLWithPath: store.path)) == before,
+            "a failed compare must leave manifest.json untouched")
     }
 }

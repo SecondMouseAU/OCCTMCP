@@ -243,13 +243,15 @@ struct SignedSpatialDeviationTests {
         let signedMean = try #require(r.fromToTo.signedMean)
         let signedMin = try #require(r.fromToTo.signedMin)
         // The true offset is 0.5; the tessellated inner sphere sits a little inside its own
-        // surface, so the measured mean is about -0.4775 and the extremes -0.498 / -0.465.
+        // surface, so the measured mean is -0.4775, the extremes -0.4978 / -0.4645 and p95 0.4924.
+        // The bands are about +-0.01 around those, narrow enough to fail a 5% scale error. The
+        // fixture is deterministic for a pinned OCCTSwift; re-measure after a kernel bump.
         let signedMax = try #require(r.fromToTo.signedMax)
-        #expect(signedMean > -0.5 && signedMean < -0.45, "signedMean \(signedMean)")
-        #expect(signedMin > -0.505 && signedMin < -0.48, "signedMin \(signedMin)")
-        #expect(signedMax < -0.4, "every sample is shy, so signedMax stays negative: \(signedMax)")
+        #expect(signedMean > -0.49 && signedMean < -0.465, "signedMean \(signedMean)")
+        #expect(signedMin > -0.505 && signedMin < -0.49, "signedMin \(signedMin)")
+        #expect(signedMax > -0.475 && signedMax < -0.455, "every sample is shy, so signedMax stays negative: \(signedMax)")
         #expect(signedMin <= signedMean && signedMean <= signedMax)
-        #expect(r.fromToTo.p95 > 0.48 && r.fromToTo.p95 < 0.5, "p95 \(r.fromToTo.p95)")
+        #expect(r.fromToTo.p95 > 0.485 && r.fromToTo.p95 < 0.4975, "p95 \(r.fromToTo.p95)")
         #expect(r.fromToTo.samples > 100)
         #expect(r.fromToTo.signedSamples == r.fromToTo.samples)
         #expect(r.fromToTo.ambiguousSamples == 0)
@@ -261,7 +263,7 @@ struct SignedSpatialDeviationTests {
         let sections = try #require(r.sections)
         #expect(sections.count == 5)
         for (i, section) in sections.enumerated() {
-            #expect(section.signedMean > -0.5 && section.signedMean < -0.44,
+            #expect(section.signedMean > -0.495 && section.signedMean < -0.46,
                     "section \(i) signedMean \(section.signedMean)")
             #expect(abs(section.offset - (1.0 + 2.0 * Double(i))) < 0.2,
                     "section \(i) offset \(section.offset)")
@@ -305,8 +307,9 @@ struct SignedSpatialDeviationTests {
 
         let mean = try #require(r.mean)
         let signedMin = try #require(r.signedMin)
-        #expect(mean < -0.45 && mean > -0.5, "mean \(mean)")
-        #expect(signedMin < -0.48 && signedMin > -0.505, "signedMin \(signedMin)")
+        // Same spheres and deflection as signedAndSections: measured mean -0.4775, min -0.4978.
+        #expect(mean < -0.465 && mean > -0.49, "mean \(mean)")
+        #expect(signedMin < -0.49 && signedMin > -0.505, "signedMin \(signedMin)")
         #expect(r.buckets.count > 1)
         #expect(r.samples > 100)
         #expect(r.buckets.reduce(0) { $0 + $1.count } == r.samples, "every sample lands in a bucket")
