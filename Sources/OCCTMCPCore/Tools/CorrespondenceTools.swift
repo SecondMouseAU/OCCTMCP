@@ -196,9 +196,8 @@ public enum CorrespondenceTools {
         store: ManifestStore = ManifestStore(),
         registry: SelectionRegistry = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         guard let targetBody = manifest.body(withId: targetBodyId) else {
             return .init("Target body not found: \(targetBodyId)", isError: true)
         }

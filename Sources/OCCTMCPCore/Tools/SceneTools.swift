@@ -16,6 +16,16 @@ public struct ToolText: Sendable {
         self.text = text
         self.isError = isError
     }
+    /// Result for a failed manifest load or `ManifestStore.update`.
+    ///
+    /// A `ManifestError` keeps its own message; any other error is a failed write.
+    public static func manifestFailure(_ error: Error) -> ToolText {
+        if let manifestError = error as? ManifestError {
+            return .init(manifestError.localizedDescription, isError: true)
+        }
+        return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+    }
+
     public func asCallToolResult() -> CallTool.Result {
         return .init(
             content: [.text(text: text, annotations: nil, _meta: nil)],
@@ -32,9 +42,8 @@ public enum SceneTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         await history.snapshot(store: store)
 
         guard let target = manifest.body(withId: bodyId) else {
@@ -43,18 +52,17 @@ public enum SceneTools {
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let bodyFile = "\(outputDir)/\(target.file)"
 
-        let updated = ScriptManifest(
-            version: manifest.version,
-            timestamp: Date(),
-            description: manifest.description,
-            bodies: manifest.bodies.filter { $0.id != bodyId },
-            graphs: manifest.graphs,
-            metadata: manifest.metadata
-        )
+        let updated: ScriptManifest
         do {
-            try store.write(updated)
+            updated = try store.update { current in
+                let current = try current.requiringScene()
+                guard current.body(withId: bodyId) != nil else {
+                    throw ManifestError.bodyNotFound(bodyId)
+                }
+                return current.replacing(bodies: current.bodies.filter { $0.id != bodyId })
+            }
         } catch {
-            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+            return .manifestFailure(error)
         }
         try? FileManager.default.removeItem(atPath: bodyFile)
         // Best effort by design: the manifest write above is what removed the body, and a stale
@@ -78,27 +86,23 @@ public enum SceneTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         await history.snapshot(store: store)
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
-        let removedCount = manifest.bodies.count
-        let filesToRemove = manifest.bodies.map { "\(outputDir)/\($0.file)" }
+        var removedCount = 0
+        var filesToRemove: [String] = []
 
-        let updated = ScriptManifest(
-            version: manifest.version,
-            timestamp: Date(),
-            description: "(cleared)",
-            bodies: [],
-            graphs: manifest.graphs,
-            metadata: manifest.metadata
-        )
         do {
-            try store.write(updated)
+            try store.update { current in
+                let current = try current.requiringScene()
+                removedCount = current.bodies.count
+                filesToRemove = current.bodies.map { "\(outputDir)/\($0.file)" }
+                return current.replacing(bodies: [], description: "(cleared)")
+            }
         } catch {
-            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+            return .manifestFailure(error)
         }
         for path in filesToRemove {
             try? FileManager.default.removeItem(atPath: path)
@@ -127,12 +131,11 @@ public enum SceneTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         await history.snapshot(store: store)
 
-        guard let target = manifest.body(withId: bodyId) else {
+        guard manifest.body(withId: bodyId) != nil else {
             return .init("Body not found: \(bodyId)", isError: true)
         }
         if manifest.bodies.contains(where: { $0.id == newBodyId }) {
@@ -140,32 +143,32 @@ public enum SceneTools {
                 "Cannot rename: a body with id \"\(newBodyId)\" already exists.", isError: true)
         }
 
-        let updatedBodies = manifest.bodies.map { body -> BodyDescriptor in
-            guard body.id == bodyId else { return body }
-            return BodyDescriptor(
-                id: newBodyId,
-                file: body.file,
-                format: body.format,
-                name: body.name,
-                color: body.color,
-                roughness: body.roughness,
-                metallic: body.metallic
-            )
-        }
-        let updated = ScriptManifest(
-            version: manifest.version,
-            timestamp: Date(),
-            description: manifest.description,
-            bodies: updatedBodies,
-            graphs: manifest.graphs,
-            metadata: manifest.metadata
-        )
         do {
-            try store.write(updated)
+            try store.update { current in
+                let current = try current.requiringScene()
+                guard current.body(withId: bodyId) != nil else {
+                    throw ManifestError.bodyNotFound(bodyId)
+                }
+                if current.bodies.contains(where: { $0.id == newBodyId }) {
+                    throw ManifestError.bodyIdTaken(newBodyId)
+                }
+                return current.replacing(
+                    bodies: current.bodies.map { body -> BodyDescriptor in
+                        guard body.id == bodyId else { return body }
+                        return BodyDescriptor(
+                            id: newBodyId,
+                            file: body.file,
+                            format: body.format,
+                            name: body.name,
+                            color: body.color,
+                            roughness: body.roughness,
+                            metallic: body.metallic
+                        )
+                    })
+            }
         } catch {
-            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+            return .manifestFailure(error)
         }
-        _ = target
         // Re-key the retained lineage (#93) so a body's history survives a
         // rename. selectionIds embed bodyId, so old selection strings
         // still go stale here (unchanged, documented behaviour); this
@@ -217,61 +220,57 @@ public enum SceneTools {
             return .init(
                 "color must be [r,g,b] or [r,g,b,a]; got length \(c.count).", isError: true)
         }
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         await history.snapshot(store: store)
 
-        guard let target = manifest.body(withId: bodyId) else {
+        guard manifest.body(withId: bodyId) != nil else {
             return .init("Body not found: \(bodyId)", isError: true)
         }
 
-        var newColor = target.color
+        // Derived from the body as read under the lock, so a concurrent change to a field this
+        // call does not set is kept.
         var applied: [String: String] = [:]
-        if let c = update.color {
-            let alpha: Float =
-                (c.count == 4) ? c[3] : (target.color?.count == 4 ? target.color![3] : 1)
-            newColor = c.count == 3 ? [c[0], c[1], c[2], alpha] : c
-            applied["color"] = "\(newColor!)"
-        }
-        if let o = update.opacity {
-            var current = newColor ?? [0.7, 0.7, 0.7, 1]
-            if current.count == 3 { current.append(1) }
-            current[3] = o
-            newColor = current
-            applied["opacity"] = "\(o)"
-        }
-        let newRoughness = update.roughness ?? target.roughness
+        if let o = update.opacity { applied["opacity"] = "\(o)" }
         if let r = update.roughness { applied["roughness"] = "\(r)" }
-        let newMetallic = update.metallic ?? target.metallic
         if let m = update.metallic { applied["metallic"] = "\(m)" }
-        let newName = update.name ?? target.name
         if let n = update.name { applied["name"] = n }
 
-        let updatedBodies = manifest.bodies.map { body -> BodyDescriptor in
-            guard body.id == bodyId else { return body }
-            return BodyDescriptor(
-                id: body.id,
-                file: body.file,
-                format: body.format,
-                name: newName,
-                color: newColor,
-                roughness: newRoughness,
-                metallic: newMetallic
-            )
-        }
-        let updated = ScriptManifest(
-            version: manifest.version,
-            timestamp: Date(),
-            description: manifest.description,
-            bodies: updatedBodies,
-            graphs: manifest.graphs,
-            metadata: manifest.metadata
-        )
         do {
-            try store.write(updated)
+            try store.update { current in
+                let current = try current.requiringScene()
+                guard let target = current.body(withId: bodyId) else {
+                    throw ManifestError.bodyNotFound(bodyId)
+                }
+                var newColor = target.color
+                if let c = update.color {
+                    let alpha: Float =
+                        (c.count == 4) ? c[3] : (target.color?.count == 4 ? target.color![3] : 1)
+                    newColor = c.count == 3 ? [c[0], c[1], c[2], alpha] : c
+                    applied["color"] = "\(newColor!)"
+                }
+                if let o = update.opacity {
+                    var rgba = newColor ?? [0.7, 0.7, 0.7, 1]
+                    if rgba.count == 3 { rgba.append(1) }
+                    rgba[3] = o
+                    newColor = rgba
+                }
+                return current.replacing(
+                    bodies: current.bodies.map { body -> BodyDescriptor in
+                        guard body.id == bodyId else { return body }
+                        return BodyDescriptor(
+                            id: body.id,
+                            file: body.file,
+                            format: body.format,
+                            name: update.name ?? body.name,
+                            color: newColor,
+                            roughness: update.roughness ?? body.roughness,
+                            metallic: update.metallic ?? body.metallic
+                        )
+                    })
+            }
         } catch {
-            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+            return .manifestFailure(error)
         }
         let pretty =
             applied
@@ -302,9 +301,8 @@ public enum SceneTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let current = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let current: ScriptManifest
+        do { current = try store.requireScene() } catch { return .manifestFailure(error) }
         let availableCount = await history.count()
         guard let prior = await history.snapshot(since: since) else {
             return .init(

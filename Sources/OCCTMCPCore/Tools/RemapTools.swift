@@ -43,9 +43,8 @@ public enum RemapTools {
         registry: SelectionRegistry = .shared,
         historyRegistry: HistoryRegistry = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         let outputDir = (store.path as NSString).deletingLastPathComponent
 
         // Group selections by bodyId so we only load each BREP once.

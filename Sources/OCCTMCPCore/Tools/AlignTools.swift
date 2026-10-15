@@ -220,10 +220,19 @@ public enum AlignTools {
             // timestamp so OCCTSwiftViewport's ScriptWatcher reloads, same as transform_body's
             // in-place branch.
             do {
-                try store.write(loadedSource.manifest)
+                try store.update { current in
+                    let current = try current.requiringScene()
+                    guard current.body(withId: bodyId) != nil else {
+                        throw ManifestError.bodyNotFound(bodyId)
+                    }
+                    return current
+                }
             } catch {
+                let reason =
+                    (error as? ManifestError)?.localizedDescription
+                    ?? "Failed to write manifest: \(error.localizedDescription)"
                 return .init(
-                    "Failed to write manifest: \(error.localizedDescription). The body file for "
+                    "\(reason). The body file for "
                         + "'\(bodyId)' was already rewritten on disk, so the viewport is stale.",
                     isError: true
                 )

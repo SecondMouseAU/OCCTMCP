@@ -43,9 +43,8 @@ public enum ConstructionTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         guard let body = manifest.body(withId: bodyId) else {
             return .init("Body not found: \(bodyId)", isError: true)
         }
@@ -133,38 +132,33 @@ public enum ConstructionTools {
             operationName: "transform_body"
         )
 
-        if !isInPlace, let newId = options.outputBodyId {
-            let newFile = (outputPath as NSString).lastPathComponent
-            let newBodies =
-                manifest.bodies + [
-                    BodyDescriptor(
-                        id: newId,
-                        file: newFile,
-                        format: body.format,
-                        name: body.name,
-                        color: body.color,
-                        roughness: body.roughness,
-                        metallic: body.metallic
-                    )
-                ]
-            let updated = ScriptManifest(
-                version: manifest.version,
-                timestamp: Date(),
-                description: manifest.description,
-                bodies: newBodies,
-                graphs: manifest.graphs,
-                metadata: manifest.metadata
-            )
-            do { try store.write(updated) } catch {
-                return .init(
-                    "Failed to write manifest: \(error.localizedDescription)", isError: true)
+        do {
+            try store.update { current in
+                let current = try current.requiringScene()
+                if current.body(withId: bodyId) == nil {
+                    throw ManifestError.bodyNotFound(bodyId)
+                }
+                // In place, the body file is unchanged: the write bumps the timestamp so the
+                // watcher reloads.
+                guard !isInPlace, let newId = options.outputBodyId else { return current }
+                if current.bodies.contains(where: { $0.id == newId }) {
+                    throw ManifestError.bodyIdTaken(newId)
+                }
+                return current.replacing(
+                    bodies: current.bodies + [
+                        BodyDescriptor(
+                            id: newId,
+                            file: (outputPath as NSString).lastPathComponent,
+                            format: body.format,
+                            name: body.name,
+                            color: body.color,
+                            roughness: body.roughness,
+                            metallic: body.metallic
+                        )
+                    ])
             }
-        } else {
-            // Manifest body file unchanged; bump timestamp so the watcher reloads.
-            do { try store.write(manifest) } catch {
-                return .init(
-                    "Failed to write manifest: \(error.localizedDescription)", isError: true)
-            }
+        } catch {
+            return .manifestFailure(error)
         }
 
         let summary =
@@ -189,9 +183,8 @@ public enum ConstructionTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         guard let aBody = manifest.body(withId: aBodyId) else {
             return .init("Body not found: \(aBodyId)", isError: true)
         }
@@ -318,36 +311,45 @@ public enum ConstructionTools {
             )
         }
 
-        var bodies = manifest.bodies
-        bodies.append(
-            BodyDescriptor(
-                id: outId,
-                file: outFile,
-                format: aBody.format,
-                name: aBody.name.map { "\(op.rawValue) \($0)" },
-                color: aBody.color,
-                roughness: aBody.roughness,
-                metallic: aBody.metallic
-            ))
-        if removeInputs {
-            for id in [aBodyId, bBodyId] {
-                if let idx = bodies.firstIndex(where: { $0.id == id }) {
-                    let removed = bodies.remove(at: idx)
-                    try? FileManager.default.removeItem(atPath: "\(outputDir)/\(removed.file)")
+        var removedFiles: [String] = []
+        do {
+            try store.update { current in
+                let base = try current.requiringScene()
+                if base.body(withId: aBodyId) == nil {
+                    throw ManifestError.bodyNotFound(aBodyId)
                 }
+                if base.body(withId: bBodyId) == nil {
+                    throw ManifestError.bodyNotFound(bBodyId)
+                }
+                if base.bodies.contains(where: { $0.id == outId }) {
+                    throw ManifestError.bodyIdTaken(outId)
+                }
+                var bodies = base.bodies
+                removedFiles = []
+                bodies.append(
+                    BodyDescriptor(
+                        id: outId,
+                        file: outFile,
+                        format: aBody.format,
+                        name: aBody.name.map { "\(op.rawValue) \($0)" },
+                        color: aBody.color,
+                        roughness: aBody.roughness,
+                        metallic: aBody.metallic
+                    ))
+                if removeInputs {
+                    for id in [aBodyId, bBodyId] {
+                        if let idx = bodies.firstIndex(where: { $0.id == id }) {
+                            removedFiles.append(bodies.remove(at: idx).file)
+                        }
+                    }
+                }
+                return base.replacing(bodies: bodies)
             }
+        } catch {
+            return .manifestFailure(error)
         }
-        let updated = ScriptManifest(
-            version: manifest.version,
-            timestamp: Date(),
-            description: manifest.description,
-            bodies: bodies,
-            graphs: manifest.graphs,
-            metadata: manifest.metadata
-        )
-        do { try store.write(updated) } catch {
-            return .init(
-                "Failed to write manifest: \(error.localizedDescription)", isError: true)
+        for file in removedFiles {
+            try? FileManager.default.removeItem(atPath: "\(outputDir)/\(file)")
         }
 
         let extra = removeInputs ? "; inputs removed" : ""
@@ -392,9 +394,8 @@ public enum ConstructionTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         guard let body = manifest.body(withId: bodyId) else {
             return .init("Body not found: \(bodyId)", isError: true)
         }
@@ -472,28 +473,30 @@ public enum ConstructionTools {
             operationName: "mirror_or_pattern"
         )
 
-        var bodies = manifest.bodies
-        bodies.append(
-            BodyDescriptor(
-                id: outId,
-                file: outFile,
-                format: body.format,
-                name: body.name.map { "\(kind.rawValue) \($0)" },
-                color: body.color,
-                roughness: body.roughness,
-                metallic: body.metallic
-            ))
-        let updated = ScriptManifest(
-            version: manifest.version,
-            timestamp: Date(),
-            description: manifest.description,
-            bodies: bodies,
-            graphs: manifest.graphs,
-            metadata: manifest.metadata
-        )
-        do { try store.write(updated) } catch {
-            return .init(
-                "Failed to write manifest: \(error.localizedDescription)", isError: true)
+        do {
+            try store.update { current in
+                let current = try current.requiringScene()
+                if current.body(withId: bodyId) == nil {
+                    throw ManifestError.bodyNotFound(bodyId)
+                }
+                if current.bodies.contains(where: { $0.id == outId }) {
+                    throw ManifestError.bodyIdTaken(outId)
+                }
+                return current.replacing(
+                    bodies: current.bodies + [
+                        BodyDescriptor(
+                            id: outId,
+                            file: outFile,
+                            format: body.format,
+                            name: body.name.map { "\(kind.rawValue) \($0)" },
+                            color: body.color,
+                            roughness: body.roughness,
+                            metallic: body.metallic
+                        )
+                    ])
+            }
+        } catch {
+            return .manifestFailure(error)
         }
 
         // Mirror provenance: single-target case fits

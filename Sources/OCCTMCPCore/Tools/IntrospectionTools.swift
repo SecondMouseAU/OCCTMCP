@@ -16,7 +16,10 @@ public enum IntrospectionTools {
         bodyId: String,
         store: ManifestStore
     ) throws -> (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String) {
-        guard let manifest = try store.read() else {
+        let manifest: ScriptManifest
+        do {
+            manifest = try store.requireScene()
+        } catch ManifestError.noScene {
             throw ToolError.noScene
         }
         guard let body = manifest.body(withId: bodyId) else {

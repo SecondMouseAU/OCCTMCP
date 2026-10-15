@@ -36,9 +36,8 @@ public enum DrawingTools {
         spec: Value,
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         guard !bodyIds.isEmpty else {
             return .init(
                 "generate_drawing requires `bodyId` or a non-empty `bodyIds`.", isError: true)

@@ -32,13 +32,14 @@ public enum IOTools {
         guard FileManager.default.fileExists(atPath: inputPath) else {
             return .init("BREP file not found: \(inputPath)", isError: true)
         }
-        let manifestExists = (try? store.read()) != nil
-        let manifest: ScriptManifest =
-            (manifestExists ? (try? store.read()) ?? nil : nil)
-            ?? ScriptManifest(
-                description: "Imported via read_brep",
-                bodies: []
-            )
+        let manifest: ScriptManifest
+        do {
+            manifest =
+                try store.requireSceneOrAbsent()
+                ?? ScriptManifest(description: "Imported via read_brep", bodies: [])
+        } catch {
+            return .manifestFailure(error)
+        }
 
         let resolvedId = bodyId ?? defaultBodyId(from: inputPath)
         if manifest.bodies.contains(where: { $0.id == resolvedId }) {
@@ -65,33 +66,35 @@ public enum IOTools {
             atPath: outputDir, withIntermediateDirectories: true)
         let outFile = "\(resolvedId).brep"
         let outPath = "\(outputDir)/\(outFile)"
+        let stagedPath = stagingPath(in: outputDir, id: resolvedId)
         do {
             try Exporter.writeBREP(
-                shape: shape, to: URL(fileURLWithPath: outPath), allowInvalid: allowInvalid)
+                shape: shape, to: URL(fileURLWithPath: stagedPath), allowInvalid: allowInvalid)
         } catch {
             return .init("Failed to copy BREP: \(error.localizedDescription)", isError: true)
         }
 
         await history.snapshot(store: store)
-        var bodies = manifest.bodies
-        bodies.append(
-            BodyDescriptor(
-                id: resolvedId,
-                file: outFile,
-                color: color
-            ))
+        var published = false
+        defer { try? FileManager.default.removeItem(atPath: stagedPath) }
         do {
-            try store.write(
-                ScriptManifest(
-                    version: manifest.version,
-                    timestamp: Date(),
-                    description: manifest.description ?? "Imported via read_brep",
-                    bodies: bodies,
-                    graphs: manifest.graphs,
-                    metadata: manifest.metadata
-                ))
+            try store.update { current in
+                let base =
+                    current ?? ScriptManifest(description: "Imported via read_brep", bodies: [])
+                if base.bodies.contains(where: { $0.id == resolvedId }) {
+                    throw ManifestError.bodyIdTaken(resolvedId)
+                }
+                try publishStaged(stagedPath, as: outPath)
+                published = true
+                return base.replacing(
+                    bodies: base.bodies + [
+                        BodyDescriptor(id: resolvedId, file: outFile, color: color)
+                    ],
+                    description: base.description ?? "Imported via read_brep")
+            }
         } catch {
-            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+            if published { try? FileManager.default.removeItem(atPath: outPath) }
+            return .manifestFailure(error)
         }
 
         return IntrospectionTools.encode(
@@ -186,43 +189,50 @@ public enum IOTools {
             return .init("Import failed: \(error.localizedDescription)", isError: true)
         }
 
-        let manifest: ScriptManifest =
-            (try? store.read())
-            ?? ScriptManifest(
-                description: "Imported via import_file",
-                bodies: []
-            )
+        let manifest: ScriptManifest
+        do {
+            manifest =
+                try store.requireSceneOrAbsent()
+                ?? ScriptManifest(description: "Imported via import_file", bodies: [])
+        } catch {
+            return .manifestFailure(error)
+        }
         let id = uniqueBodyId(prefix: idPrefix, manifest: manifest)
         let outputDir = (store.path as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(
             atPath: outputDir, withIntermediateDirectories: true)
         let outFile = "\(id).brep"
         let outPath = "\(outputDir)/\(outFile)"
+        let stagedPath = stagingPath(in: outputDir, id: id)
         do {
             // Mesh shells aren't valid solids, always skip the write-gate for
             // them so the raw scan lands in the scene.
             try Exporter.writeBREP(
-                shape: shape, to: URL(fileURLWithPath: outPath),
+                shape: shape, to: URL(fileURLWithPath: stagedPath),
                 allowInvalid: allowInvalid || resolved.isMesh)
         } catch {
             return .init("Failed to write BREP: \(error.localizedDescription)", isError: true)
         }
 
         await history.snapshot(store: store)
-        var bodies = manifest.bodies
-        bodies.append(BodyDescriptor(id: id, file: outFile))
+        var published = false
+        defer { try? FileManager.default.removeItem(atPath: stagedPath) }
         do {
-            try store.write(
-                ScriptManifest(
-                    version: manifest.version,
-                    timestamp: Date(),
-                    description: manifest.description ?? "Imported via import_file",
-                    bodies: bodies,
-                    graphs: manifest.graphs,
-                    metadata: manifest.metadata
-                ))
+            try store.update { current in
+                let base =
+                    current ?? ScriptManifest(description: "Imported via import_file", bodies: [])
+                if base.bodies.contains(where: { $0.id == id }) {
+                    throw ManifestError.bodyIdTaken(id)
+                }
+                try publishStaged(stagedPath, as: outPath)
+                published = true
+                return base.replacing(
+                    bodies: base.bodies + [BodyDescriptor(id: id, file: outFile)],
+                    description: base.description ?? "Imported via import_file")
+            }
         } catch {
-            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+            if published { try? FileManager.default.removeItem(atPath: outPath) }
+            return .manifestFailure(error)
         }
 
         return IntrospectionTools.encode(
@@ -230,6 +240,20 @@ public enum IOTools {
                 addedBodyIds: [id],
                 warnings: []
             ))
+    }
+
+    /// A unique sibling path to write a body to before the manifest lock is held.
+    ///
+    /// The file is moved to its final name under the lock, so a concurrent writer that took the id
+    /// first never has its body file overwritten.
+    private static func stagingPath(in directory: String, id: String) -> String {
+        "\(directory)/.\(id).\(UUID().uuidString).partial"
+    }
+
+    private static func publishStaged(_ staged: String, as final: String) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: final) { try fm.removeItem(atPath: final) }
+        try fm.moveItem(atPath: staged, toPath: final)
     }
 
     // ── export_scene ───────────────────────────────────────────────────
@@ -244,9 +268,8 @@ public enum IOTools {
         bodyIds: [String]? = nil,
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let bodies: [BodyDescriptor]
         if let ids = bodyIds, !ids.isEmpty {
