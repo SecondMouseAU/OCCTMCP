@@ -222,8 +222,11 @@ public enum AlignTools {
             do {
                 try store.update { try $0.requiringScene() }
             } catch {
+                let reason =
+                    (error as? ManifestError)?.localizedDescription
+                    ?? "Failed to write manifest: \(error.localizedDescription)"
                 return .init(
-                    "Failed to write manifest: \(error.localizedDescription). The body file for "
+                    "\(reason). The body file for "
                         + "'\(bodyId)' was already rewritten on disk, so the viewport is stale.",
                     isError: true
                 )

@@ -320,6 +320,63 @@ struct ManifestStoreUpdateTests {
         #expect(try bytes(store) == junk)
     }
 
+    @Test("rename_body refuses an id that already exists and leaves the manifest alone")
+    func renameCollision() async throws {
+        let store = makeStore()
+        defer { cleanup(store) }
+        try store.write(manifest(["a", "b"]))
+        let before = try bytes(store)
+        let result = await SceneTools.renameBody(
+            bodyId: "a", newBodyId: "b", store: store, history: SceneHistory())
+        #expect(result.isError)
+        #expect(result.text.contains("already exists"), "\(result.text)")
+        #expect(try bytes(store) == before)
+    }
+
+    @Test("set_appearance changes only the fields it is given")
+    func appearanceKeepsOtherFields() async throws {
+        let store = makeStore()
+        defer { cleanup(store) }
+        try store.write(manifest(["a"]))
+        _ = try store.update { current in
+            let current = try current.requiringScene()
+            return current.replacing(
+                bodies: current.bodies.map {
+                    BodyDescriptor(id: $0.id, file: $0.file, name: "named elsewhere")
+                })
+        }
+        let result = await SceneTools.setAppearance(
+            bodyId: "a", update: .init(roughness: 0.25), store: store, history: SceneHistory())
+        #expect(!result.isError, "\(result.text)")
+        let body = try #require(try store.read()?.body(withId: "a"))
+        #expect(body.name == "named elsewhere")
+        #expect(body.roughness == 0.25)
+    }
+
+    @Test("boolean_op removeInputs deletes the input files only after the manifest commits")
+    func booleanRemoveInputsAfterCommit() async throws {
+        let store = makeStore()
+        defer { cleanup(store) }
+        try store.write(manifest(["a", "b"]))
+        let dir = (store.path as NSString).deletingLastPathComponent
+        let boxA = try #require(Shape.box(width: 4, height: 4, depth: 4))
+        let boxB = try #require(
+            Shape.box(width: 4, height: 4, depth: 4)?.translated(by: SIMD3<Double>(2, 0, 0)))
+        try Exporter.writeBREP(shape: boxA, to: URL(fileURLWithPath: "\(dir)/a.brep"))
+        try Exporter.writeBREP(shape: boxB, to: URL(fileURLWithPath: "\(dir)/b.brep"))
+
+        let result = await ConstructionTools.booleanOp(
+            op: .union, aBodyId: "a", bBodyId: "b", outputBodyId: "ab", removeInputs: true,
+            store: store, history: SceneHistory())
+        #expect(!result.isError, "\(result.text)")
+        let ids = try #require(try store.read()).bodies.compactMap(\.id)
+        #expect(ids == ["ab"])
+        #expect(!FileManager.default.fileExists(atPath: "\(dir)/a.brep"))
+        #expect(!FileManager.default.fileExists(atPath: "\(dir)/b.brep"))
+        let outFile = try #require(try store.read()?.body(withId: "ab")?.file)
+        #expect(FileManager.default.fileExists(atPath: "\(dir)/\(outFile)"))
+    }
+
     @Test("a tool on an absent manifest still says no scene is loaded")
     func toolsReportAbsent() async {
         let store = makeStore()

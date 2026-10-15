@@ -115,6 +115,9 @@ public enum HealingTools {
         do {
             try store.update { current in
                 let current = try current.requiringScene()
+                if current.body(withId: bodyId) == nil {
+                    throw ManifestError.bodyNotFound(bodyId)
+                }
                 // In place, the body file is unchanged: the write bumps the timestamp so the
                 // watcher reloads.
                 guard !isInPlace, let newId = outputBodyId else { return current }

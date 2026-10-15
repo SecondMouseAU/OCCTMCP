@@ -91,12 +91,15 @@ public enum SceneTools {
         await history.snapshot(store: store)
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
-        let removedCount = manifest.bodies.count
-        let filesToRemove = manifest.bodies.map { "\(outputDir)/\($0.file)" }
+        var removedCount = 0
+        var filesToRemove: [String] = []
 
         do {
             try store.update { current in
-                try current.requiringScene().replacing(bodies: [], description: "(cleared)")
+                let current = try current.requiringScene()
+                removedCount = current.bodies.count
+                filesToRemove = current.bodies.map { "\(outputDir)/\($0.file)" }
+                return current.replacing(bodies: [], description: "(cleared)")
             }
         } catch {
             return .manifestFailure(error)

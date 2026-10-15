@@ -135,6 +135,9 @@ public enum ConstructionTools {
         do {
             try store.update { current in
                 let current = try current.requiringScene()
+                if current.body(withId: bodyId) == nil {
+                    throw ManifestError.bodyNotFound(bodyId)
+                }
                 // In place, the body file is unchanged: the write bumps the timestamp so the
                 // watcher reloads.
                 guard !isInPlace, let newId = options.outputBodyId else { return current }
@@ -312,6 +315,12 @@ public enum ConstructionTools {
         do {
             try store.update { current in
                 let base = try current.requiringScene()
+                if base.body(withId: aBodyId) == nil {
+                    throw ManifestError.bodyNotFound(aBodyId)
+                }
+                if base.body(withId: bBodyId) == nil {
+                    throw ManifestError.bodyNotFound(bBodyId)
+                }
                 if base.bodies.contains(where: { $0.id == outId }) {
                     throw ManifestError.bodyIdTaken(outId)
                 }
@@ -467,6 +476,9 @@ public enum ConstructionTools {
         do {
             try store.update { current in
                 let current = try current.requiringScene()
+                if current.body(withId: bodyId) == nil {
+                    throw ManifestError.bodyNotFound(bodyId)
+                }
                 if current.bodies.contains(where: { $0.id == outId }) {
                     throw ManifestError.bodyIdTaken(outId)
                 }
