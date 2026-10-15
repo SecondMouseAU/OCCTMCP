@@ -138,6 +138,9 @@ public enum ConstructionTools {
                 // In place, the body file is unchanged: the write bumps the timestamp so the
                 // watcher reloads.
                 guard !isInPlace, let newId = options.outputBodyId else { return current }
+                if current.bodies.contains(where: { $0.id == newId }) {
+                    throw ManifestError.bodyIdTaken(newId)
+                }
                 return current.replacing(
                     bodies: current.bodies + [
                         BodyDescriptor(
@@ -309,6 +312,9 @@ public enum ConstructionTools {
         do {
             try store.update { current in
                 let base = try current.requiringScene()
+                if base.bodies.contains(where: { $0.id == outId }) {
+                    throw ManifestError.bodyIdTaken(outId)
+                }
                 var bodies = base.bodies
                 removedFiles = []
                 bodies.append(
@@ -461,6 +467,9 @@ public enum ConstructionTools {
         do {
             try store.update { current in
                 let current = try current.requiringScene()
+                if current.bodies.contains(where: { $0.id == outId }) {
+                    throw ManifestError.bodyIdTaken(outId)
+                }
                 return current.replacing(
                     bodies: current.bodies + [
                         BodyDescriptor(

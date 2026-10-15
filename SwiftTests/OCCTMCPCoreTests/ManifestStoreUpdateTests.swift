@@ -262,6 +262,33 @@ struct ManifestStoreUpdateTests {
         #expect(current.body(withId: "b")?.name == "second")
     }
 
+    @Test("concurrent transform_body calls into one outputBodyId add it once")
+    func concurrentSameOutputId() async throws {
+        let store = makeStore()
+        defer { cleanup(store) }
+        try store.write(manifest(["src"]))
+        let box = try #require(Shape.box(width: 2, height: 2, depth: 2))
+        let dir = (store.path as NSString).deletingLastPathComponent
+        try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: "\(dir)/src.brep"))
+
+        let results = await withTaskGroup(of: ToolText.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    await ConstructionTools.transformBody(
+                        bodyId: "src",
+                        options: .init(translate: SIMD3<Double>(1, 0, 0), outputBodyId: "copy"),
+                        store: store, history: SceneHistory())
+                }
+            }
+            var all: [ToolText] = []
+            for await result in group { all.append(result) }
+            return all
+        }
+        #expect(results.filter { !$0.isError }.count == 1, "\(results.map(\.text))")
+        let copies = try #require(try store.read()).bodies.filter { $0.id == "copy" }
+        #expect(copies.count == 1)
+    }
+
     @Test("a tool reports a malformed manifest as such, and leaves it alone")
     func toolsReportMalformed() async throws {
         let store = makeStore()

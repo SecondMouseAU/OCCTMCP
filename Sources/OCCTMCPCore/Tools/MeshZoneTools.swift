@@ -432,14 +432,22 @@ public enum MeshZoneTools {
             }
             if !ids.isEmpty {
                 await SceneHistory.shared.snapshot(store: store)
+                var landed: Set<String> = []
                 do {
                     try store.update { current in
                         let base =
                             current ?? ScriptManifest(description: nil, bodies: [])
                         let taken = Set(base.bodies.map(\.id))
-                        return base.replacing(
-                            bodies: base.bodies + newBodies.filter { !taken.contains($0.id) })
+                        let fresh = newBodies.filter { !taken.contains($0.id) }
+                        landed = Set(fresh.compactMap(\.id))
+                        return base.replacing(bodies: base.bodies + fresh)
                     }
+                    for id in ids where !landed.contains(id) {
+                        warnings.append(
+                            "Body id \"\(id)\" was taken by a concurrent change; its zone was not registered."
+                        )
+                    }
+                    ids = ids.filter { landed.contains($0) }
                 } catch {
                     // The zone bodies were never made visible: drop the files written for them.
                     for id in ids {

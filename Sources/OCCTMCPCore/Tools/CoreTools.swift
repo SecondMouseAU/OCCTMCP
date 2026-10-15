@@ -34,7 +34,9 @@ public enum CoreTools {
         let manifest: ScriptManifest
         do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         let outputDir = (store.path as NSString).deletingLastPathComponent
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: outputDir)) ?? []
+        let files =
+            ((try? FileManager.default.contentsOfDirectory(atPath: outputDir)) ?? [])
+            .filter { $0 != "manifest.lock" }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

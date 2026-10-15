@@ -22,7 +22,9 @@ public struct ManifestStore: Sendable {
     /// It is a separate file because the atomic write replaces the manifest's inode, which would
     /// drop a lock held on the manifest itself.
     public var lockPath: String {
-        (path as NSString).deletingLastPathComponent + "/manifest.lock"
+        URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent(
+            "manifest.lock"
+        ).path
     }
 
     /// Load the manifest from disk, or nil if the file does not exist.
