@@ -20,7 +20,8 @@ public struct ManifestStore: Sendable {
     /// Path of the advisory lock file, next to the manifest.
     ///
     /// It is a separate file because the atomic write replaces the manifest's inode, which would
-    /// drop a lock held on the manifest itself.
+    /// drop a lock held on the manifest itself. A relative `path` resolves against the current
+    /// working directory, as `read()` and `write(_:)` do.
     public var lockPath: String {
         URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent(
             "manifest.lock"
@@ -167,7 +168,8 @@ public enum ManifestError: Error, LocalizedError, CustomStringConvertible, Equat
 extension ScriptManifest {
     /// Return a copy with `bodies` replaced and `graphs` and `metadata` carried over.
     ///
-    /// `description` keeps the existing value when nil.
+    /// `description` keeps the existing value when nil. The timestamp is carried over unchanged;
+    /// `ManifestStore.update` refreshes it when it writes.
     public func replacing(bodies: [BodyDescriptor], description: String? = nil) -> ScriptManifest {
         return ScriptManifest(
             version: self.version,

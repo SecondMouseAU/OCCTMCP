@@ -66,14 +66,17 @@ public enum IOTools {
             atPath: outputDir, withIntermediateDirectories: true)
         let outFile = "\(resolvedId).brep"
         let outPath = "\(outputDir)/\(outFile)"
+        let stagedPath = stagingPath(in: outputDir, id: resolvedId)
         do {
             try Exporter.writeBREP(
-                shape: shape, to: URL(fileURLWithPath: outPath), allowInvalid: allowInvalid)
+                shape: shape, to: URL(fileURLWithPath: stagedPath), allowInvalid: allowInvalid)
         } catch {
             return .init("Failed to copy BREP: \(error.localizedDescription)", isError: true)
         }
 
         await history.snapshot(store: store)
+        var published = false
+        defer { try? FileManager.default.removeItem(atPath: stagedPath) }
         do {
             try store.update { current in
                 let base =
@@ -81,6 +84,8 @@ public enum IOTools {
                 if base.bodies.contains(where: { $0.id == resolvedId }) {
                     throw ManifestError.bodyIdTaken(resolvedId)
                 }
+                try publishStaged(stagedPath, as: outPath)
+                published = true
                 return base.replacing(
                     bodies: base.bodies + [
                         BodyDescriptor(id: resolvedId, file: outFile, color: color)
@@ -88,9 +93,7 @@ public enum IOTools {
                     description: base.description ?? "Imported via read_brep")
             }
         } catch {
-            if (error as? ManifestError) != .bodyIdTaken(resolvedId) {
-                try? FileManager.default.removeItem(atPath: outPath)
-            }
+            if published { try? FileManager.default.removeItem(atPath: outPath) }
             return .manifestFailure(error)
         }
 
@@ -200,17 +203,20 @@ public enum IOTools {
             atPath: outputDir, withIntermediateDirectories: true)
         let outFile = "\(id).brep"
         let outPath = "\(outputDir)/\(outFile)"
+        let stagedPath = stagingPath(in: outputDir, id: id)
         do {
             // Mesh shells aren't valid solids, always skip the write-gate for
             // them so the raw scan lands in the scene.
             try Exporter.writeBREP(
-                shape: shape, to: URL(fileURLWithPath: outPath),
+                shape: shape, to: URL(fileURLWithPath: stagedPath),
                 allowInvalid: allowInvalid || resolved.isMesh)
         } catch {
             return .init("Failed to write BREP: \(error.localizedDescription)", isError: true)
         }
 
         await history.snapshot(store: store)
+        var published = false
+        defer { try? FileManager.default.removeItem(atPath: stagedPath) }
         do {
             try store.update { current in
                 let base =
@@ -218,14 +224,14 @@ public enum IOTools {
                 if base.bodies.contains(where: { $0.id == id }) {
                     throw ManifestError.bodyIdTaken(id)
                 }
+                try publishStaged(stagedPath, as: outPath)
+                published = true
                 return base.replacing(
                     bodies: base.bodies + [BodyDescriptor(id: id, file: outFile)],
                     description: base.description ?? "Imported via import_file")
             }
         } catch {
-            if (error as? ManifestError) != .bodyIdTaken(id) {
-                try? FileManager.default.removeItem(atPath: outPath)
-            }
+            if published { try? FileManager.default.removeItem(atPath: outPath) }
             return .manifestFailure(error)
         }
 
@@ -234,6 +240,20 @@ public enum IOTools {
                 addedBodyIds: [id],
                 warnings: []
             ))
+    }
+
+    /// A unique sibling path to write a body to before the manifest lock is held.
+    ///
+    /// The file is moved to its final name under the lock, so a concurrent writer that took the id
+    /// first never has its body file overwritten.
+    private static func stagingPath(in directory: String, id: String) -> String {
+        "\(directory)/.\(id).\(UUID().uuidString).partial"
+    }
+
+    private static func publishStaged(_ staged: String, as final: String) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: final) { try fm.removeItem(atPath: final) }
+        try fm.moveItem(atPath: staged, toPath: final)
     }
 
     // ── export_scene ───────────────────────────────────────────────────
