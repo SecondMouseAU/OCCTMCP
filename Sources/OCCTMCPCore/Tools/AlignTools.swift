@@ -220,7 +220,13 @@ public enum AlignTools {
             // timestamp so OCCTSwiftViewport's ScriptWatcher reloads, same as transform_body's
             // in-place branch.
             do {
-                try store.update { try $0.requiringScene() }
+                try store.update { current in
+                    let current = try current.requiringScene()
+                    guard current.body(withId: bodyId) != nil else {
+                        throw ManifestError.bodyNotFound(bodyId)
+                    }
+                    return current
+                }
             } catch {
                 let reason =
                     (error as? ManifestError)?.localizedDescription
