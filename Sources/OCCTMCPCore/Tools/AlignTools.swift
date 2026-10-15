@@ -220,7 +220,7 @@ public enum AlignTools {
             // timestamp so OCCTSwiftViewport's ScriptWatcher reloads, same as transform_body's
             // in-place branch.
             do {
-                try store.write(loadedSource.manifest)
+                try store.update { try $0.requiringScene() }
             } catch {
                 return .init(
                     "Failed to write manifest: \(error.localizedDescription). The body file for "

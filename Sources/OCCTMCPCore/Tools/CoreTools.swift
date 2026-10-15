@@ -31,9 +31,8 @@ public enum CoreTools {
             // workspace is a valid state (the Node twin answers the same way).
             return .init("No scene loaded. Run execute_script first.")
         }
-        guard let manifest = try? store.read() else {
-            return .init("Failed to parse manifest at \(store.path).", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let files = (try? FileManager.default.contentsOfDirectory(atPath: outputDir)) ?? []
         let encoder = JSONEncoder()

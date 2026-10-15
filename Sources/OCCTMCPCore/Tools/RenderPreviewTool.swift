@@ -122,9 +122,8 @@ public enum RenderPreviewTool {
         options: Options = .init(),
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptHarness.ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let targets: [BodyDescriptor]
         if let ids = bodyIds, !ids.isEmpty {

@@ -37,9 +37,8 @@ public enum FeatureTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         guard let body = manifest.body(withId: bodyId) else {
             return .init("Body not found: \(bodyId)", isError: true)
         }
@@ -139,40 +138,27 @@ public enum FeatureTools {
             )
         }
 
-        if !isInPlace, let newId = outputBodyId {
-            let newFile = (outputPath as NSString).lastPathComponent
-            var bodies = manifest.bodies
-            bodies.append(
-                BodyDescriptor(
-                    id: newId,
-                    file: newFile,
-                    format: body.format,
-                    name: body.name,
-                    color: body.color,
-                    roughness: body.roughness,
-                    metallic: body.metallic
-                ))
-            do {
-                try store.write(
-                    ScriptManifest(
-                        version: manifest.version,
-                        timestamp: Date(),
-                        description: manifest.description,
-                        bodies: bodies,
-                        graphs: manifest.graphs,
-                        metadata: manifest.metadata
-                    ))
-            } catch {
-                return .init(
-                    "Failed to write manifest: \(error.localizedDescription)", isError: true)
+        do {
+            try store.update { current in
+                let current = try current.requiringScene()
+                // In place, the body file is unchanged: the write bumps the timestamp so the
+                // watcher reloads.
+                guard !isInPlace, let newId = outputBodyId else { return current }
+                return current.replacing(
+                    bodies: current.bodies + [
+                        BodyDescriptor(
+                            id: newId,
+                            file: (outputPath as NSString).lastPathComponent,
+                            format: body.format,
+                            name: body.name,
+                            color: body.color,
+                            roughness: body.roughness,
+                            metallic: body.metallic
+                        )
+                    ])
             }
-        } else {
-            do {
-                try store.write(manifest)
-            } catch {
-                return .init(
-                    "Failed to write manifest: \(error.localizedDescription)", isError: true)
-            }
+        } catch {
+            return .manifestFailure(error)
         }
 
         return IntrospectionTools.encode(

@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-10-15
+
+* **Update**: #250. `ManifestStore.update(willWrite:_:)`: advisory `flock` on `manifest.lock`, a callback that receives the exact bytes under the lock before the atomic rename, and every mutating tool moved onto it (re-applying its change to the manifest read under the lock). `write` takes the same lock. A malformed manifest is `ManifestError.malformed` everywhere, not "No scene loaded", and `read_brep`, `import_file` and `segment_mesh_zones` no longer overwrite it. Source-compatible: `ManifestStore.init(path:)` gained a defaulted `lockTimeout`.
+
 ## 2026-10-11
 
 * **Update**: #234. `inspect_assembly` and `set_assembly_metadata` read `.xbf` input with `Document.loadOCAF(from:)` (the OCAF reader) instead of `Document.load(from:)` (the STEP reader), so the documented set-then-inspect round trip works. OCCT's `Open` segfaults on an empty file or a non-OCAF file, so `loadXBF` checks the `BINFILE` header first and refuses anything else with an error result.

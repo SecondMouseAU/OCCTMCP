@@ -105,9 +105,8 @@ public enum GapFillerTools {
         store: ManifestStore = ManifestStore(),
         history: SceneHistory = .shared
     ) async -> ToolText {
-        guard let current = try? store.read() else {
-            return .init("No scene loaded.", isError: true)
-        }
+        let current: ScriptManifest
+        do { current = try store.requireScene() } catch { return .manifestFailure(error) }
         let availableCount = await history.count()
         guard let prior = await history.snapshot(since: since) else {
             return .init(

@@ -253,3 +253,31 @@ let server = await makeOCCTMCPServer(extraTools: [
 - `get_api_reference` with `category: "mcp_tools"` lists the live catalog, so it includes the extra
   tools and omits any built-in they replaced.
 - With no extras (the default) the catalog and behaviour are unchanged.
+
+## Embedding: committing the manifest
+
+Every built-in tool that changes the scene commits `manifest.json` through
+`ManifestStore.update`, so a host that writes the manifest itself can take part in the same lock:
+
+```swift
+let store = ManifestStore(path: "\(sceneDirectory)/manifest.json")
+let written = try store.update(willWrite: { bytes in
+    // The exact bytes about to land, under the lock, before the atomic rename.
+    digestOfOwnWrite = sha256(bytes)
+}) { current in
+    // `current` is nil when the file is absent.
+    let current = try current.requiringScene()
+    return current.replacing(bodies: current.bodies.filter { $0.id != "old" })
+}
+```
+
+- `update` takes an advisory `flock` on `manifest.lock` in the scene directory (a separate file,
+  because the atomic write replaces the manifest's inode), reads, runs the transform, calls
+  `willWrite`, writes atomically, and releases. `ManifestStore.write` takes the same lock.
+- Throwing from the transform or from `willWrite` aborts the write and leaves the file untouched.
+- A malformed `manifest.json` throws `ManifestError.malformed`, from `update` and from every
+  built-in tool, and is never overwritten. Tools no longer report it as "No scene loaded".
+- The lock is not re-entrant: calling `update` or `write` on the same path from inside a closure
+  waits `lockTimeout` (30 s by default) and throws `ManifestError.lockTimeout`.
+- The guarantee holds between processes that know the lock. An OCCTMCP or `occtkit` that does not
+  can still lose updates.

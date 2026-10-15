@@ -32,13 +32,14 @@ public enum IOTools {
         guard FileManager.default.fileExists(atPath: inputPath) else {
             return .init("BREP file not found: \(inputPath)", isError: true)
         }
-        let manifestExists = (try? store.read()) != nil
-        let manifest: ScriptManifest =
-            (manifestExists ? (try? store.read()) ?? nil : nil)
-            ?? ScriptManifest(
-                description: "Imported via read_brep",
-                bodies: []
-            )
+        let manifest: ScriptManifest
+        do {
+            manifest =
+                try store.requireSceneOrAbsent()
+                ?? ScriptManifest(description: "Imported via read_brep", bodies: [])
+        } catch {
+            return .manifestFailure(error)
+        }
 
         let resolvedId = bodyId ?? defaultBodyId(from: inputPath)
         if manifest.bodies.contains(where: { $0.id == resolvedId }) {
@@ -73,25 +74,24 @@ public enum IOTools {
         }
 
         await history.snapshot(store: store)
-        var bodies = manifest.bodies
-        bodies.append(
-            BodyDescriptor(
-                id: resolvedId,
-                file: outFile,
-                color: color
-            ))
         do {
-            try store.write(
-                ScriptManifest(
-                    version: manifest.version,
-                    timestamp: Date(),
-                    description: manifest.description ?? "Imported via read_brep",
-                    bodies: bodies,
-                    graphs: manifest.graphs,
-                    metadata: manifest.metadata
-                ))
+            try store.update { current in
+                let base =
+                    current ?? ScriptManifest(description: "Imported via read_brep", bodies: [])
+                if base.bodies.contains(where: { $0.id == resolvedId }) {
+                    throw ManifestError.bodyIdTaken(resolvedId)
+                }
+                return base.replacing(
+                    bodies: base.bodies + [
+                        BodyDescriptor(id: resolvedId, file: outFile, color: color)
+                    ],
+                    description: base.description ?? "Imported via read_brep")
+            }
         } catch {
-            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+            if (error as? ManifestError) != .bodyIdTaken(resolvedId) {
+                try? FileManager.default.removeItem(atPath: outPath)
+            }
+            return .manifestFailure(error)
         }
 
         return IntrospectionTools.encode(
@@ -186,12 +186,14 @@ public enum IOTools {
             return .init("Import failed: \(error.localizedDescription)", isError: true)
         }
 
-        let manifest: ScriptManifest =
-            (try? store.read())
-            ?? ScriptManifest(
-                description: "Imported via import_file",
-                bodies: []
-            )
+        let manifest: ScriptManifest
+        do {
+            manifest =
+                try store.requireSceneOrAbsent()
+                ?? ScriptManifest(description: "Imported via import_file", bodies: [])
+        } catch {
+            return .manifestFailure(error)
+        }
         let id = uniqueBodyId(prefix: idPrefix, manifest: manifest)
         let outputDir = (store.path as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(
@@ -209,20 +211,22 @@ public enum IOTools {
         }
 
         await history.snapshot(store: store)
-        var bodies = manifest.bodies
-        bodies.append(BodyDescriptor(id: id, file: outFile))
         do {
-            try store.write(
-                ScriptManifest(
-                    version: manifest.version,
-                    timestamp: Date(),
-                    description: manifest.description ?? "Imported via import_file",
-                    bodies: bodies,
-                    graphs: manifest.graphs,
-                    metadata: manifest.metadata
-                ))
+            try store.update { current in
+                let base =
+                    current ?? ScriptManifest(description: "Imported via import_file", bodies: [])
+                if base.bodies.contains(where: { $0.id == id }) {
+                    throw ManifestError.bodyIdTaken(id)
+                }
+                return base.replacing(
+                    bodies: base.bodies + [BodyDescriptor(id: id, file: outFile)],
+                    description: base.description ?? "Imported via import_file")
+            }
         } catch {
-            return .init("Failed to write manifest: \(error.localizedDescription)", isError: true)
+            if (error as? ManifestError) != .bodyIdTaken(id) {
+                try? FileManager.default.removeItem(atPath: outPath)
+            }
+            return .manifestFailure(error)
         }
 
         return IntrospectionTools.encode(
@@ -244,9 +248,8 @@ public enum IOTools {
         bodyIds: [String]? = nil,
         store: ManifestStore = ManifestStore()
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let bodies: [BodyDescriptor]
         if let ids = bodyIds, !ids.isEmpty {

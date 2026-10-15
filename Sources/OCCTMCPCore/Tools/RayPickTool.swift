@@ -56,9 +56,8 @@ public enum RayPickTool {
         store: ManifestStore = ManifestStore(),
         registry: SelectionRegistry = .shared
     ) async -> ToolText {
-        guard let manifest = try? store.read() else {
-            return .init("No scene loaded. Run execute_script first.", isError: true)
-        }
+        let manifest: ScriptHarness.ScriptManifest
+        do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
         let outputDir = (store.path as NSString).deletingLastPathComponent
 
         var bodies: [ViewportBody] = []

@@ -44,9 +44,8 @@ public enum AssemblyTools {
             }
             path = p
         } else if let id = bodyId {
-            guard let manifest = try? store.read() else {
-                return .init("No scene loaded.", isError: true)
-            }
+            let manifest: ScriptManifest
+            do { manifest = try store.requireScene() } catch { return .manifestFailure(error) }
             guard let body = manifest.body(withId: id) else {
                 return .init("Body not found: \(id)", isError: true)
             }

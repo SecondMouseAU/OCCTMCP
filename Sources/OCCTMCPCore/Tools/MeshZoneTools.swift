@@ -390,7 +390,15 @@ public enum MeshZoneTools {
                 )
             }
             var ids: [String] = []
-            var manifest = (try? store.read()) ?? ScriptManifest(description: nil, bodies: [])
+            let existing: ScriptManifest
+            do {
+                existing =
+                    try store.requireSceneOrAbsent()
+                    ?? ScriptManifest(description: nil, bodies: [])
+            } catch {
+                return .manifestFailure(error)
+            }
+            var newBodies: [BodyDescriptor] = []
             let bodyName = loaded.body.name ?? bodyId
             for (zi, region) in toRegister.enumerated() {
                 guard let sub = mesh.subMesh(triangleIndices: region.triangleIndices) else {
@@ -399,7 +407,7 @@ public enum MeshZoneTools {
                     continue
                 }
                 let outId = "\(bodyId)_zone\(zi)"
-                if manifest.bodies.contains(where: { $0.id == outId }) {
+                if existing.bodies.contains(where: { $0.id == outId }) {
                     warnings.append(
                         "Body id \"\(outId)\" already exists; skipped registration for zone:\(bodyId)#\(zi)."
                     )
@@ -414,14 +422,8 @@ public enum MeshZoneTools {
                     try Exporter.writeBREP(
                         shape: zoneShape, to: URL(fileURLWithPath: "\(outputDir)/\(outFile)"),
                         allowInvalid: true)
-                    manifest = ScriptManifest(
-                        version: manifest.version, timestamp: Date(),
-                        description: manifest.description,
-                        bodies: manifest.bodies + [
-                            BodyDescriptor(id: outId, file: outFile, name: "\(bodyName) zone \(zi)")
-                        ],
-                        graphs: manifest.graphs, metadata: manifest.metadata
-                    )
+                    newBodies.append(
+                        BodyDescriptor(id: outId, file: outFile, name: "\(bodyName) zone \(zi)"))
                     ids.append(outId)
                 } catch {
                     warnings.append(
@@ -431,7 +433,13 @@ public enum MeshZoneTools {
             if !ids.isEmpty {
                 await SceneHistory.shared.snapshot(store: store)
                 do {
-                    try store.write(manifest)
+                    try store.update { current in
+                        let base =
+                            current ?? ScriptManifest(description: nil, bodies: [])
+                        let taken = Set(base.bodies.map(\.id))
+                        return base.replacing(
+                            bodies: base.bodies + newBodies.filter { !taken.contains($0.id) })
+                    }
                 } catch {
                     // The zone bodies were never made visible: drop the files written for them.
                     for id in ids {
