@@ -43,11 +43,11 @@ history, so their version numbers are older than these.
 
 | Package | Pin | Why |
 |---|---|---|
-| OCCTSwift | `exact: "4.0.0-beta.5"` | Exact, not `from:`: `v4.0.0-kernel.N` tags are pre-releases of the same package and sort above every beta, so a `from: "4.0.0-beta.5"` range silently resolves to the newest kernel tag. Move it deliberately when the next beta ships. |
-| OCCTSwiftMesh | `from: "1.7.6-beta.3"` | The beta that shares the OCCTSwift 4 pin. |
-| OCCTSwiftScripts | `from: "1.7.1-beta.2"` | Same. Provides `occtkit` plus the in-process `ScriptHarness` and `DrawingComposer`. |
-| OCCTSwiftInteraction | `from: "3.0.0-beta.5"` | Vends `OCCTSwiftTools`, `OCCTSwiftAIS` and `OCCTSwiftCADKit`. |
-| OCCTSwiftIO | `from: "2.0.0-beta.3"` | Same. |
+| OCCTSwift | `exact: "4.0.0-beta.6"` | Exact, not `from:`: `v4.0.0-kernel.N` tags are pre-releases of the same package and sort above every beta, so a `from: "4.0.0-beta.6"` range silently resolves to the newest kernel tag. Move it deliberately when the next beta ships. |
+| OCCTSwiftMesh | `from: "1.7.6-beta.4"` | The beta that shares the OCCTSwift 4 pin. |
+| OCCTSwiftScripts | `from: "1.7.1-beta.3"` | Same. Provides `occtkit` plus the in-process `ScriptHarness` and `DrawingComposer`. |
+| OCCTSwiftInteraction | `from: "3.0.0-beta.6"` | Vends `OCCTSwiftTools`, `OCCTSwiftAIS` and `OCCTSwiftCADKit`. |
+| OCCTSwiftIO | `from: "2.0.0-beta.4"` | Same. |
 | OCCTSwiftViewport | `from: "1.2.0"` | Not on the beta line. |
 | swift-sdk | `from: "0.11.0"` | MCP transport and types. |
 
