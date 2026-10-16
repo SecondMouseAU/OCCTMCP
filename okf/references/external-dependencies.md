@@ -37,7 +37,7 @@ usage_window: { from: 2026-07-27, to: 2026-09-07 }
 
 ## Current pins (the v1.37.1 beta line)
 
-`Package.swift` is the source of truth; this is what it says as of v1.37.1-beta.4. The entries
+`Package.swift` is the source of truth; this is what it says as of v1.37.1-beta.5. The entries
 under "Swift implementation" below record why each floor moved over time and still describe the
 history, so their version numbers are older than these.
 
