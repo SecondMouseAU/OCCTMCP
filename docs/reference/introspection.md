@@ -105,7 +105,7 @@ Find faces, edges, or vertices on a body matching optional criteria. Returns sta
 
 `includeNeighbors` and `oppositeFaces` with any `entity` other than `face` are errors.
 
-**Returns** — Array of matching topology entries, each with its stable ID, an `index` (the `N` in `face[N]`, in `Shape.faces()/.edges()/.vertices()` enumeration order: the same `index` `get_selection` reports for the same entity, but NOT the index embedded in a `selectionId`, which is a BRepGraph node index that only coincides for faces; call `select_topology` to mint a `selectionId` rather than composing one by hand), and geometric properties (type, area/length as applicable). Face entries (#197) also carry `center` (a point at the surface's UV midpoint, which can lie off a heavily trimmed face) and `normal` at that point, so faces can be compared without selecting each one first. With `includeNeighbors` (#199), a face also carries `neighbors` (`[{index, convexity, sharedEdgeCount}]`, ascending `index`, all in `Shape.faces()` order so they match `face[N]` and `get_selection`'s `index`), `neighborCount` (the true count) and `neighborsTruncated` (true when `neighborLimit` cut the list). On a compound where two solids share a face, the shared face's occurrences merge into one entry and their shared-edge counts add. With `oppositeFaces`, a planar face also carries `oppositeFace` (`{index, distance, method}`), the nearest planar face that is anti-parallel, lies behind this face along its outward normal, and overlaps it when both are projected into this face's plane (ties go to the lower index). It is advisory: absent for non-planar faces and when nothing qualifies. `exact` traces each face's outer wire and tests the two outlines for positive-area overlap, so a candidate that only touches the face's range, or sits in the missing corner of an L-shaped face, is rejected; holes are ignored. If an outline cannot be traced as one closed loop, that pair falls back to the bounding-box test, `oppositeFace.method` reads `bbox`, and the report gains a top-level `warnings` array (omitted when empty) naming how many reported hits the bbox test decided. Edge entries (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit `direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians, measured from the circle's own xAxis) for CIRCULAR edges. Returns an empty array when no entities match the filter.
+**Returns** — Array of matching topology entries, each with its stable ID, an `index` (the `N` in `face[N]`, in `Shape.faces()/.edges()/.vertices()` enumeration order: the same `index` `get_selection` reports for the same entity, but NOT the index embedded in a `selectionId`, which is a BRepGraph node index that only coincides for faces; call `select_topology` to mint a `selectionId` rather than composing one by hand), and geometric properties (type, area/length as applicable). Face entries (#197) also carry `center` (a point at the surface's UV midpoint, which can lie off a heavily trimmed face) and `normal` at that point, so faces can be compared without selecting each one first. With `includeNeighbors` (#199), a face also carries `neighbors` (`[{index, convexity, sharedEdgeCount}]`, ascending `index`, all in `Shape.faces()` order so they match `face[N]` and `get_selection`'s `index`), `neighborCount` (the true count) and `neighborsTruncated` (true when `neighborLimit` cut the list). On a compound where two solids share a face, the shared face's occurrences merge into one entry and their shared-edge counts add. With `oppositeFaces`, a planar face also carries `oppositeFace` (`{index, distance, method}`), the nearest planar face that is anti-parallel, lies behind this face along its outward normal, and overlaps it when both are projected into this face's plane (ties go to the lower index). It is advisory: absent for non-planar faces and when nothing qualifies. `exact` traces each face's outer wire and tests the two outlines for positive-area overlap, so a candidate that only touches the face's range, or sits in the missing corner of an L-shaped face, is rejected; holes are ignored. If an outline cannot be traced as one closed loop, that pair falls back to the bounding-box test, `oppositeFace.method` reads `bbox`, and the report gains a top-level `warnings` array (omitted when empty) naming how many reported hits the bbox test decided. Edge entries (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit `direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians, measured from the circle's own xAxis) for CIRCULAR edges. Face entries whose `surfaceType` is `cylinder` or `sphere` (#249) also carry `radius`; a cylinder adds a unit `axis` direction and `axisPoint`, a point on that axis, and a sphere adds `sphereCenter` (a sphere has no `axis`). Both are absent on every other surface type, and the same fields appear on the `select_topology` and `get_selection` anchors. Returns an empty array when no entities match the filter.
 
 **Example**
 
@@ -127,19 +127,23 @@ Find faces, edges, or vertices on a body matching optional criteria. Returns sta
 
 ## `measure_distance`
 
-Minimum distance between two scene bodies. Returns ≈0 if the bodies overlap or touch.
+Minimum distance between two scene bodies, or between two sub-shapes of them. Returns ≈0 if the shapes overlap or touch.
 
-**Server:** Swift + Node
+**Server:** Swift + Node. The sub-shape parameters `from` and `to` (#249) are Swift only.
 
 **Parameters**
 
 | name | type | required | description |
 |------|------|:--------:|-------------|
-| `fromBodyId` | string | yes | First body. |
-| `toBodyId` | string | yes | Second body. |
+| `fromBodyId` | string | with no `from` | First body. With a `face[N]` / `edge[N]` `from`, the body those labels refer to. |
+| `toBodyId` | string | with no `to` | Second body. With a `face[N]` / `edge[N]` `to`, the body those labels refer to; defaults to `from`'s body. |
+| `from` | string | no | Sub-shape to measure from (#249): a `selectionId` (`sel:<bodyId>#face[N]`, from `select_topology` or `get_selection`) or a `face[N]` / `edge[N]` reference. |
+| `to` | string | no | Sub-shape to measure to, same forms as `from`. |
 | `computeContacts` | boolean | no | Also return up to 32 contact pairs (closest point pairs). |
 
-**Returns** — JSON object with `distance` (minimum gap in model units). If `computeContacts` is true, also includes `contacts`: array of up to 32 pairs, each with `pointOnFrom` and `pointOnTo` coordinates.
+**Returns** — JSON object with `minDistance` (minimum gap in model units), `isParallel` and `contacts`. `contacts` is empty unless `computeContacts` is true, in which case it holds up to 32 pairs, each with `fromPoint`, `toPoint` and `distance`. A sub-shape measurement returns the same shape.
+
+A `face[N]` / `edge[N]` reference uses the `query_topology` labels, which are `Shape.faces()` / `Shape.edges()` order. A `selectionId` instead embeds a BRepGraph node index, and resolves through the body's retained graph; never hand-build one from a `face[N]` label. Vertices are measured through `selectionId` only. A `from` or `to` left out measures that side's whole body, and a reference that does not resolve is an error, never a silent whole-body measurement.
 
 **Example**
 
@@ -150,11 +154,18 @@ Minimum distance between two scene bodies. Returns ≈0 if the bodies overlap or
 ```json
 // example result
 {
-  "distance": 0.05,
+  "minDistance": 0.05,
+  "isParallel": false,
   "contacts": [
-    { "pointOnFrom": [12.5, 0.0, 30.0], "pointOnTo": [12.55, 0.0, 30.0] }
+    { "fromPoint": [12.5, 0.0, 30.0], "toPoint": [12.55, 0.0, 30.0], "distance": 0.05 }
   ]
 }
+```
+
+Two faces of one body (#249):
+
+```json
+{ "fromBodyId": "bracket", "from": "face[0]", "to": "face[2]" }
 ```
 
 **Notes** — This is the **minimum gap** metric — not surface deviation. For comparing a reconstruction against a reference mesh use [`measure_deviation`](#measure_deviation) instead. A result of ≈0 means bodies are touching or penetrating; it does not indicate the amount of overlap.

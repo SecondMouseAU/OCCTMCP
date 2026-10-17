@@ -1039,15 +1039,24 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "measure_distance",
             description:
-                "Minimum distance between two scene bodies. Pass computeContacts=true to also return up to 32 contact pairs.",
+                "Minimum distance between two scene bodies, or between two sub-shapes (face-face, face-edge) of them (#249). Whole bodies: pass fromBodyId and toBodyId. Sub-shapes: pass `from` and/or `to`, each a selectionId (sel:<bodyId>#face[N], from select_topology / get_selection) or a face[N] / edge[N] reference using the query_topology labels (Shape.faces() order, NOT a selectionId's graph index); a bare face[N] / edge[N] is taken on fromBodyId (and `to` falls back to from's body), so two faces of one body need only fromBodyId. A `from` / `to` left out measures that side's whole body. Pass computeContacts=true to also return up to 32 contact pairs.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "fromBodyId": .object(["type": .string("string")]),
                     "toBodyId": .object(["type": .string("string")]),
+                    "from": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "selectionId, or face[N] / edge[N] on fromBodyId."),
+                    ]),
+                    "to": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "selectionId, or face[N] / edge[N] on toBodyId (default: from's body)."),
+                    ]),
                     "computeContacts": .object(["type": .string("boolean")]),
                 ]),
-                "required": .array([.string("fromBodyId"), .string("toBodyId")]),
                 "additionalProperties": .bool(false),
             ])
         ),
@@ -2826,15 +2835,20 @@ func dispatch(
         ).asCallToolResult()
 
     case "measure_distance":
-        guard let fromId = arguments["fromBodyId"]?.stringValue,
-            let toId = arguments["toBodyId"]?.stringValue
-        else {
-            return ToolText("measure_distance requires `fromBodyId` and `toBodyId`.", isError: true)
-                .asCallToolResult()
+        let fromRef = arguments["from"]?.stringValue
+        let toRef = arguments["to"]?.stringValue
+        let fromId = arguments["fromBodyId"]?.stringValue
+        let toId = arguments["toBodyId"]?.stringValue
+        guard fromRef != nil || fromId != nil, toRef != nil || toId != nil else {
+            return ToolText(
+                "measure_distance requires `fromBodyId` or `from`, and `toBodyId` or `to`.",
+                isError: true
+            ).asCallToolResult()
         }
         let computeContacts = arguments["computeContacts"]?.boolValue ?? false
         return await IntrospectionTools.measureDistance(
-            fromBodyId: fromId, toBodyId: toId, computeContacts: computeContacts
+            fromBodyId: fromId, toBodyId: toId, from: fromRef, to: toRef,
+            computeContacts: computeContacts
         ).asCallToolResult()
 
     case "measure_deviation":
