@@ -254,6 +254,30 @@ let server = await makeOCCTMCPServer(extraTools: [
   tools and omits any built-in they replaced.
 - With no extras (the default) the catalog and behaviour are unchanged.
 
+## Embedding: observing tool calls and manifest writes
+
+Two optional arguments to `makeOCCTMCPServer` let a host see what the built-in tools do:
+
+```swift
+let server = await makeOCCTMCPServer(
+    outputDirectory: sceneDirectory,
+    manifestWriteObserver: { bytes, tool in
+        // Under the manifest lock, before the atomic rename. `tool` is the running tool's name.
+        record(bytes, attributedTo: tool)
+    },
+    toolCallObserver: { event in
+        // `.started`, then `.finished(isError:)`, for each `tools/call`.
+        show(event.name, event.arguments, event.phase)
+    })
+```
+
+- `manifestWriteObserver` runs inside `ManifestStore` for every write a tool makes, so a new
+  mutating tool is covered without changes. Throwing aborts the write. `OCCTMCPContext.currentTool`
+  holds the name; it is nil for a write made outside a tool call.
+- `toolCallObserver` receives events one at a time, in order, on its own task: a slow observer never
+  delays a tool result. Events carry a `callID` that ties a start to its finish.
+- With neither set (the default) behaviour is unchanged.
+
 ## Embedding: committing the manifest
 
 Every built-in tool that changes the scene commits `manifest.json` through

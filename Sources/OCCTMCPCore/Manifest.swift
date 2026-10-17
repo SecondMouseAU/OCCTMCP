@@ -106,6 +106,7 @@ public struct ManifestStore: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(bumped)
         try willWrite?(data)
+        try OCCTMCPContext.manifestWriteObserver?(data, OCCTMCPContext.currentTool)
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
         return bumped
     }
