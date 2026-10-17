@@ -74,9 +74,16 @@ public struct ExtraTool: Sendable {
 /// sidecars). `nil` keeps the usual resolution: `OCCTMCP_OUTPUT_DIR`, then iCloud Drive, then
 /// `~/.occtswift-scripts/output`. Two servers built with different directories can run in one
 /// process; each sees only its own scene and keeps its own selection, zone and history state.
-public func makeOCCTMCPServer(extraTools: [ExtraTool] = [], outputDirectory: URL? = nil) async
-    -> Server
-{
+///
+/// `manifestWriteObserver` sees every manifest write with the name of the tool that made it, and
+/// `toolCallObserver` sees each call start and finish; see `HostObservers.swift`. Neither changes
+/// behaviour when `nil`.
+public func makeOCCTMCPServer(
+    extraTools: [ExtraTool] = [],
+    outputDirectory: URL? = nil,
+    manifestWriteObserver: ManifestWriteObserver? = nil,
+    toolCallObserver: ToolCallObserver? = nil
+) async -> Server {
     let server = Server(
         name: OCCTMCPVersion.serverName,
         version: OCCTMCPVersion.serverVersion,
@@ -84,13 +91,18 @@ public func makeOCCTMCPServer(extraTools: [ExtraTool] = [], outputDirectory: URL
             tools: .init(listChanged: false)
         )
     )
-    await registerTools(on: server, extraTools: extraTools, outputDirectory: outputDirectory)
+    await registerTools(
+        on: server, extraTools: extraTools, outputDirectory: outputDirectory,
+        manifestWriteObserver: manifestWriteObserver, toolCallObserver: toolCallObserver)
     return server
 }
 
 func registerTools(
-    on server: Server, extraTools: [ExtraTool] = [], outputDirectory: URL? = nil
+    on server: Server, extraTools: [ExtraTool] = [], outputDirectory: URL? = nil,
+    manifestWriteObserver: ManifestWriteObserver? = nil,
+    toolCallObserver: ToolCallObserver? = nil
 ) async {
+    let pump = toolCallObserver.map { ToolCallEventPump(observer: $0) }
     let tools = catalogTools(extraTools: extraTools)
 
     await server.withMethodHandler(ListTools.self) { _ in
@@ -98,10 +110,19 @@ func registerTools(
     }
 
     await server.withMethodHandler(CallTool.self) { params in
-        return await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
-            await dispatch(
-                callName: params.name, arguments: params.arguments ?? [:], extraTools: extraTools)
+        let arguments = params.arguments ?? [:]
+        let callID = UUID()
+        pump?.emit(params.name, arguments, .started, id: callID)
+        let result = await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
+            await OCCTMCPContext.$manifestWriteObserver.withValue(manifestWriteObserver) {
+                await OCCTMCPContext.$currentTool.withValue(params.name) {
+                    await dispatch(
+                        callName: params.name, arguments: arguments, extraTools: extraTools)
+                }
+            }
         }
+        pump?.emit(params.name, arguments, .finished(isError: result.isError ?? false), id: callID)
+        return result
     }
 }
 
