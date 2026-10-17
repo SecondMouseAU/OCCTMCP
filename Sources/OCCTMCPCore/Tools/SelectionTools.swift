@@ -139,11 +139,16 @@ public enum SelectionTools {
                 // instead of a separate recordGraphUID follow-up.
                 let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: index)
                 let anchor = TopologyAnchor.face(bodyId: bodyId, index: index, uid: uid)
+                let faceGeom = faceGeometryFields(face: face, surfaceType: surfaceType)
                 let snapshot = AnchorSnapshot(
                     center: [center.x, center.y, center.z],
                     normal: normal.map { [$0.x, $0.y, $0.z] },
                     area: area,
-                    surfaceType: surfaceType
+                    surfaceType: surfaceType,
+                    radius: faceGeom.radius,
+                    axis: faceGeom.axis,
+                    axisPoint: faceGeom.axisPoint,
+                    sphereCenter: faceGeom.sphereCenter
                 )
                 await registry.record(anchor: anchor, snapshot: snapshot)
                 entries.append(
@@ -280,6 +285,28 @@ public enum SelectionTools {
 
     static func edgeLength(edge: Edge) -> Double {
         return edge.length
+    }
+
+    /// Analytic parameters of a cylindrical or spherical face (#249).
+    ///
+    /// A cylinder reports `radius`, a unit `axis` direction and `axisPoint`, a
+    /// point on that axis. A sphere reports `radius` and `sphereCenter`, and no
+    /// `axis`: its pole is an arbitrary construction-frame choice, not geometry.
+    /// Every other surface type returns all nil.
+    static func faceGeometryFields(face: Face, surfaceType: String) -> (
+        radius: Double?, axis: [Double]?, axisPoint: [Double]?, sphereCenter: [Double]?
+    ) {
+        guard surfaceType == "cylinder" || surfaceType == "sphere",
+            let props = face.revolutionProperties
+        else { return (nil, nil, nil, nil) }
+        let o = centerOrZero(props.axis.origin)
+        if surfaceType == "sphere" {
+            return (props.radius, nil, nil, [o.x, o.y, o.z])
+        }
+        let d = centerOrZero(props.axis.direction)
+        let len = simd_length(d)
+        guard len > 1e-12 else { return (props.radius, nil, [o.x, o.y, o.z], nil) }
+        return (props.radius, [d.x / len, d.y / len, d.z / len], [o.x, o.y, o.z], nil)
     }
 
     /// Geometric detail for an edge (#119): endpoints for every edge kind, a

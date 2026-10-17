@@ -222,16 +222,23 @@ public struct AnchorSnapshot: Sendable, Codable {
     /// curved edge's tangent varies along its length and has no single
     /// "direction" to report here. nil for faces/vertices/non-line edges.
     public var direction: [Double]?
-    /// Circle radius (mm).
+    /// Circle radius (mm), or the radius of a cylindrical or spherical face.
     ///
-    /// Populated for circular edges only, alongside
-    /// `circleCenter` (#119). nil otherwise.
+    /// Populated for circular edges, alongside `circleCenter` (#119), and for
+    /// faces whose `surfaceType` is `cylinder` or `sphere` (#249). nil otherwise.
     public var radius: Double?
-    /// Unit normal of the circle's plane (its rotation axis).
+    /// Unit normal of a circle's plane (its rotation axis), or the unit axis
+    /// direction of a cylindrical face.
     ///
-    /// Populated for
-    /// circular edges only (#119). nil otherwise.
+    /// Populated for circular edges (#119) and cylinder faces (#249). nil
+    /// otherwise, including sphere faces, which have no real axis.
     public var axis: [Double]?
+    /// A point on a cylindrical face's axis (#249), paired with `axis`.
+    ///
+    /// nil for every other kind of pick.
+    public var axisPoint: [Double]?
+    /// Centre of a spherical face (#249). nil for every other kind of pick.
+    public var sphereCenter: [Double]?
     /// Start/end parameter of the edge's curve, in radians, measured from the
     /// circle's own xAxis direction (OCCT's Geom_Circle parametrization:
     /// point(u) = center + radius * (cos(u) * xDir + sin(u) * yDir), so u IS
@@ -252,6 +259,8 @@ public struct AnchorSnapshot: Sendable, Codable {
         direction: [Double]? = nil,
         radius: Double? = nil,
         axis: [Double]? = nil,
+        axisPoint: [Double]? = nil,
+        sphereCenter: [Double]? = nil,
         startAngle: Double? = nil,
         endAngle: Double? = nil
     ) {
@@ -266,6 +275,8 @@ public struct AnchorSnapshot: Sendable, Codable {
         self.direction = direction
         self.radius = radius
         self.axis = axis
+        self.axisPoint = axisPoint
+        self.sphereCenter = sphereCenter
         self.startAngle = startAngle
         self.endAngle = endAngle
     }

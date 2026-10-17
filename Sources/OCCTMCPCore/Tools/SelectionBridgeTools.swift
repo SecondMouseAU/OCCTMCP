@@ -314,11 +314,16 @@ public enum SelectionBridgeTools {
                 for: Shape.fromFace(face), kind: .face, in: graph, fallback: entry.index)
             let uid = graph.uid(ofNodeKind: Int(BRepGraph.NodeKind.face.rawValue), index: graphIdx)
             let anchor = TopologyAnchor.face(bodyId: entry.bodyId, index: graphIdx, uid: uid)
+            let faceGeom = SelectionTools.faceGeometryFields(face: face, surfaceType: surfaceType)
             let snapshot = AnchorSnapshot(
                 center: [center.x, center.y, center.z],
                 normal: normal.map { [$0.x, $0.y, $0.z] },
                 area: area,
-                surfaceType: surfaceType
+                surfaceType: surfaceType,
+                radius: faceGeom.radius,
+                axis: faceGeom.axis,
+                axisPoint: faceGeom.axisPoint,
+                sphereCenter: faceGeom.sphereCenter
             )
             await registry.record(anchor: anchor, snapshot: snapshot)
             return ResolvedSelection(

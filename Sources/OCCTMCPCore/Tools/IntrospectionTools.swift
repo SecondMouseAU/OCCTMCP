@@ -172,8 +172,14 @@ public enum IntrospectionTools {
             ///
             /// Populated for circular edges only (#119).
             public let circleCenter: [Double]?
+            /// Circle radius for a circular edge (#119); radius of a cylinder or sphere face (#249).
             public let radius: Double?
+            /// Unit normal of a circular edge's plane (#119); unit axis of a cylinder face (#249).
             public let axis: [Double]?
+            /// A point on a cylinder face's axis, paired with `axis` (#249).
+            public let axisPoint: [Double]?
+            /// Centre of a sphere face (#249).
+            public let sphereCenter: [Double]?
             public let startAngle: Double?
             public let endAngle: Double?
             /// Adjacent faces in `faces()` index order, capped at `neighborLimit` (#199).
@@ -191,6 +197,7 @@ public enum IntrospectionTools {
                 center: [Double]? = nil, normal: [Double]? = nil,
                 endpoints: [[Double]]? = nil, direction: [Double]? = nil,
                 circleCenter: [Double]? = nil, radius: Double? = nil, axis: [Double]? = nil,
+                axisPoint: [Double]? = nil, sphereCenter: [Double]? = nil,
                 startAngle: Double? = nil, endAngle: Double? = nil,
                 neighbors: [FaceAdjacency.Neighbour]? = nil, neighborCount: Int? = nil,
                 neighborsTruncated: Bool? = nil, oppositeFace: OppositeFaces.Hit? = nil
@@ -208,6 +215,8 @@ public enum IntrospectionTools {
                 self.circleCenter = circleCenter
                 self.radius = radius
                 self.axis = axis
+                self.axisPoint = axisPoint
+                self.sphereCenter = sphereCenter
                 self.startAngle = startAngle
                 self.endAngle = endAngle
                 self.neighbors = neighbors
@@ -333,6 +342,8 @@ public enum IntrospectionTools {
                     neighborCount = all.count
                     neighborsTruncated = all.count > relations.neighborLimit
                 }
+                let faceGeom = SelectionTools.faceGeometryFields(
+                    face: row.face, surfaceType: row.kind)
                 results.append(
                     .init(
                         id: "face[\(row.index)]",
@@ -343,6 +354,10 @@ public enum IntrospectionTools {
                         boundingBox: nil,
                         center: hasPoint ? [center.x, center.y, center.z] : nil,
                         normal: normal.map { [$0.x, $0.y, $0.z] },
+                        radius: faceGeom.radius,
+                        axis: faceGeom.axis,
+                        axisPoint: faceGeom.axisPoint,
+                        sphereCenter: faceGeom.sphereCenter,
                         neighbors: neighbors,
                         neighborCount: neighborCount,
                         neighborsTruncated: neighborsTruncated,
@@ -425,29 +440,43 @@ public enum IntrospectionTools {
         }
     }
 
+    /// Minimum distance between two bodies, or between sub-shapes of them (#249).
+    ///
+    /// `from` / `to` each take a selectionId or a `kind[index]` reference (see
+    /// `resolveDistanceTarget`); left nil, the whole body named by
+    /// `fromBodyId` / `toBodyId` is measured.
     public static func measureDistance(
-        fromBodyId: String,
-        toBodyId: String,
+        fromBodyId: String? = nil,
+        toBodyId: String? = nil,
+        from fromRef: String? = nil,
+        to toRef: String? = nil,
         computeContacts: Bool = false,
-        store: ManifestStore = ManifestStore()
+        store: ManifestStore = ManifestStore(),
+        registry: SelectionRegistry = .shared
     ) async -> ToolText {
-        let from: (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String)
-        let to: (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String)
+        let fromShape: Shape
+        let toShape: Shape
         do {
-            from = try loadShape(bodyId: fromBodyId, store: store)
-            to = try loadShape(bodyId: toBodyId, store: store)
+            let fromTarget = try await resolveDistanceTarget(
+                ref: fromRef, bodyId: fromBodyId, fallbackBodyId: nil, role: "from",
+                store: store, registry: registry)
+            let toTarget = try await resolveDistanceTarget(
+                ref: toRef, bodyId: toBodyId, fallbackBodyId: fromTarget.bodyId, role: "to",
+                store: store, registry: registry)
+            fromShape = fromTarget.shape
+            toShape = toTarget.shape
         } catch {
             return .init("measure_distance: \(error)", isError: true)
         }
 
         if !computeContacts {
-            guard let dist = from.shape.minDistance(to: to.shape) else {
+            guard let dist = fromShape.minDistance(to: toShape) else {
                 return .init("Distance computation failed.", isError: true)
             }
             return encode(DistanceReport(minDistance: dist, isParallel: false, contacts: []))
         }
 
-        guard let solutions = from.shape.allDistanceSolutions(to: to.shape, maxSolutions: 32) else {
+        guard let solutions = fromShape.allDistanceSolutions(to: toShape, maxSolutions: 32) else {
             return .init("Distance computation failed.", isError: true)
         }
         let minD = solutions.map(\.distance).min() ?? .infinity

@@ -45,6 +45,8 @@ each matched entity. The registry retains these until `clear_selections` is call
 ends. Edge anchors (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit
 `direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians,
 measured from the circle's own xAxis) for CIRCULAR edges.
+Face anchors (#249) for a `cylinder` or `sphere` surface carry `radius`, plus `axis` and `axisPoint`
+(a point on the axis) for a cylinder or `sphereCenter` for a sphere; `get_selection` anchors carry the same.
 
 **Example**
 
