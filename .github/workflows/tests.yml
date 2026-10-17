@@ -95,7 +95,7 @@ jobs:
   swift:
     needs: changes
     if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-15
+    runs-on: macos-latest
     # OCCTMCP_FORCE_REMOTE_DEPS makes the published-graph resolution explicit rather than an
     # accident of there being no sibling checkout on the runner.
     env:
