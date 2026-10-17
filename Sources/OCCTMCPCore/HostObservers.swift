@@ -40,16 +40,21 @@ public typealias ToolCallObserver = @Sendable (ToolCallEvent) -> Void
 
 /// Delivers events to an observer on a single consumer task, so a slow observer never delays
 /// a tool result and events arrive in the order they were emitted.
-struct ToolCallEventPump: Sendable {
+///
+/// The consumer is detached so it never runs on the caller's actor, and it ends when the pump is
+/// released. It reads no task-locals, so detaching does not drop anything it needs.
+final class ToolCallEventPump: Sendable {
     private let continuation: AsyncStream<ToolCallEvent>.Continuation
 
     init(observer: @escaping ToolCallObserver) {
         let (stream, continuation) = AsyncStream.makeStream(of: ToolCallEvent.self)
         self.continuation = continuation
-        Task {
+        Task.detached {
             for await event in stream { observer(event) }
         }
     }
+
+    deinit { continuation.finish() }
 
     func emit(_ name: String, _ arguments: [String: Value], _ phase: ToolCallEvent.Phase, id: UUID)
     {
