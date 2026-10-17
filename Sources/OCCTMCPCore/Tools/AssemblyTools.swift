@@ -6,7 +6,6 @@
 import Foundation
 import OCCTSwift
 import ScriptHarness
-import simd
 
 public enum AssemblyTools {
 
@@ -198,13 +197,8 @@ public enum AssemblyTools {
         )
     }
 
-    static func flatten(_ m: simd_float4x4) -> [Float] {
-        return [
-            m.columns.0.x, m.columns.0.y, m.columns.0.z, m.columns.0.w,
-            m.columns.1.x, m.columns.1.y, m.columns.1.z, m.columns.1.w,
-            m.columns.2.x, m.columns.2.y, m.columns.2.z, m.columns.2.w,
-            m.columns.3.x, m.columns.3.y, m.columns.3.z, m.columns.3.w,
-        ]
+    static func flatten(_ m: Matrix4x4F) -> [Float] {
+        m.columnMajorElements
     }
 
     static func identityTransform() -> [Float] {
