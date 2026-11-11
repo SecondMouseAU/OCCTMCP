@@ -1,8 +1,9 @@
 // IntrospectionTools: pure-read tools backed by direct OCCTSwift calls
 // (no occtkit subprocess). Phase 5.3a covers compute_metrics,
 // query_topology, measure_distance. Each resolves a bodyId against the
-// scene manifest, loads the body's BREP via Shape.loadBREP(fromPath:),
-// and runs the OCCT query in-process.
+// scene manifest, loads the body through BodyLoader (the host's shape when it
+// supplies one, else the file read by the manifest's `format`), and runs the
+// OCCT query in-process.
 
 import Foundation
 import OCCTSwift
@@ -12,10 +13,14 @@ public enum IntrospectionTools {
 
     // ── shared body resolver ────────────────────────────────────────────
 
-    static func loadShape(
+    /// Resolve `bodyId` to its manifest entry and file path without reading the file.
+    ///
+    /// For a tool that goes on to read the body through the retained lineage, where parsing the
+    /// file here as well would read a large STEP assembly twice.
+    static func resolveBody(
         bodyId: String,
         store: ManifestStore
-    ) throws -> (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String) {
+    ) throws -> (manifest: ScriptManifest, body: BodyDescriptor, path: String) {
         let manifest: ScriptManifest
         do {
             manifest = try store.requireScene()
@@ -28,9 +33,32 @@ public enum IntrospectionTools {
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let path = "\(outputDir)/\(body.file)"
         guard FileManager.default.fileExists(atPath: path) else {
-            throw ToolError.brepMissing(path)
+            throw IOTools.ImportFormat(spelling: body.format) == .brep
+                ? ToolError.brepMissing(path) : ToolError.bodyFileMissing(path, format: body.format)
         }
-        let shape = try Shape.loadBREP(fromPath: path)
+        return (manifest, body, path)
+    }
+
+    /// Resolve `bodyId` and read its shape.
+    ///
+    /// A reading tool takes the embedding host's shape when it supplies one, else the file read by
+    /// the body's format. `forEditing` is for a tool that writes the body back: it refuses a body
+    /// that is not `brep` and reads the file, never the host's shape, since the file is what the
+    /// tool goes on to overwrite.
+    static func loadShape(
+        bodyId: String,
+        store: ManifestStore,
+        forEditing: Bool = false
+    ) throws -> (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String) {
+        let (manifest, body, path) = try resolveBody(bodyId: bodyId, store: store)
+        let outputDir = (store.path as NSString).deletingLastPathComponent
+        let shape: Shape
+        if forEditing {
+            try BodyLoader.requireEditable(body)
+            shape = try BodyLoader.loadFromFile(body: body, outputDir: outputDir)
+        } else {
+            shape = try BodyLoader.loadShape(body: body, outputDir: outputDir)
+        }
         return (manifest, body, shape, path)
     }
 
@@ -38,6 +66,8 @@ public enum IntrospectionTools {
         case noScene
         case bodyNotFound(String)
         case brepMissing(String)
+        /// The file of a body whose manifest `format` is not `brep` is missing.
+        case bodyFileMissing(String, format: String)
 
         public var description: String {
             switch self {
@@ -47,6 +77,8 @@ public enum IntrospectionTools {
                 return "Body not found: \(id)"
             case .brepMissing(let path):
                 return "BREP file missing: \(path)"
+            case .bodyFileMissing(let path, let format):
+                return "\(format.uppercased()) file missing: \(path)"
             }
         }
     }

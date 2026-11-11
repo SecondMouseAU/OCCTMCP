@@ -18,7 +18,7 @@ OCCTSwift / OCCTSwiftViewport are kernel layers. `OCCTSwiftTools` is the bridge 
 
 ## History wiring (selectionId remap across mutations)
 
-`select_topology` resolves through `HistoryRegistry.currentInput(bodyId:path:)` rather than a
+`select_topology` resolves through `HistoryRegistry.currentInput(bodyId:body:outputDir:)` rather than a
 disposable per-call graph. This establishes (or reuses) the SAME retained graph a later
 history-aware mutation will absorb into, and mints a `BRepGraph.GraphUID` per anchor, attached
 directly to the `TopologyAnchor` passed to `SelectionRegistry.record(anchor:snapshot:)` (#182: a
@@ -52,7 +52,7 @@ fresh GraphUID for the new anchor **from the retained lineage graph only**, neve
 disposable `currentGraph` rung 3 uses, so a multi-hop remap chain stays UID-exact instead of
 degrading to rung 2 (or rung 3) after one hop.
 
-Per-tool history path, via `HistoryRegistry.currentInput`/`commit`/`absorb`:
+Per-tool history path, via `HistoryRegistry.currentInput`/`currentEditInput`/`commit`/`absorb` (reading tools call the first, editing tools the second; see `okf/components/swift-server.md`):
 
 | Tool             | History path                              | Notes |
 |------------------|-------------------------------------------|-------|

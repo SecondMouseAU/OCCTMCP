@@ -95,7 +95,8 @@ public enum AlignTools {
             (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String)
         let loadedRef: (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String)
         do {
-            loadedSource = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
+            loadedSource = try IntrospectionTools.loadShape(
+                bodyId: bodyId, store: store, forEditing: apply)
             loadedRef = try IntrospectionTools.loadShape(bodyId: referenceBodyId, store: store)
         } catch {
             return .init("align_bodies: \(error)", isError: true)

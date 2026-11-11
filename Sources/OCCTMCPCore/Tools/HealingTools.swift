@@ -31,6 +31,7 @@ public enum HealingTools {
         guard let body = manifest.body(withId: bodyId) else {
             return .init("Body not found: \(bodyId)", isError: true)
         }
+        if let refusal = BodyLoader.editRefusal(for: body) { return refusal }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let inputPath = "\(outputDir)/\(body.file)"
         guard FileManager.default.fileExists(atPath: inputPath) else {
@@ -43,7 +44,8 @@ public enum HealingTools {
 
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: inputPath)
+            lineage = try await HistoryRegistry.shared.currentEditInput(
+                bodyId: bodyId, path: inputPath)
         } catch {
             return .init("Failed to load BREP: \(error)", isError: true)
         }
