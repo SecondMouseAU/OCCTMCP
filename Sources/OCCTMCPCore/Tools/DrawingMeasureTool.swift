@@ -178,6 +178,9 @@ extension DrawingReadTools {
                 "A dimension entity has no measurable geometry; measure the entities it dimensions, "
                     + "or pass its definition points from list_drawing_dimensions as points."
             )
+        @unknown default:
+            throw MeasureError(
+                "This entity type is not one the drawing tools measure; use a point instead.")
         }
         return (shapes, approximate)
     }
@@ -227,10 +230,14 @@ extension DrawingReadTools {
             )
         }
         func mm(_ value: Double) -> Double? { mmPerUnit.map { value * $0 } }
+        // Only a distance or a radius has a millimetre figure to explain; an angle does not.
+        let unitNotes = notes
+        notes = []
 
         do {
             switch measure {
             case "distance":
+                notes = unitNotes
                 let endA = try parseEnd(a, role: "a", in: loaded.drawing)
                 let endB = try parseEnd(b, role: "b", in: loaded.drawing)
                 let (shapeA, approxA) = try shape(for: endA, role: "a")
@@ -302,6 +309,7 @@ extension DrawingReadTools {
                         notes: notes))
 
             case "radius":
+                notes = unitNotes
                 let endA = try parseEnd(a, role: "a", in: loaded.drawing)
                 let radius: Double
                 switch endA {

@@ -395,7 +395,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "list_drawing_dimensions",
             description:
-                "List every DIMENSION in a 2D drawing (ASCII DXF): id (e<index>, as in list_drawing_entities), kind (linear, aligned, angular, diameter, radius, angular3Point, ordinate), the stored value in drawing units and in millimetres when the drawing declares its units (null when the file omits it), `valueFromPoints` (the length between the dimension's own definition points, for aligned, radius and diameter dimensions: a check on the stored value, and the value when the file has none), the user's text override (null when the dimension shows its own value), the text position, the definition points (each with its DXF group code, and its role where documented: a linear or aligned dimension's dimension-line point and two extension-line origins, a radius or diameter's two ends), layer and colour. Angular values are returned as stored: DXF does not declare their unit. Filter by `layers` or `kinds`; paged by `limit` (default 500) and `offset`. Read-only; returns numbers, not a rendering.",
+                "List every DIMENSION in a 2D drawing (ASCII DXF): id (e<index>, as in list_drawing_entities), kind (linear, aligned, angular, diameter, radius, angular3Point, ordinate), the stored value in drawing units and in millimetres when the drawing declares its units (absent when the file omits it), `valueFromPoints` (the length between the dimension's own definition points, for aligned, radius and diameter dimensions: a check on the stored value, and the value when the file has none), the user's text override (absent when the dimension shows its own value, including a text of exactly `<>`), the text position, the definition points (each with its DXF group code, and its role where documented: a linear or aligned dimension's dimension-line point and two extension-line origins, a radius or diameter's two ends), layer and colour. Angular values are returned as stored: DXF does not declare their unit. Filter by `layers` or `kinds`; paged by `limit` (default 500) and `offset`. Read-only; returns numbers, not a rendering.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -2832,8 +2832,10 @@ func dispatch(
                 types: try DrawingReadTools.stringList(arguments["types"], name: "types"),
                 layers: try DrawingReadTools.stringList(arguments["layers"], name: "layers"),
                 rect: try DrawingReadTools.numberList(arguments["rect"], name: "rect"),
-                rectMode: arguments["rectMode"]?.stringValue,
-                limit: arguments["limit"]?.intValue, offset: arguments["offset"]?.intValue
+                rectMode: try DrawingReadTools.optionalString(
+                    arguments["rectMode"], name: "rectMode"),
+                limit: try DrawingReadTools.optionalInt(arguments["limit"], name: "limit"),
+                offset: try DrawingReadTools.optionalInt(arguments["offset"], name: "offset")
             ).asCallToolResult()
         } catch {
             return ToolText("\(error)", isError: true).asCallToolResult()
@@ -2849,7 +2851,8 @@ func dispatch(
                 inputPath: inputPath,
                 layers: try DrawingReadTools.stringList(arguments["layers"], name: "layers"),
                 kinds: try DrawingReadTools.stringList(arguments["kinds"], name: "kinds"),
-                limit: arguments["limit"]?.intValue, offset: arguments["offset"]?.intValue
+                limit: try DrawingReadTools.optionalInt(arguments["limit"], name: "limit"),
+                offset: try DrawingReadTools.optionalInt(arguments["offset"], name: "offset")
             ).asCallToolResult()
         } catch {
             return ToolText("\(error)", isError: true).asCallToolResult()
@@ -2862,11 +2865,16 @@ func dispatch(
             return ToolText("measure_drawing requires `inputPath` and `measure`.", isError: true)
                 .asCallToolResult()
         }
-        return await DrawingReadTools.measureDrawing(
-            inputPath: inputPath, measure: measure, a: arguments["a"], b: arguments["b"],
-            vertex: DrawingReadTools.present(arguments["vertex"]),
-            mmPerUnit: arguments["mmPerUnit"]?.numberValue
-        ).asCallToolResult()
+        do {
+            return await DrawingReadTools.measureDrawing(
+                inputPath: inputPath, measure: measure, a: arguments["a"], b: arguments["b"],
+                vertex: DrawingReadTools.present(arguments["vertex"]),
+                mmPerUnit: try DrawingReadTools.optionalNumber(
+                    arguments["mmPerUnit"], name: "mmPerUnit")
+            ).asCallToolResult()
+        } catch {
+            return ToolText("\(error)", isError: true).asCallToolResult()
+        }
 
     case "get_api_reference":
         let category = arguments["category"]?.stringValue ?? "mcp_tools"

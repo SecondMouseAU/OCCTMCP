@@ -8,18 +8,26 @@ import OCCTSwiftIO
 /// The entity-level view of one drawing: ids, geometry and bounds.
 enum DrawingEntities {
 
-    /// An entity's id: `e` and its position in the drawing's model-space entity list.
+    /// An entity's id: `e` and its position in the drawing's entity list.
     ///
     /// DXF handles are not kept by SwiftDXF, so identity is the index, which is stable for the same
     /// file bytes. `read_drawing` returns the file's SHA-256 so a caller can tell when ids no longer
     /// refer to what they did.
     static func id(_ index: Int) -> String { "e\(index)" }
 
-    /// The index an id names, nil for anything that is not `e<digits>`.
+    /// The index an id names, nil for anything that is not exactly what `id(_:)` returns.
+    ///
+    /// `e+5`, `e007` and `e-1` are refused, so an id has one spelling and never indexes backwards.
     static func index(of id: String) -> Int? {
-        guard id.hasPrefix("e"), let n = Int(id.dropFirst()), n >= 0 else { return nil }
+        guard id.hasPrefix("e"), let n = Int(id.dropFirst()), n >= 0, id == Self.id(n) else {
+            return nil
+        }
         return n
     }
+
+    // `DXF.Entity` gains cases when SwiftDXF does (0.3.0 adds `spline`, and OCCTSwiftIO 2.0.0-beta.5
+    // requires it), so every switch over it ends in `@unknown default`: a build that resolves a newer
+    // SwiftDXF compiles, and reads an entity it has no mapping for as type `other`, with no geometry.
 
     static func typeName(_ entity: DXF.Entity) -> String {
         switch entity {
@@ -31,6 +39,7 @@ enum DrawingEntities {
         case .text: return "text"
         case .polyline: return "polyline"
         case .dimension: return "dimension"
+        @unknown default: return "other"
         }
     }
 
@@ -47,6 +56,8 @@ enum DrawingEntities {
             return layer
         case .dimension(let d):
             return d.layer
+        @unknown default:
+            return "0"
         }
     }
 
@@ -58,6 +69,8 @@ enum DrawingEntities {
             return color
         case .dimension(let d):
             return d.color
+        @unknown default:
+            return 256
         }
     }
 
@@ -224,6 +237,8 @@ enum DrawingEntities {
                 if let p { box.include(p) }
             }
             return box
+        @unknown default:
+            return nil
         }
     }
 }

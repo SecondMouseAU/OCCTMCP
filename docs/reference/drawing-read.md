@@ -24,8 +24,10 @@ file parses it once and an edited file is read again. An edit that keeps the siz
 the filesystem's timestamp resolution of the previous read would be served from the cache; the
 `sha256` in every result says which bytes were read.
 
-Filter arguments (`types`, `layers`, `kinds`, `rect`) must be arrays of the right type; a wrong
-shape is an error, not an ignored filter. JSON `null` means the argument is absent.
+Arguments must have the right type (`types`, `layers`, `kinds` arrays of strings, `rect` four
+numbers, `limit` and `offset` integers, `mmPerUnit` a number); a wrong type is an error, not an
+ignored argument. JSON `null` means the argument is absent. An entity id has one spelling, exactly
+what the tools return, so `e+5` and `e007` are refused.
 
 ## What is read, and what is not
 
@@ -35,14 +37,20 @@ shape is an error, not an ignored filter. JSON `null` means the argument is abse
 - **DWG and JWW are not read yet.** `DWGLoader` is merged in OCCTSwiftIO (#53) but is not in a tagged
   release at this server's pin, and JWW has no entity model there yet (#54). Both return an error
   that says so. Convert the file to ASCII DXF meanwhile.
+- **Extrusion directions are not read.** SwiftDXF ignores DXF groups 210, 220 and 230, so an entity
+  drawn in a mirrored or rotated coordinate system is read at its stored coordinates, unflipped, and
+  nothing warns about it.
+- **A future SwiftDXF may add entity types.** An entity the tools have no mapping for is listed with
+  type `other` and no geometry (SwiftDXF 0.3.0, required by OCCTSwiftIO 2.0.0-beta.5, adds
+  splines), and `measure_drawing` refuses it.
 - **What the reader skips is reported, not hidden.** SwiftDXF models the entity types above and
-  drops the rest of model space (`INSERT`, `HATCH`, `SPLINE`, `LEADER` and so on) and does not read
+  drops the rest of the `ENTITIES` section (`INSERT`, `HATCH`, `SPLINE`, `LEADER` and so on) and does not read
   the `BLOCKS` section, so a block insert places no geometry. `read_drawing` counts the skipped
   records from the raw file, by type and by layer, and warns when block inserts are among them.
 
 ## Identity and units
 
-- **Entity ids.** An entity's id is `e` and its position in the model-space entity list (`e0`,
+- **Entity ids.** An entity's id is `e` and its position in the drawing's entity list (`e0`,
   `e1`, ...). SwiftDXF keeps no DXF handles, so the id is the index. It is stable for the same file
   bytes: `read_drawing` returns the file's SHA-256, and every result carries the file name and hash
   so a caller can tell when ids no longer mean what they did. Skipped records take no index.
@@ -93,7 +101,7 @@ here.
     "fileName": "slot.dxf", "bytes": 410, "format": "dxf", "dxfVersion": "AC1027",
     "sha256": "5c9c59756de36f6cddd4c027d7eb956005d7d19ca3935f0737cf51b6e2f6f9a2"
   },
-  "warnings": ["1 block insert(s) are not expanded, so the geometry they place is missing from the entity list.", "1 model-space entity record(s) were skipped; see `skipped`."]
+  "warnings": ["1 block insert(s) are not expanded, so the geometry they place is missing from the entity list.", "1 entity record(s) were skipped; see `skipped`."]
 }
 ```
 
@@ -172,7 +180,8 @@ Every `DIMENSION` in the drawing, with its value and the points that define it.
 has `id` (the same `e<index>` as in `list_drawing_entities`), `kind`, `valueKind` (`length` or
 `angle`), `value` (the stored measurement, DXF group 42, absent when the file omits it, which ezdxf notes is
 common), `valueUnit`, `valueMm`, `valueFromPoints` and `valueFromPointsMm` (see below), `text` (the
-user's text override, absent when the dimension shows its own value),
+user's text override, absent when the dimension shows its own value: a text of exactly `<>` is
+DXF's "show the measured value", while `<> H7` is kept),
 `textPosition`, `definitionPoints`, `layer` and `color`.
 
 - Each definition point carries its DXF `group` (10, 13, 14, 15 or 16) and, where SwiftDXF

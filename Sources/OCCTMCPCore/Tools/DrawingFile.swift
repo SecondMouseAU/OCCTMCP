@@ -176,7 +176,7 @@ enum DrawingFile {
         "VERTEX", "SEQEND", "DIMENSION",
     ]
 
-    /// Count the model-space entities SwiftDXF skips, by type and by layer.
+    /// Count the entity records SwiftDXF skips, by type and by layer.
     ///
     /// SwiftDXF reports only what it modelled, so a block insert or a hatch leaves no trace in
     /// `DXF.Drawing`. This reads the raw group-code stream of the `ENTITIES` section for the rest.

@@ -449,6 +449,21 @@ struct DrawingReadToolsTests {
         let polyBounds = try #require(poly["bounds"] as? [String: Any])
         #expect(abs((numbers(polyBounds["max"])?[0] ?? 0) - 35) < 1e-9, "\(polyBounds)")
 
+        // Every entity kind has bounds; a polyline's include its vertices, not just its arcs.
+        func bounds(_ entity: [String: Any]) throws -> ([Double], [Double]) {
+            let box = try #require(entity["bounds"] as? [String: Any], "\(entity)")
+            return (try #require(numbers(box["min"])), try #require(numbers(box["max"])))
+        }
+        let circleBox = try bounds(try entity("hole"))
+        #expect(near(circleBox.0, [15, 20, 0]) && near(circleBox.1, [25, 30, 0]), "\(circleBox)")
+        let polyBox = try bounds(poly)
+        #expect(
+            near(polyBox.0, [10, 10, 0]) && near(polyBox.1, [35, 20, 0], tol: 1e-9), "\(polyBox)")
+        let pointBox = try bounds(try entity("datum"))
+        #expect(near(pointBox.0, [50, 25, 0]) && near(pointBox.1, [50, 25, 0]))
+        let textBox = try bounds(try entity("note"))
+        #expect(near(textBox.0, [5, 45, 0]) && near(textBox.1, [5, 45, 0]), "\(textBox)")
+
         let note = try entity("note")
         #expect(note["text"] as? String == "T-SLOT 8" && note["height"] as? Double == 2.5)
         #expect(near(numbers(try entity("datum")["at"]), [50, 25, 0]))
@@ -533,6 +548,9 @@ struct DrawingReadToolsTests {
             radiusPoints.compactMap { $0["role"] as? String } == ["measuredFrom", "measuredTo"])
         let angular = try #require(list.first { $0["kind"] as? String == "angular" })
         #expect(angular["valueKind"] as? String == "angle" && angular["valueMm"] == nil)
+        let angularPoints = try #require(angular["definitionPoints"] as? [[String: Any]])
+        #expect(angularPoints.last?["group"] as? Int == 16)
+        #expect(angularPoints.last?["role"] as? String == "dimensionArcLocation")
         let ordinate = try #require(list.first { $0["kind"] as? String == "ordinate" })
         #expect(
             (ordinate["definitionPoints"] as? [[String: Any]])?.allSatisfy { $0["role"] == nil }
@@ -964,6 +982,249 @@ struct DrawingReadToolsTests {
         #expect(abs((lines["value"] as? Double ?? 0) - 90) < 1e-9)
     }
 
+    @Test("an entity id has one spelling, and any other is refused")
+    func idSpellings() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = try DrawingFixture.tSlot().write(to: dir)
+        for bad in ["e-1", "e+5", "e007", "E5", "e", "e5.0", " e5"] {
+            let r = await measure(path, "distance", a: .string(bad), b: [0, 0])
+            #expect(r.isError && r.text.contains("not an entity id"), "\(bad): \(r.text)")
+        }
+        let ok = await measure(path, "distance", a: "e0", b: [0, 0])
+        #expect(!ok.isError, "\(ok.text)")
+    }
+
+    @Test("a closed polyline's closing segment counts, bulge and all")
+    func closedPolylineClosingSegment() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // A 10 x 10 square whose closing segment, (0, 10) back to (0, 0), is a semicircle bulging out
+        // to x = -5: bulge 1 on the last vertex.
+        f.add(
+            "loop", "LWPOLYLINE", layer: "0",
+            [
+                (90, "4"), (70, "1"), (10, "0"), (20, "0"), (10, "10"), (20, "0"), (10, "10"),
+                (20, "10"), (10, "0"), (20, "10"), (42, "1"),
+            ])
+        let path = try f.write(to: dir)
+        let all = try await entities([:], path)
+        let loop = try #require(all.all.first)
+        #expect(abs((loop["length"] as? Double ?? 0) - (30 + 5 * Double.pi)) < 1e-9, "\(loop)")
+        let box = try #require(loop["bounds"] as? [String: Any])
+        #expect(near(numbers(box["min"]), [-5, 0, 0], tol: 1e-9), "\(box)")
+        #expect(near(numbers(box["max"]), [10, 10, 0], tol: 1e-9), "\(box)")
+        // (-10, 5) is 5 from the arc's apex (-5, 5); without the closing segment it would be
+        // sqrt(125) from the nearest corner.
+        let r = try json(await measure(path, "distance", a: .string(f.id("loop")), b: [-10, 5]))
+        #expect(abs((r["value"] as? Double ?? 0) - 5) < 1e-9, "\(r)")
+    }
+
+    @Test(
+        "whole-turn arcs and degenerate entities are read, and refused where they cannot be measured"
+    )
+    func degenerateEntities() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.add(
+            "full", "ARC", layer: "0",
+            [(10, "0"), (20, "0"), (30, "0"), (40, "2"), (50, "0"), (51, "360")])
+        f.add(
+            "zeroLine", "LINE", layer: "0",
+            [(10, "1"), (20, "1"), (30, "0"), (11, "1"), (21, "1"), (31, "0")])
+        f.add("zeroCircle", "CIRCLE", layer: "0", [(10, "3"), (20, "3"), (30, "0"), (40, "0")])
+        f.add("onePoint", "LWPOLYLINE", layer: "0", [(90, "1"), (70, "0"), (10, "5"), (20, "5")])
+        f.add("empty", "LWPOLYLINE", layer: "0", [(90, "0"), (70, "0")])
+        let path = try f.write(to: dir)
+        let all = try await entities([:], path)
+        #expect(all.total == 5)
+        func entity(_ name: String) throws -> [String: Any] {
+            try #require(all.all.first { $0["id"] as? String == f.id(name) }, "no \(name)")
+        }
+        // An ARC from 0 to 360 is a whole turn, not an empty sweep.
+        let full = try entity("full")
+        #expect(abs((full["sweepDeg"] as? Double ?? 0) - 360) < 1e-9, "\(full)")
+        #expect(abs((full["length"] as? Double ?? 0) - 4 * Double.pi) < 1e-9)
+        #expect(try entity("empty")["bounds"] == nil, "an empty polyline has no position")
+
+        for name in ["zeroLine", "zeroCircle", "empty"] {
+            let r = await measure(path, "distance", a: .string(f.id(name)), b: [0, 0])
+            #expect(r.isError && r.text.contains("no measurable geometry"), "\(name): \(r.text)")
+        }
+        let one = try json(
+            await measure(path, "distance", a: .string(f.id("onePoint")), b: [0, 0]))
+        #expect(abs((one["value"] as? Double ?? 0) - 50.0.squareRoot()) < 1e-9, "\(one)")
+    }
+
+    @Test("an ellipse whose end parameter is below its start runs through zero")
+    func wrappedEllipse() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // Major axis (4, 3), minor 2.5; parameters 3 pi / 2 up through 2 pi to pi / 2: the half that
+        // holds the vertex (4, 3) and not the vertex (-4, -3).
+        f.add(
+            "wrapped", "ELLIPSE", layer: "0",
+            [
+                (10, "0"), (20, "0"), (30, "0"), (11, "4"), (21, "3"), (31, "0"), (40, "0.5"),
+                (41, "4.71238898038469"), (42, "1.5707963267948966"),
+            ])
+        let path = try f.write(to: dir)
+        func distance(to point: [Double]) async throws -> Double {
+            let r = try json(
+                await measure(
+                    path, "distance", a: .string(f.id("wrapped")),
+                    b: .array(point.map { .double($0) })))
+            return try #require(r["value"] as? Double)
+        }
+        #expect(abs(try await distance(to: [8, 6]) - 5) < 1e-9)
+        // The far vertex is not on it: the nearest points are the ends (1.5, -2) and (-1.5, 2).
+        #expect(abs(try await distance(to: [-8, -6]) - 106.25.squareRoot()) < 1e-9)
+    }
+
+    @Test("an edit that keeps the file size is read again once its modification time moves")
+    func sameSizeEditIsReread() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        await DrawingCache.shared.clear()
+        func line(to x: String) -> DrawingFixture {
+            var f = DrawingFixture()
+            f.add(
+                "l", "LINE", layer: "0",
+                [(10, "0"), (20, "0"), (30, "0"), (11, x), (21, "0"), (31, "0")])
+            return f
+        }
+        let path = try line(to: "1").write(to: dir)
+        let before = try await entities([:], path).all.first
+        #expect(before?["length"] as? Double == 1)
+        let sizeBefore = try FileManager.default.attributesOfItem(atPath: path)[.size] as? Int
+        _ = try line(to: "2").write(to: dir)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: path)
+        let sizeAfter = try FileManager.default.attributesOfItem(atPath: path)[.size] as? Int
+        try #require(
+            sizeBefore == sizeAfter, "the edit must keep the size for this test to mean anything")
+        let after = try await entities([:], path).all.first
+        #expect(after?["length"] as? Double == 2, "served the old file")
+    }
+
+    @Test("every $INSUNITS code maps to the unit ezdxf lists, in the right number of millimetres")
+    func unitsTable() {
+        // The ezdxf InsUnits list, with each unit in millimetres from its own definition.
+        let expected: [(Int, String, Double?)] = [
+            (0, "unitless", nil), (1, "inches", 25.4), (2, "feet", 304.8), (3, "miles", 1_609_344),
+            (4, "millimetres", 1), (5, "centimetres", 10), (6, "metres", 1000),
+            (7, "kilometres", 1_000_000), (8, "microinches", 25.4e-6), (9, "mils", 0.0254),
+            (10, "yards", 914.4), (11, "angstroms", 1e-7), (12, "nanometres", 1e-6),
+            (13, "microns", 1e-3), (14, "decimetres", 100), (15, "decametres", 1e4),
+            (16, "hectometres", 1e5), (17, "gigametres", 1e12),
+            (18, "astronomical units", 1.495978707e14), (19, "light years", 9.4607304725808e18),
+            (20, "parsecs", 3.0856775814913673e19), (21, "US survey feet", 304.8006096012192),
+            (22, "US survey inches", 25.4000508001016), (23, "US survey yards", 914.4018288036576),
+            (24, "US survey miles", 1_609_347.2186944374),
+        ]
+        for (code, name, mm) in expected {
+            #expect(DrawingUnits.name(insUnits: code) == name, "code \(code)")
+            let got = DrawingUnits.mmPerUnit(insUnits: code)
+            switch (got, mm) {
+            case (nil, nil): break
+            case (let got?, let mm?):
+                #expect(abs(got - mm) <= mm * 1e-12, "code \(code): \(got) vs \(mm)")
+            default:
+                Issue.record(
+                    "code \(code): \(String(describing: got)) vs \(String(describing: mm))")
+            }
+        }
+        #expect(DrawingUnits.name(insUnits: 99) == "unknown code 99")
+        #expect(DrawingUnits.mmPerUnit(insUnits: 99) == nil)
+        #expect(DrawingUnits.name(insUnits: nil) == "undeclared")
+    }
+
+    @Test("an angle carries no millimetre note, even on a unitless drawing")
+    func angleHasNoUnitNote() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = DrawingFixture.tSlot(insUnits: nil)
+        let path = try fixture.write(to: dir)
+        let lines = try json(
+            await measure(
+                path, "angle", a: .string(fixture.id("bottom")), b: .string(fixture.id("right"))))
+        #expect(
+            (lines["notes"] as? [String])?.contains { $0.contains("mmPerUnit") } == false,
+            "\(lines)")
+        let points = try json(await measure(path, "angle", a: [1, 0], b: [0, 1], vertex: [0, 0]))
+        #expect((points["notes"] as? [String])?.isEmpty == true, "\(points)")
+        // A distance on the same drawing does explain the missing millimetres.
+        let distance = try json(
+            await measure(path, "distance", a: [0, 0], b: [3, 4]))
+        #expect((distance["notes"] as? [String])?.contains { $0.contains("mmPerUnit") } == true)
+    }
+
+    @Test("a dimension text of exactly <> is no override, and any other text is kept")
+    func textOverrides() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        func dim(_ name: String, text: String) {
+            f.add(
+                name, "DIMENSION", layer: "DIMS",
+                [
+                    (70, "1"), (42, "8"), (1, text), (11, "0"), (21, "0"), (31, "0"), (10, "0"),
+                    (20, "0"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "8"), (24, "0"),
+                    (34, "0"),
+                ])
+        }
+        dim("default", text: "<>")
+        dim("suffixed", text: "<> H7")
+        dim("typed", text: "8 +0.1")
+        let path = try f.write(to: dir)
+        let r = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
+        let list = try #require(r["dimensions"] as? [[String: Any]])
+        func text(_ name: String) throws -> String? {
+            try #require(list.first { $0["id"] as? String == f.id(name) }, "no \(name)")["text"]
+                as? String
+        }
+        #expect(try text("default") == nil)
+        #expect(try text("suffixed") == "<> H7")
+        #expect(try text("typed") == "8 +0.1")
+    }
+
+    @Test("a scalar argument of the wrong type is refused, not ignored")
+    func scalarArgumentTypes() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = DrawingFixture.tSlot()
+        let path = Value.string(try fixture.write(to: dir))
+        let bad: [(String, [String: Value], String)] = [
+            ("list_drawing_entities", ["limit": "ten"], "`limit` must be an integer"),
+            ("list_drawing_entities", ["offset": "two"], "`offset` must be an integer"),
+            ("list_drawing_entities", ["rectMode": 5], "`rectMode` must be a string"),
+            ("list_drawing_dimensions", ["limit": true], "`limit` must be an integer"),
+            (
+                "measure_drawing",
+                ["measure": "distance", "a": [0, 0], "b": [1, 1], "mmPerUnit": "25.4"],
+                "`mmPerUnit` must be a number"
+            ),
+        ]
+        for (name, extra, needle) in bad {
+            var args: [String: Value] = ["inputPath": path]
+            args.merge(extra) { $1 }
+            let r = await call(name, args)
+            #expect(r.isError && r.text.contains(needle), "\(name) \(extra): \(r.text)")
+        }
+        // null is absent, as everywhere else.
+        let ok = try json(
+            await call(
+                "measure_drawing",
+                [
+                    "inputPath": path, "measure": "distance", "a": [0, 0], "b": [3, 4],
+                    "mmPerUnit": .null,
+                ]))
+        #expect(abs((ok["value"] as? Double ?? 0) - 5) < 1e-9)
+    }
+
     // ── registration ────────────────────────────────────────────────────
 
     @Test("the four tools are in the catalog with their required arguments")
@@ -1017,10 +1278,12 @@ struct DrawingReadToolsTests {
                 "a": .string(fixture.id("slotLeft")), "b": .string(fixture.id("slotRight")),
             ])
         #expect(measuredError != true)
-        if case .text(let t, _, _) = measured.first {
-            let r = try #require(
-                try JSONSerialization.jsonObject(with: Data(t.utf8)) as? [String: Any])
-            #expect(abs((r["value"] as? Double ?? 0) - 8) < 1e-9, "\(t)")
+        let block = try #require(measured.first, "measure_drawing returned no content")
+        guard case .text(let t, _, _) = block else {
+            Issue.record("measure_drawing returned a non-text block")
+            return
         }
+        let r = try #require(try JSONSerialization.jsonObject(with: Data(t.utf8)) as? [String: Any])
+        #expect(abs((r["value"] as? Double ?? 0) - 8) < 1e-9, "\(t)")
     }
 }

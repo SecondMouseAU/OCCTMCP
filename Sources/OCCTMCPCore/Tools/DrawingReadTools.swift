@@ -149,7 +149,9 @@ public enum DrawingReadTools {
             valueMm: isAngle ? nil : d.measurement.flatMap { v in mmPerUnit.map { v * $0 } },
             valueFromPoints: fromPoints,
             valueFromPointsMm: fromPoints.flatMap { v in mmPerUnit.map { v * $0 } },
-            text: d.textOverride, textPosition: DrawingEntities.xyz(d.textPosition),
+            // A text of exactly `<>` is DXF's "show the measured value": no override.
+            text: d.textOverride == "<>" ? nil : d.textOverride,
+            textPosition: DrawingEntities.xyz(d.textPosition),
             definitionPoints: points, layer: d.layer, color: d.color)
     }
 
@@ -201,6 +203,8 @@ public enum DrawingReadTools {
             record.length = DrawingEntities.polylineLength(vertices, closed: closed)
         case .dimension(let d):
             record.dimension = dimensionRecord(d, id: id, mmPerUnit: mmPerUnit)
+        @unknown default:
+            break
         }
         return record
     }
@@ -218,6 +222,33 @@ public enum DrawingReadTools {
     static func present(_ value: Value?) -> Value? {
         guard let value, value != .null else { return nil }
         return value
+    }
+
+    /// An optional integer; absent and JSON `null` are nil, anything else that is not one is an error.
+    static func optionalInt(_ value: Value?, name: String) throws -> Int? {
+        guard let value = present(value) else { return nil }
+        guard let int = value.intValue else {
+            throw ArgumentError(description: "`\(name)` must be an integer.")
+        }
+        return int
+    }
+
+    /// An optional finite number, with the same absent and `null` rule.
+    static func optionalNumber(_ value: Value?, name: String) throws -> Double? {
+        guard let value = present(value) else { return nil }
+        guard let number = value.numberValue, number.isFinite else {
+            throw ArgumentError(description: "`\(name)` must be a number.")
+        }
+        return number
+    }
+
+    /// An optional string, with the same absent and `null` rule.
+    static func optionalString(_ value: Value?, name: String) throws -> String? {
+        guard let value = present(value) else { return nil }
+        guard let string = value.stringValue else {
+            throw ArgumentError(description: "`\(name)` must be a string.")
+        }
+        return string
     }
 
     /// An optional array of strings; absent and JSON `null` are nil, anything else is an error.
@@ -354,7 +385,7 @@ public enum DrawingReadTools {
 
         var warnings: [String] = []
         if drawing.entities.isEmpty {
-            warnings.append("The drawing has no model-space entities the reader models.")
+            warnings.append("The drawing has no entities the reader models.")
         }
         if loaded.mmPerUnit == nil {
             warnings.append(
@@ -369,7 +400,7 @@ public enum DrawingReadTools {
         }
         if loaded.skipped.total > 0 {
             warnings.append(
-                "\(loaded.skipped.total) model-space entity record(s) were skipped; see `skipped`.")
+                "\(loaded.skipped.total) entity record(s) were skipped; see `skipped`.")
         }
 
         let declared: Box? = {
