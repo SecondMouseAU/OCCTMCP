@@ -78,11 +78,16 @@ public struct ExtraTool: Sendable {
 /// `manifestWriteObserver` sees every manifest write with the name of the tool that made it, and
 /// `toolCallObserver` sees each call start and finish; see `HostObservers.swift`. Neither changes
 /// behaviour when `nil`.
+///
+/// `bodyShapeProvider` lets the host hand a tool the shape it already holds for a body, so a pick
+/// the host made and the entity a tool reads are the same one; `nil` from it, or no provider,
+/// reads the body's file by its manifest `format`. See `BodyLoader.swift`.
 public func makeOCCTMCPServer(
     extraTools: [ExtraTool] = [],
     outputDirectory: URL? = nil,
     manifestWriteObserver: ManifestWriteObserver? = nil,
-    toolCallObserver: ToolCallObserver? = nil
+    toolCallObserver: ToolCallObserver? = nil,
+    bodyShapeProvider: BodyShapeProvider? = nil
 ) async -> Server {
     let server = Server(
         name: OCCTMCPVersion.serverName,
@@ -93,14 +98,16 @@ public func makeOCCTMCPServer(
     )
     await registerTools(
         on: server, extraTools: extraTools, outputDirectory: outputDirectory,
-        manifestWriteObserver: manifestWriteObserver, toolCallObserver: toolCallObserver)
+        manifestWriteObserver: manifestWriteObserver, toolCallObserver: toolCallObserver,
+        bodyShapeProvider: bodyShapeProvider)
     return server
 }
 
 func registerTools(
     on server: Server, extraTools: [ExtraTool] = [], outputDirectory: URL? = nil,
     manifestWriteObserver: ManifestWriteObserver? = nil,
-    toolCallObserver: ToolCallObserver? = nil
+    toolCallObserver: ToolCallObserver? = nil,
+    bodyShapeProvider: BodyShapeProvider? = nil
 ) async {
     let pump = toolCallObserver.map { ToolCallEventPump(observer: $0) }
     let tools = catalogTools(extraTools: extraTools)
@@ -115,9 +122,11 @@ func registerTools(
         pump?.emit(params.name, arguments, .started, id: callID)
         let result = await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
             await OCCTMCPContext.$manifestWriteObserver.withValue(manifestWriteObserver) {
-                await OCCTMCPContext.$currentTool.withValue(params.name) {
-                    await dispatch(
-                        callName: params.name, arguments: arguments, extraTools: extraTools)
+                await OCCTMCPContext.$bodyShapeProvider.withValue(bodyShapeProvider) {
+                    await OCCTMCPContext.$currentTool.withValue(params.name) {
+                        await dispatch(
+                            callName: params.name, arguments: arguments, extraTools: extraTools)
+                    }
                 }
             }
         }
@@ -182,7 +191,8 @@ private func builtinCatalogTools() -> [Tool] {
                     "bodyId": .object([
                         "type": .string("string"),
                         "description": .string(
-                            "Specific body to validate. If omitted, validates every BREP body."),
+                            "Specific body to validate. If omitted, validates every body except raw stl/obj mesh shells, each read by its manifest `format`; a body that cannot be read gets an `error` entry."
+                        ),
                     ])
                 ]),
                 "additionalProperties": .bool(false),
@@ -499,7 +509,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "apply_feature",
             description:
-                "Apply a single feature spec (drill / fillet / chamfer / extrude / revolve / thread / boolean) to a scene body via OCCTSwift's FeatureReconstructor. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
+                "Apply a single feature spec (drill / fillet / chamfer / extrude / revolve / thread / boolean) to a scene body via OCCTSwift's FeatureReconstructor. Without outputBodyId, replaces in place; with outputBodyId, adds a new body. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1496,7 +1506,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "transform_body",
             description:
-                "Apply translate / rotate / uniform-scale to a scene body. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
+                "Apply translate / rotate / uniform-scale to a scene body. Without outputBodyId, replaces in place; with outputBodyId, adds a new body. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1528,7 +1538,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "boolean_op",
             description:
-                "Boolean op (union / subtract / intersect / split) between two scene bodies. Output is added as a new body.",
+                "Boolean op (union / subtract / intersect / split) between two scene bodies. Output is added as a new body. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1551,7 +1561,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "mirror_or_pattern",
             description:
-                "Mirror / linear / circular pattern of a body. Output is a single (possibly compound) body added to the scene.",
+                "Mirror / linear / circular pattern of a body. Output is a single (possibly compound) body added to the scene. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1614,7 +1624,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "heal_shape",
             description:
-                "Heal imported / non-watertight geometry via OCCT ShapeFix. Returns before/after stats.",
+                "Heal imported / non-watertight geometry via OCCT ShapeFix. Returns before/after stats. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -2172,7 +2182,7 @@ private func builtinCatalogTools() -> [Tool] {
                     "apply": .object([
                         "type": .string("boolean"),
                         "description": .string(
-                            "If true, write the recovered transform onto the source body in place (generation-reset history, same as transform_body). Default false (measure only)."
+                            "If true, write the recovered transform onto the source body in place (generation-reset history, same as transform_body); the source must be a brep body. Default false (measure only)."
                         ),
                     ]),
                 ]),

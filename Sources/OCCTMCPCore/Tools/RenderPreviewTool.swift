@@ -144,9 +144,8 @@ public enum RenderPreviewTool {
 
         var bodies: [ViewportBody] = []
         for body in targets {
-            let path = "\(outputDir)/\(body.file)"
             do {
-                let shape = try Shape.loadBREP(fromPath: path)
+                let shape = try BodyLoader.loadShape(body: body, outputDir: outputDir)
                 let color = bodyColor(body)
                 let id = body.id ?? UUID().uuidString
                 if let vb = viewportBody(for: shape, id: id, color: color) {

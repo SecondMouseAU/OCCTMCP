@@ -3,6 +3,7 @@
 ## 2026-11-12
 
 * **Update**: #260. Four read-only drawing tools, 79 to 83 tools: `read_drawing`, `list_drawing_entities`, `list_drawing_dimensions` and `measure_drawing`, built on OCCTSwiftIO's DXF import (`OCCTSwiftIO` becomes a direct product of `OCCTMCPCore`; it was already in the graph). They return coordinates and numbers, never images, and never touch the scene. Entity ids are `e<index>` and stable only for the same bytes, so every result carries the file's SHA-256; what the reader skips (block inserts, hatches, splines) is counted from the raw file and reported; distances are exact OCCT extrema over edges built from the entities. A dimension's `valueFromPoints` (aligned, radius and diameter) is the length between its own definition points, the value when the file stores none and a check when it does. DXF only: `DWGLoader` is merged upstream (OCCTSwiftIO#53) but unreleased and JWW has no entity model yet (OCCTSwiftIO#54), and both return an error saying so. Page: `docs/reference/drawing-read.md`.
+* **Update**: #265. `execute_script` could hang forever after its child had exited: `runProcess` called `Process.waitUntilExit()` after awaiting the pipe drains, and with no termination handler that waits on the run loop of the launching thread, which the task may have left. `runProcess` now waits on `ProcessExit`, built on `Process.terminationHandler`. Added the rule to `CLAUDE.md` Invariants and `Tools/ProcessExit.swift` to the `swift-server.md` catalogue.
 
 ## 2026-10-15
 

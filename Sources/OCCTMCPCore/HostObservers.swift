@@ -1,14 +1,28 @@
-// Hooks for an embedding host: which tool is running, what each manifest write carries, and a
-// per-call event stream. All are scoped to the call through task-locals or an ordered pump, so
-// two servers in one process never see each other's calls.
+// Hooks for an embedding host: which tool is running, what each manifest write carries, a
+// per-call event stream, and the shape the host holds for a body. All are scoped to the call
+// through task-locals or an ordered pump, so two servers in one process never see each other's
+// calls.
 
 import Foundation
 import MCP
+import OCCTSwift
+import ScriptHarness
 
 /// Called under the manifest lock with the exact bytes about to be written and the running tool.
 ///
 /// `tool` is nil for a write made outside any tool call. Throwing aborts the write.
 public typealias ManifestWriteObserver = @Sendable (_ data: Data, _ tool: String?) throws -> Void
+
+/// Supplies the shape a host already holds for a body, so a tool reads the host's own copy.
+///
+/// Called with the body and the scene directory. Return nil to let the tool read the body's file
+/// by its `format`. Throwing fails the tool call that asked for the shape.
+///
+/// It is called synchronously on whichever executor the tool is already running on: the main
+/// actor for some tools, the history registry's actor for lineage reads. It must not block
+/// waiting on either, so read from state the host guards with a lock.
+public typealias BodyShapeProvider =
+    @Sendable (_ body: BodyDescriptor, _ outputDir: String) throws -> Shape?
 
 public enum OCCTMCPContext {
     /// The name of the tool whose handler is running on this task.
@@ -18,6 +32,9 @@ public enum OCCTMCPContext {
 
     /// The observer an embedding host asked for, scoped to the current task.
     @TaskLocal public static var manifestWriteObserver: ManifestWriteObserver?
+
+    /// The body shape provider an embedding host asked for, scoped to the current task.
+    @TaskLocal public static var bodyShapeProvider: BodyShapeProvider?
 }
 
 /// One step in the life of a `tools/call`, delivered to the host's `ToolCallObserver`.

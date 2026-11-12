@@ -6,7 +6,7 @@ nav_order: 4
 
 # Construction
 
-These tools mutate scene bodies by applying features, spatial transforms, boolean set operations, and mirror/pattern operations. Reach for them when you need to modify existing geometry rather than author it from scratch — feature application and booleans both record topology history so [`remap_selection`](selection.md#remap_selection) can carry `selectionId`s across the mutation.
+These tools mutate scene bodies by applying features, spatial transforms, boolean set operations, and mirror/pattern operations. Reach for them when you need to modify existing geometry rather than author it from scratch: feature application and booleans both record topology history so [`remap_selection`](selection.md#remap_selection) can carry `selectionId`s across the mutation.
 
 ## Tools
 
@@ -28,12 +28,12 @@ Apply a single parametric feature (drill, fillet, chamfer, extrude, revolve, thr
 | `feature` | object | yes | FeatureSpec object with a `kind` discriminator. See OCCTSwift/Sources/OCCTSwift/FeatureReconstructor.swift for the schema. |
 | `outputBodyId` | string | no | If provided, the result is added as a new body under this ID; otherwise the source body is replaced in place. |
 
-**Returns** — Updated scene manifest. On failure, returns an error string describing what the feature reconstructor rejected.
+**Returns**: Updated scene manifest. On failure, returns an error string describing what the feature reconstructor rejected.
 
 **Example**
 
 ```json
-// tool call arguments — fillet every edge of "block" with radius 2 mm, in place
+// tool call arguments: fillet every edge of "block" with radius 2 mm, in place
 {
   "bodyId": "block",
   "feature": { "kind": "fillet", "radius": 2.0 }
@@ -44,21 +44,21 @@ Apply a single parametric feature (drill, fillet, chamfer, extrude, revolve, thr
 { "bodyId": "block", "inPlace": true, "outputPath": "…/block.brep" }
 ```
 
-**Notes** — The `feature` object is a FeatureSpec keyed by a `kind` discriminator. The decoded kinds and their fields (note **snake_case** keys — this is the JSON the reconstructor decodes, not the Swift labels):
+**Notes**: The `feature` object is a FeatureSpec keyed by a `kind` discriminator. The decoded kinds and their fields (note **snake_case** keys; this is the JSON the reconstructor decodes, not the Swift labels):
 
 | `kind` | fields |
 |--------|--------|
-| `fillet` | `radius` — blends **all** edges |
-| `chamfer` | `distance` — chamfers **all** edges |
+| `fillet` | `radius` (blends **all** edges) |
+| `chamfer` | `distance` (chamfers **all** edges) |
 | `hole` | `axis_point` `[x,y,z]`, `axis_direction` `[x,y,z]`, `diameter`, `depth` (optional) |
 | `thread` | `hole_ref`, `spec` (e.g. `"M5x0.8"`), `length` (optional) |
 | `extrude` | `profile_points_2d` `[[x,y],…]`, `plane_origin`, `plane_normal`, `length` |
 | `revolve` | `profile_points_2d`, `axis_origin`, `axis_direction`, `angle_deg` (optional, default 360) |
 | `boolean` | `op` (`union`/`subtract`/`intersect`), `left`, `right` (body IDs) |
 
-`apply_feature` records per-feature topology history (via `BuildResult.histories[id]`) so [`remap_selection`](selection.md#remap_selection) can map `selectionId`s from the input body onto the output. An unrecognised `kind` (or one whose geometry the reconstructor rejects) returns no shape with a `skipped` reason.
+`apply_feature` records per-feature topology history (via `BuildResult.histories[id]`) so [`remap_selection`](selection.md#remap_selection) can map `selectionId`s from the input body onto the output. An unrecognised `kind` (or one whose geometry the reconstructor rejects) returns no shape with a `skipped` reason. Accepts `brep` bodies only: it writes BREP and copies the body's `format` onto the result, so a body of any other format is refused with `This tool edits brep bodies only` and left untouched (see [Body formats](core.md#body-formats-and-supplying-a-bodys-shape)).
 
-**Drives** — `OCCTSwift.FeatureReconstructor`; `occtkit reconstruct` (Node).
+**Drives**: `OCCTSwift.FeatureReconstructor`; `occtkit reconstruct` (Node).
 
 ---
 
@@ -80,12 +80,12 @@ Apply translate, rotate, and/or uniform scale to a scene body.
 | `inPlace` | boolean | no | If true, replaces the body in place (default behaviour when `outputBodyId` is omitted). |
 | `outputBodyId` | string | no | If provided, the transformed result is added as a new body; the original is kept. |
 
-**Returns** — Updated scene manifest reflecting the moved/scaled body.
+**Returns**: Updated scene manifest reflecting the moved/scaled body.
 
 **Example**
 
 ```json
-// tool call arguments — move "bracket" 50 mm along Z and rotate 90° around Z
+// tool call arguments: move "bracket" 50 mm along Z and rotate 90° around Z
 {
   "bodyId": "bracket",
   "translate": [0, 0, 50],
@@ -103,9 +103,9 @@ Apply translate, rotate, and/or uniform scale to a scene body.
 }
 ```
 
-**Notes** — Multiple transform parameters may be combined in a single call; they are composed in the order translate → rotateAxisAngle → rotateEulerXyz → scale. `transform_body` is a rigid/similarity transform and preserves topology 1-to-1, so [`remap_selection`](selection.md#remap_selection) resolves any `selectionId` on the original via the implicit identity path (no history record is written).
+**Notes**: Multiple transform parameters may be combined in a single call; they are composed in the order translate → rotateAxisAngle → rotateEulerXyz → scale. `transform_body` is a rigid/similarity transform and preserves topology 1-to-1, so [`remap_selection`](selection.md#remap_selection) resolves any `selectionId` on the original via the implicit identity path (no history record is written). Accepts `brep` bodies only: it writes BREP and copies the body's `format` onto the result, so a body of any other format is refused with `This tool edits brep bodies only` and left untouched (see [Body formats](core.md#body-formats-and-supplying-a-bodys-shape)).
 
-**Drives** — `OCCTSwift.Shape.transformed`; `occtkit transform` (Node).
+**Drives**: `OCCTSwift.Shape.transformed`; `occtkit transform` (Node).
 
 ---
 
@@ -125,12 +125,12 @@ Boolean set operation (union / subtract / intersect / split) between two scene b
 | `outputBodyId` | string | no | ID for the result body. Defaults to a generated name if omitted. |
 | `removeInputs` | boolean | no | If true, removes `aBodyId` and `bBodyId` from the scene after the operation. |
 
-**Returns** — Updated scene manifest. Errors from OCCT (non-manifold inputs, no intersection, etc.) are returned as an error string.
+**Returns**: Updated scene manifest. Errors from OCCT (non-manifold inputs, no intersection, etc.) are returned as an error string.
 
 **Example**
 
 ```json
-// tool call arguments — subtract a hole body from a plate
+// tool call arguments: subtract a hole body from a plate
 {
   "op": "subtract",
   "aBodyId": "plate",
@@ -148,9 +148,9 @@ Boolean set operation (union / subtract / intersect / split) between two scene b
 }
 ```
 
-**Notes** — `boolean_op` records full per-input topology history (via OCCTSwift `*WithFullHistory` variants) under the output body and both inputs. This means [`remap_selection`](selection.md#remap_selection) can map a `selectionId` that lived on either `aBodyId` or `bBodyId` onto the result body.
+**Notes**: `boolean_op` records full per-input topology history (via OCCTSwift `*WithFullHistory` variants) under the output body and both inputs. This means [`remap_selection`](selection.md#remap_selection) can map a `selectionId` that lived on either `aBodyId` or `bBodyId` onto the result body. Accepts `brep` bodies only: it writes BREP and copies the body's `format` onto the result, so a body of any other format is refused with `This tool edits brep bodies only` and left untouched (see [Body formats](core.md#body-formats-and-supplying-a-bodys-shape)).
 
-**Drives** — `OCCTSwift.Shape` boolean operators (`+`, `-`, `&`, `split`); `occtkit boolean` (Node).
+**Drives**: `OCCTSwift.Shape` boolean operators (`+`, `-`, `&`, `split`); `occtkit boolean` (Node).
 
 ---
 
@@ -169,12 +169,12 @@ Mirror a body through a plane, or create a linear or circular pattern, producing
 | `params` | object | yes | Kind-specific parameters. Mirror: `planeNormal` (required), `planeOrigin` (optional). Linear: `direction`, `spacing`, `count`. Circular: `axisOrigin`, `axisDirection`, `totalCount`, `totalAngle` (optional). |
 | `outputBodyId` | string | no | ID for the result body. |
 
-**Returns** — Updated scene manifest with the new pattern body added. For mirrors, the mirror plane is written to `provenance.json` in the output directory so [`find_correspondences`](selection.md#find_correspondences) can recover the transform automatically.
+**Returns**: Updated scene manifest with the new pattern body added. For mirrors, the mirror plane is written to `provenance.json` in the output directory so [`find_correspondences`](selection.md#find_correspondences) can recover the transform automatically.
 
 **Example**
 
 ```json
-// tool call arguments — mirror "fin" through the XZ plane (Y=0)
+// tool call arguments: mirror "fin" through the XZ plane (Y=0)
 {
   "bodyId": "fin",
   "kind": "mirror",
@@ -195,4 +195,4 @@ Mirror a body through a plane, or create a linear or circular pattern, producing
 }
 ```
 
-**Notes** — `mirror_or_pattern` produces new bodies rather than mutating in place, so [`remap_selection`](selection.md#remap_selection) does not apply across source → copy. Use [`find_correspondences`](selection.md#find_correspondences) instead: for mirrors it reads the provenance transform automatically; for linear/circular patterns supply the instance transform explicitly (provenance is not written for multi-copy patterns).
+**Notes**: `mirror_or_pattern` produces new bodies rather than mutating in place, so [`remap_selection`](selection.md#remap_selection) does not apply across source → copy. Use [`find_correspondences`](selection.md#find_correspondences) instead: for mirrors it reads the provenance transform automatically; for linear/circular patterns supply the instance transform explicitly (provenance is not written for multi-copy patterns). Accepts `brep` bodies only: it writes BREP and copies the body's `format` onto the result, so a body of any other format is refused with `This tool edits brep bodies only` and left untouched (see [Body formats](core.md#body-formats-and-supplying-a-bodys-shape)).
