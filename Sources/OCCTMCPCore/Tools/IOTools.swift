@@ -61,39 +61,15 @@ public enum IOTools {
                 isError: true)
         }
 
-        let outputDir = (store.path as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(
-            atPath: outputDir, withIntermediateDirectories: true)
-        let outFile = "\(resolvedId).brep"
-        let outPath = "\(outputDir)/\(outFile)"
-        let stagedPath = stagingPath(in: outputDir, id: resolvedId)
         do {
-            try Exporter.writeBREP(
-                shape: shape, to: URL(fileURLWithPath: stagedPath), allowInvalid: allowInvalid)
+            try await SceneBodies.add(
+                shape: shape, bodyId: resolvedId, color: color, allowInvalid: allowInvalid,
+                description: "Imported via read_brep", store: store, history: history)
+        } catch SceneBodiesError.writeFailed(let underlying) {
+            return .init("Failed to copy BREP: \(underlying)", isError: true)
+        } catch let error as SceneBodiesError {
+            return .init("\(error)", isError: true)
         } catch {
-            return .init("Failed to copy BREP: \(error.localizedDescription)", isError: true)
-        }
-
-        await history.snapshot(store: store)
-        var published = false
-        defer { try? FileManager.default.removeItem(atPath: stagedPath) }
-        do {
-            try store.update { current in
-                let base =
-                    current ?? ScriptManifest(description: "Imported via read_brep", bodies: [])
-                if base.bodies.contains(where: { $0.id == resolvedId }) {
-                    throw ManifestError.bodyIdTaken(resolvedId)
-                }
-                try publishStaged(stagedPath, as: outPath)
-                published = true
-                return base.replacing(
-                    bodies: base.bodies + [
-                        BodyDescriptor(id: resolvedId, file: outFile, color: color)
-                    ],
-                    description: base.description ?? "Imported via read_brep")
-            }
-        } catch {
-            if published { try? FileManager.default.removeItem(atPath: outPath) }
             return .manifestFailure(error)
         }
 
@@ -210,71 +186,26 @@ public enum IOTools {
             return .init("Import failed: \(error.localizedDescription)", isError: true)
         }
 
-        let manifest: ScriptManifest
-        do {
-            manifest =
-                try store.requireSceneOrAbsent()
-                ?? ScriptManifest(description: "Imported via import_file", bodies: [])
-        } catch {
-            return .manifestFailure(error)
-        }
-        let id = uniqueBodyId(prefix: idPrefix, manifest: manifest)
-        let outputDir = (store.path as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(
-            atPath: outputDir, withIntermediateDirectories: true)
-        let outFile = "\(id).brep"
-        let outPath = "\(outputDir)/\(outFile)"
-        let stagedPath = stagingPath(in: outputDir, id: id)
+        let addedId: String
         do {
             // Mesh shells aren't valid solids, always skip the write-gate for
             // them so the raw scan lands in the scene.
-            try Exporter.writeBREP(
-                shape: shape, to: URL(fileURLWithPath: stagedPath),
-                allowInvalid: allowInvalid || resolved.isMesh)
+            addedId = try await SceneBodies.add(
+                shape: shape, idPrefix: idPrefix, allowInvalid: allowInvalid || resolved.isMesh,
+                description: "Imported via import_file", store: store, history: history)
+        } catch SceneBodiesError.writeFailed(let underlying) {
+            return .init("Failed to write BREP: \(underlying)", isError: true)
+        } catch let error as SceneBodiesError {
+            return .init("\(error)", isError: true)
         } catch {
-            return .init("Failed to write BREP: \(error.localizedDescription)", isError: true)
-        }
-
-        await history.snapshot(store: store)
-        var published = false
-        defer { try? FileManager.default.removeItem(atPath: stagedPath) }
-        do {
-            try store.update { current in
-                let base =
-                    current ?? ScriptManifest(description: "Imported via import_file", bodies: [])
-                if base.bodies.contains(where: { $0.id == id }) {
-                    throw ManifestError.bodyIdTaken(id)
-                }
-                try publishStaged(stagedPath, as: outPath)
-                published = true
-                return base.replacing(
-                    bodies: base.bodies + [BodyDescriptor(id: id, file: outFile)],
-                    description: base.description ?? "Imported via import_file")
-            }
-        } catch {
-            if published { try? FileManager.default.removeItem(atPath: outPath) }
             return .manifestFailure(error)
         }
 
         return IntrospectionTools.encode(
             ImportReport(
-                addedBodyIds: [id],
+                addedBodyIds: [addedId],
                 warnings: []
             ))
-    }
-
-    /// A unique sibling path to write a body to before the manifest lock is held.
-    ///
-    /// The file is moved to its final name under the lock, so a concurrent writer that took the id
-    /// first never has its body file overwritten.
-    private static func stagingPath(in directory: String, id: String) -> String {
-        "\(directory)/.\(id).\(UUID().uuidString).partial"
-    }
-
-    private static func publishStaged(_ staged: String, as final: String) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: final) { try fm.removeItem(atPath: final) }
-        try fm.moveItem(atPath: staged, toPath: final)
     }
 
     // ── export_scene ───────────────────────────────────────────────────
@@ -370,16 +301,5 @@ public enum IOTools {
         let base = (path as NSString).lastPathComponent
         let stem = (base as NSString).deletingPathExtension
         return stem.isEmpty ? "imported" : stem
-    }
-
-    static func uniqueBodyId(prefix: String, manifest: ScriptManifest) -> String {
-        var i = 0
-        while true {
-            let candidate = i == 0 ? prefix : "\(prefix)_\(i)"
-            if !manifest.bodies.contains(where: { $0.id == candidate }) {
-                return candidate
-            }
-            i += 1
-        }
     }
 }

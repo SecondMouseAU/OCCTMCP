@@ -254,6 +254,104 @@ let server = await makeOCCTMCPServer(extraTools: [
   tools and omits any built-in they replaced.
 - With no extras (the default) the catalog and behaviour are unchanged.
 
+### What an extra tool can hold, add and report
+
+A handler is a closure, so it can carry whatever the tool needs between calls. A pair of tools
+that share a ledger, a solve or a recipe the human is editing hold it the same way:
+
+```swift
+actor Ledger {
+    private var entries: [String] = []
+    func append(_ entry: String) { entries.append(entry) }
+    var all: [String] { entries }
+}
+
+let ledger = Ledger()
+let extras = [
+    ExtraTool(tool: ledgerAddTool, handler: { args in
+        await ledger.append(args["entry"]?.stringValue ?? "")
+        return .init(content: [.text(text: "recorded", annotations: nil, _meta: nil)])
+    }),
+    ExtraTool(tool: ledgerListTool, handler: { _ in
+        .init(content: [.text(text: await ledger.all.joined(separator: ","), annotations: nil, _meta: nil)])
+    }),
+]
+```
+
+- The state lives as long as the closure that holds it, so one `Ledger` per server is one session.
+  Handlers run concurrently (the SDK handles each request on its own task), so guard shared
+  state with an actor or a lock, as above.
+- A tool call is not retried and has no identity beyond its arguments: a handler that needs to
+  tie one call to another does it through its own state or through the scene.
+
+**Adding a body to the scene.** `SceneBodies.add(shape:)` writes a BREP body into the scene and
+returns the id it was given. It is the code `read_brep` and `import_file` use, so a body a handler
+adds is staged beside the manifest, moved into place under the manifest lock, pushed onto
+`SceneHistory` (so `compare_versions` can diff against it), and reported to the host's
+`manifestWriteObserver` under the handler's own tool name.
+
+```swift
+let id = try await SceneBodies.add(shape: solid, idPrefix: "profile", color: [0.8, 0.2, 0.2, 1])
+// "profile", or "profile_1" if that id was taken. Built-in tools take it as `bodyId`.
+```
+
+- Pass `bodyId` to choose the id. A taken id throws `ManifestError.bodyIdTaken` and leaves the
+  existing body alone. Without it the first free `idPrefix`, `idPrefix_1`, `idPrefix_2` is used,
+  chosen under the manifest lock, so concurrent adds with one prefix each get their own id.
+- A body's file is `<id>.brep`. An add whose file name another body already has, compared without
+  regard to case because the scene may sit on a case-insensitive volume, throws
+  `SceneBodiesError.fileInUse` and overwrites nothing; a generated id skips such names. `read_brep`
+  and `import_file` apply the same rule.
+- An id names the body's file, so it must not be empty, start with a dot or contain `/`; anything
+  else throws `SceneBodiesError.invalidBodyId` before anything is written. `read_brep` and
+  `import_file` now apply the same rule.
+- `allowInvalid: true` writes a shape that fails validation, as `import_file` does for a mesh shell.
+- It does not check that the shape has an extent. `read_brep` does, and a handler that reports a
+  bounding box should check `shape.bounds` first.
+- The body is always written as BREP. A handler that wants a `step` body writes the file and the
+  manifest entry itself, through `ManifestStore.update`.
+
+**Finding a body again.** `SceneBodies.body(withId:)` returns the manifest entry and
+`SceneBodies.shape(ofBody:)` returns its shape, read the way a built-in reading tool reads it: the
+host's own shape from `bodyShapeProvider` when it supplies one, else the body's file read by its
+`format`, parsed afresh on each call. That is right for geometry: measure it, take a volume, tessellate
+it. It is not a way to resolve a `selectionId` or a `GraphUID`. Those resolve through the body's
+retained lineage graph, a node index there is not a position in `Shape.faces()`, and a freshly parsed
+shape is not a node of that graph. A host that holds the shape its picks index into returns it from
+`bodyShapeProvider`, and the shape a handler reads here is then that same one. Errors are
+`IntrospectionTools.ToolError` (no scene, no such body, file missing) or `BodyLoadError` (unreadable
+file); a handler that lets one escape produces an `isError` result that names it.
+
+Both resolve the scene directory from the calling task, so they must run on the tool call's own
+task or a child of it. `Task.detached` drops the directory passed to `outputDirectory:` and falls
+back to the process default.
+
+**Progress.** `OCCTMCPContext.reportProgress(_:total:message:)` sends `notifications/progress`
+for the running call when the client put a `progressToken` in the request's `_meta`, and does
+nothing otherwise, so a handler calls it unconditionally:
+
+```swift
+for (i, step) in steps.enumerated() {
+    try Task.checkCancellation()
+    try await step.run()
+    await OCCTMCPContext.reportProgress(Double(i + 1), total: Double(steps.count), message: step.name)
+}
+```
+
+Send values that rise with each call, and only while the handler is running: the spec ends a
+request's progress when it completes. A notification that cannot be sent is dropped and never fails
+the call. The built-in tools do not report progress today; this is for handlers that run for
+seconds, such as a constraint solve.
+
+**Cancellation.** When a client sends `notifications/cancelled`, the SDK cancels the Swift task
+running the handler. A handler awaiting a cancellable call (`Task.sleep`, a `URLSession` request) is
+interrupted at that await. Awaiting an actor's method is not a cancellation point, and neither is a
+synchronous loop: check `try Task.checkCancellation()` between steps. Rethrow `CancellationError`
+rather than turning it into a result. A handler that ignores the cancellation runs to its end,
+because the server waits for it, but the server then sends no response for a request that was
+cancelled, as the MCP spec asks, whatever the handler returned. The host's `toolCallObserver` still
+sees the call finish.
+
 ## Embedding: observing tool calls and manifest writes
 
 Two optional arguments to `makeOCCTMCPServer` let a host see what the built-in tools do:

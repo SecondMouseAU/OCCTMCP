@@ -116,22 +116,44 @@ func registerTools(
         return .init(tools: tools)
     }
 
-    await server.withMethodHandler(CallTool.self) { params in
+    // `[weak server]`: the server owns this handler, so a strong capture would keep every server,
+    // with its observers and `ExtraTool` state, alive for the life of the process.
+    await server.withMethodHandler(CallTool.self) { [weak server] params in
         let arguments = params.arguments ?? [:]
         let callID = UUID()
         pump?.emit(params.name, arguments, .started, id: callID)
+        let reporter = progressReporter(for: params._meta?.progressToken, on: server)
         let result = await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
             await OCCTMCPContext.$manifestWriteObserver.withValue(manifestWriteObserver) {
                 await OCCTMCPContext.$bodyShapeProvider.withValue(bodyShapeProvider) {
-                    await OCCTMCPContext.$currentTool.withValue(params.name) {
-                        await dispatch(
-                            callName: params.name, arguments: arguments, extraTools: extraTools)
+                    await OCCTMCPContext.$progressReporter.withValue(reporter) {
+                        await OCCTMCPContext.$currentTool.withValue(params.name) {
+                            await dispatch(
+                                callName: params.name, arguments: arguments,
+                                extraTools: extraTools)
+                        }
                     }
                 }
             }
         }
         pump?.emit(params.name, arguments, .finished(isError: result.isError ?? false), id: callID)
+        // The client cancelled this request and is no longer waiting: the MCP spec says a cancelled
+        // request gets no response, and the SDK sends none for a thrown `CancellationError`.
+        try Task.checkCancellation()
         return result
+    }
+}
+
+/// A reporter that sends `notifications/progress` for `token`, or nil when the client sent none.
+///
+/// Holds the server weakly: the server owns the handler that calls this.
+private func progressReporter(for token: ProgressToken?, on server: Server?) -> ProgressReporter? {
+    guard let token else { return nil }
+    return { [weak server] progress, total, message in
+        guard let server else { return }
+        let notification = ProgressNotification.message(
+            .init(progressToken: token, progress: progress, total: total, message: message))
+        try? await server.notify(notification)
     }
 }
 

@@ -24,6 +24,12 @@ public typealias ManifestWriteObserver = @Sendable (_ data: Data, _ tool: String
 public typealias BodyShapeProvider =
     @Sendable (_ body: BodyDescriptor, _ outputDir: String) throws -> Shape?
 
+/// Sends one progress update for the `tools/call` it was made for.
+///
+/// `progress` rises with each call; `total` is the expected final value when known.
+public typealias ProgressReporter =
+    @Sendable (_ progress: Double, _ total: Double?, _ message: String?) async -> Void
+
 public enum OCCTMCPContext {
     /// The name of the tool whose handler is running on this task.
     ///
@@ -35,6 +41,20 @@ public enum OCCTMCPContext {
 
     /// The body shape provider an embedding host asked for, scoped to the current task.
     @TaskLocal public static var bodyShapeProvider: BodyShapeProvider?
+
+    /// Where this call's progress updates go, set only when the client sent a `progressToken`.
+    @TaskLocal public static var progressReporter: ProgressReporter?
+
+    /// Report progress on the tool call this task is running, if the client asked for it.
+    ///
+    /// A no-op when the request carried no `progressToken` and outside any tool call, so a handler
+    /// can call it unconditionally. Send values that rise with each call, as the MCP spec asks.
+    /// A notification that cannot be sent is dropped and never fails the call.
+    public static func reportProgress(
+        _ progress: Double, total: Double? = nil, message: String? = nil
+    ) async {
+        await progressReporter?(progress, total, message)
+    }
 }
 
 /// One step in the life of a `tools/call`, delivered to the host's `ToolCallObserver`.
