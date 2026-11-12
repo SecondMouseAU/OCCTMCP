@@ -177,7 +177,7 @@ public enum ExecuteScriptTool {
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
-        // Listen for the exit before the child exists, so it cannot be missed (#265).
+        // Listen for the exit from before the child exists (#265).
         let exited = ProcessExit(process)
         try process.run()
 
@@ -203,9 +203,10 @@ public enum ExecuteScriptTool {
         async let stderrData = drain(stderrPipe.fileHandleForReading)
         let (stdoutBytes, stderrBytes) = await (stdoutData, stderrData)
 
-        // Not `process.waitUntilExit()`: it waits on the run loop of the thread that called
-        // `run()`, and after the awaits above this task can be on another thread, whose run loop
-        // never hears of the exit, so the call never returns (#265).
+        // Not `process.waitUntilExit()`. On a process with no termination handler it waits on the
+        // run loop of the thread that called `run()`, and after the awaits above this task can be
+        // on another thread, whose run loop never hears of the exit, so the call never returns
+        // (#265).
         let exitCode = await exited.status()
 
         return RunResult(
@@ -218,10 +219,13 @@ public enum ExecuteScriptTool {
     /// The exit status of a child process, delivered by `Process.terminationHandler`.
     ///
     /// The handler runs on a libdispatch queue whichever thread the waiting task is on, and it is
-    /// installed before the child is launched, so the exit is never missed. Whichever of the
-    /// handler and `status()` comes second completes the exchange. Unlike iterating an
-    /// `AsyncStream`, the wait does not end early when the awaiting task is cancelled, which would
-    /// leave the caller reading the status of a child that is still running.
+    /// installed before the child is launched, so no exit goes unobserved. (A handler installed
+    /// after the child had exited also fired on macOS 27.2, when tried; nothing here relies on
+    /// that.) Whichever of the handler and `status()` comes second completes the exchange.
+    ///
+    /// Unlike iterating an `AsyncStream`, the wait does not end early when the awaiting task is
+    /// cancelled, which would leave the caller reading the status of a child that is still
+    /// running.
     final class ProcessExit: @unchecked Sendable {
         private let lock = NSLock()
         private var code: Int32?

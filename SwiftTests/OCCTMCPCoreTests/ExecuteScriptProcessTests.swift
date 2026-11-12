@@ -2,9 +2,8 @@
 // None of it touches the script workspace: every call runs in a scratch directory of its own.
 
 import Foundation
-import Testing
-
 @testable import OCCTMCPCore
+import Testing
 
 @Suite("execute_script child process")
 struct ExecuteScriptProcessTests {
@@ -48,7 +47,10 @@ struct ExecuteScriptProcessTests {
         #expect(statuses == expected, "each call reports its own child's exit status")
     }
 
-    @Test("a cancelled caller still gets the exit status of a child that finished", .timeLimit(.minutes(1)))
+    @Test(
+        "a cancelled caller still gets the exit status of a child that finished",
+        .timeLimit(.minutes(1))
+    )
     func cancellationDoesNotEndTheWait() async throws {
         // The wait is not cancellation-aware on purpose: ending it early would leave the caller
         // reading the status of a child that is still running.
@@ -68,7 +70,10 @@ struct ExecuteScriptProcessTests {
         #expect(try finished.get() == 5)
     }
 
-    @Test("ProcessExit delivers an exit that happened before anyone waited", .timeLimit(.minutes(1)))
+    @Test(
+        "ProcessExit delivers an exit that happened before anyone waited",
+        .timeLimit(.minutes(1))
+    )
     func exitBeforeWait() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
