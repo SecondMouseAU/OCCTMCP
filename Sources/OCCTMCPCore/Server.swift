@@ -78,11 +78,16 @@ public struct ExtraTool: Sendable {
 /// `manifestWriteObserver` sees every manifest write with the name of the tool that made it, and
 /// `toolCallObserver` sees each call start and finish; see `HostObservers.swift`. Neither changes
 /// behaviour when `nil`.
+///
+/// `scriptStagePromoter` takes over `execute_script`'s last step: the script writes into a stage
+/// directory outside the scene, and the promoter, not OCCTMCP, puts what it wrote into the scene.
+/// `nil` keeps the built-in promotion, which replaces the scene with the run's output.
 public func makeOCCTMCPServer(
     extraTools: [ExtraTool] = [],
     outputDirectory: URL? = nil,
     manifestWriteObserver: ManifestWriteObserver? = nil,
-    toolCallObserver: ToolCallObserver? = nil
+    toolCallObserver: ToolCallObserver? = nil,
+    scriptStagePromoter: ScriptStagePromoter? = nil
 ) async -> Server {
     let server = Server(
         name: OCCTMCPVersion.serverName,
@@ -93,14 +98,16 @@ public func makeOCCTMCPServer(
     )
     await registerTools(
         on: server, extraTools: extraTools, outputDirectory: outputDirectory,
-        manifestWriteObserver: manifestWriteObserver, toolCallObserver: toolCallObserver)
+        manifestWriteObserver: manifestWriteObserver, toolCallObserver: toolCallObserver,
+        scriptStagePromoter: scriptStagePromoter)
     return server
 }
 
 func registerTools(
     on server: Server, extraTools: [ExtraTool] = [], outputDirectory: URL? = nil,
     manifestWriteObserver: ManifestWriteObserver? = nil,
-    toolCallObserver: ToolCallObserver? = nil
+    toolCallObserver: ToolCallObserver? = nil,
+    scriptStagePromoter: ScriptStagePromoter? = nil
 ) async {
     let pump = toolCallObserver.map { ToolCallEventPump(observer: $0) }
     let tools = catalogTools(extraTools: extraTools)
@@ -115,9 +122,11 @@ func registerTools(
         pump?.emit(params.name, arguments, .started, id: callID)
         let result = await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
             await OCCTMCPContext.$manifestWriteObserver.withValue(manifestWriteObserver) {
-                await OCCTMCPContext.$currentTool.withValue(params.name) {
-                    await dispatch(
-                        callName: params.name, arguments: arguments, extraTools: extraTools)
+                await OCCTMCPContext.$scriptStagePromoter.withValue(scriptStagePromoter) {
+                    await OCCTMCPContext.$currentTool.withValue(params.name) {
+                        await dispatch(
+                            callName: params.name, arguments: arguments, extraTools: extraTools)
+                    }
                 }
             }
         }
@@ -408,7 +417,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "execute_script",
             description:
-                "Compile and run an arbitrary Swift CAD script via a cached SPM workspace. The script must import OCCTSwift and ScriptHarness, accumulate geometry on a ScriptContext, and call ctx.emit(). Cold start ~60s on first call (full SPM build of OCCTSwift); subsequent calls ~1-2s incremental.",
+                "Compile and run an arbitrary Swift CAD script via a cached SPM workspace. The script must import OCCTSwift and ScriptHarness, accumulate geometry on a ScriptContext, and call ctx.emit(). The script writes into a private stage directory, never the scene: when it succeeds its output replaces the scene, and a script that fails, calls ctx.fail(), or never calls ctx.emit() leaves the scene as it was. Cold start ~60s on first call (full SPM build of OCCTSwift); subsequent calls ~1-2s incremental.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([

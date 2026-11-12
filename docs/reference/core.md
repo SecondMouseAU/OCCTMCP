@@ -19,8 +19,9 @@ auto-discovery.
 
 ## `execute_script`
 
-Compile and run an arbitrary Swift CAD script via a cached SPM workspace, writing `manifest.json`
-and BREP files to the output directory.
+Compile and run an arbitrary Swift CAD script via a cached SPM workspace. The script writes into a
+private stage directory, never the scene; when it succeeds, its manifest and BREP files replace the
+scene.
 
 **Server:** Swift + Node
 
@@ -31,8 +32,11 @@ and BREP files to the output directory.
 | `code` | string | yes | Complete Swift source for main.swift. |
 | `description` | string | no | Short description of what this script creates. |
 
-**Returns** — The updated scene manifest (body list, colors, materials) plus any build/compiler
+**Returns**: The updated scene manifest (body list, colors, materials) plus any build/compiler
 output. On compilation failure, returns the compiler diagnostics under a `Script failed.` prefix.
+A script that exits non-zero, calls `ctx.fail(_:)` (its message follows `Reason:`), writes a manifest
+that cannot be read, or lists a file it did not write, fails the call and leaves the scene as it was.
+A script that never calls `ctx.emit()` succeeds, says it wrote no manifest and changes nothing.
 
 **Example**
 
@@ -68,12 +72,20 @@ try ctx.emit(description: "what this model is")
 }
 ```
 
-**Notes** — Cold start is ~60 s on the first call (full SPM build of OCCTSwift); subsequent calls
-are ~1–2 s incremental. Fallible OCCTSwift factories return optionals — unwrap with `guard let`,
+**Notes**: The script's `ScriptContext` writes to the directory named by `OCCTSWIFT_OUTPUT_DIR`,
+which OCCTMCP sets to a new directory under the system temp directory, outside the scene. A clean
+run is promoted by replacing the scene with what the script emitted (a script's manifest has always
+meant "the scene as this script built it"): the new bodies' files are copied in under names that no
+earlier file has, `manifest.json` is swapped under the manifest lock, and the files the previous
+manifest listed are then removed, so a failure before the swap leaves the old scene whole. Other
+files in the scene directory, `annotations.json` among them, are not touched; `provenance.json` is
+cleared, as `clear_scene` clears it. The stage is removed afterwards. The SPM workspace is `~/.occtmcp-cache/workspace`, or the directory in
+`OCCTMCP_SCRIPT_WORKSPACE` when that is set. Cold start is ~60 s on the first call (full SPM build of OCCTSwift); subsequent calls
+are ~1–2 s incremental. Fallible OCCTSwift factories return optionals: unwrap with `guard let`,
 never force-unwrap. Boolean operators on `Shape`: `a - b` subtract, `a + b` union, `a & b`
 intersect. The manifest write triggers the OCCTSwiftViewport live 3D reload.
 
-**Drives** — `occtkit run <tempfile>` (Node); in-process `ScriptHarness` evaluation (Swift).
+**Drives**: `occtkit run <tempfile>` (Node); the cached SPM workspace and `ScriptHarness` (Swift).
 
 ---
 
@@ -85,7 +97,7 @@ Return the source of the most recent Swift CAD script executed in this session.
 
 No parameters.
 
-**Returns** — The Swift source string of the last `execute_script` call in this session, or an
+**\1**: The Swift source string of the last `execute_script` call in this session, or an
 error if no script has been run yet.
 
 **Example**
@@ -112,7 +124,7 @@ Read the current scene manifest (bodies, colors, materials).
 
 No parameters.
 
-**Returns** — The contents of `manifest.json`: the list of bodies currently in the scene, each
+**\1**: The contents of `manifest.json`: the list of bodies currently in the scene, each
 with its `id`, `name`, `color`, material, and BREP file reference.
 
 **Example**
@@ -143,7 +155,7 @@ directory.
 
 No parameters.
 
-**Returns** — A list of file paths for every recognised CAD export format found in the output
+**\1**: A list of file paths for every recognised CAD export format found in the output
 directory. Does not trigger an export; use `export_scene` (scene-mutation family) to write new
 files.
 
@@ -179,7 +191,7 @@ OCCTSwift docs for the OCCT API categories.
 |------|------|:--------:|-------------|
 | `category` | string | no | `'mcp_tools'` for the live tool catalog; any other value returns a pointer to the OCCTSwift sources / docs. |
 
-**Returns** — When `category` is `"mcp_tools"`: the full JSON Schema of every registered tool,
+**\1**: When `category` is `"mcp_tools"`: the full JSON Schema of every registered tool,
 suitable for LLM auto-discovery. Otherwise: a pointer to OCCTSwift source documentation.
 
 **Example**
@@ -202,20 +214,20 @@ suitable for LLM auto-discovery. Otherwise: a pointer to OCCTSwift source docume
 }
 ```
 
-**Notes** — Call this at session start with `category: "mcp_tools"` to let the LLM discover the
+**\1**: Call this at session start with `category: "mcp_tools"` to let the LLM discover the
 full tool surface without relying on static documentation.
 
 ---
 
 ## `ping`
 
-Sanity-check tool — returns `"pong"` so callers can verify the OCCTMCP Swift server is alive.
+Sanity-check tool: returns `"pong"` so callers can verify the OCCTMCP Swift server is alive.
 
 **Server:** Swift only
 
 No parameters.
 
-**Returns** — The string `"pong"`.
+**\1**: The string `"pong"`.
 
 **Example**
 
@@ -253,6 +265,38 @@ let server = await makeOCCTMCPServer(extraTools: [
 - `get_api_reference` with `category: "mcp_tools"` lists the live catalog, so it includes the extra
   tools and omits any built-in they replaced.
 - With no extras (the default) the catalog and behaviour are unchanged.
+
+## Embedding: promoting a script's output
+
+`execute_script` runs the script against a stage directory (see above) and promotes a clean run
+itself, by replacing the scene. A host that owns its scene store takes the last step instead:
+
+```swift
+let server = await makeOCCTMCPServer(
+    outputDirectory: sceneDirectory,
+    scriptStagePromoter: { stage, sceneDirectory in
+        // `stage` holds what the script wrote: manifest.json, the body files it lists, and any
+        // artefacts such as output.step. Put it into the scene the way the host does.
+        try await sceneStore.promote(stage: stage, into: sceneDirectory)
+    })
+```
+
+- The promoter is called only for a run that exited zero, left no `run-failed.json` and wrote a
+  manifest that parses and lists only plain file names the stage holds. A failed run, a run that
+  wrote no manifest, and a bad manifest are reported to the agent without calling it, and the
+  scene is left as it was.
+- With a promoter nothing is copied into the scene for it: the scene is the host's to change. The
+  prior scene is still pushed onto `SceneHistory` just before the call.
+- The stage is outside the scene directory by construction, so a host can refuse a stage inside its
+  own scene. OCCTMCP removes the stage when the promoter returns, whether it returned or threw; a
+  host that wants to keep any of it (a quarantined stage to retry, say) moves it first.
+- A promoter that throws fails the call: `Script ran, but promoting its output into the scene
+  failed: <reason>`. What state it left the scene in is the host's to know.
+- `ExecuteScriptTool.execute(code:...promoter:)` takes the same closure for a host that wraps the
+  tool; it defaults to the one given to `makeOCCTMCPServer`, scoped to the tool call like the
+  observers above.
+- The child is told `OCCTSWIFT_OUTPUT_DIR`. OCCTMCP never exports `OCCTMCP_OUTPUT_DIR`, which names
+  the scene and which the harness does not read.
 
 ## Embedding: observing tool calls and manifest writes
 

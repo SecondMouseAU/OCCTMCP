@@ -10,6 +10,18 @@ import MCP
 /// `tool` is nil for a write made outside any tool call. Throwing aborts the write.
 public typealias ManifestWriteObserver = @Sendable (_ data: Data, _ tool: String?) throws -> Void
 
+/// Takes a finished `execute_script` run's output into the scene.
+///
+/// Called with the stage directory the script wrote into and the scene directory, after the run
+/// exited zero, left no failure marker, and wrote a manifest that lists only files the stage holds.
+/// The stage is outside the scene. Throwing is reported to the agent as a failed promotion.
+///
+/// Without one, OCCTMCP replaces the scene with the stage's output itself. With one, the host owns
+/// the promotion: nothing is copied into the scene for it. OCCTMCP removes the stage when the
+/// promoter returns, so a host that wants to keep any of it moves it first.
+public typealias ScriptStagePromoter =
+    @Sendable (_ stage: URL, _ sceneDirectory: String) async throws -> Void
+
 public enum OCCTMCPContext {
     /// The name of the tool whose handler is running on this task.
     ///
@@ -18,6 +30,9 @@ public enum OCCTMCPContext {
 
     /// The observer an embedding host asked for, scoped to the current task.
     @TaskLocal public static var manifestWriteObserver: ManifestWriteObserver?
+
+    /// The script stage promoter an embedding host asked for, scoped to the current task.
+    @TaskLocal public static var scriptStagePromoter: ScriptStagePromoter?
 }
 
 /// One step in the life of a `tools/call`, delivered to the host's `ToolCallObserver`.

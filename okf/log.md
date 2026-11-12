@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-11-12
+
+* **Update**: #257. `execute_script` writes into a stage directory, not the scene. The child gets `OCCTSWIFT_OUTPUT_DIR` pointing at a new directory under the system temp directory (the variable OCCTSwiftScripts 1.7.1-beta.4 reads; `OCCTMCP_OUTPUT_DIR` is no longer exported, and the harness never read it, so a host's `outputDirectory:` never reached the child before). The run is classified by exit code, the `run-failed.json` marker and the stage's manifest; only a clean run is promoted, and a failed one leaves the scene as it was. The default promotion replaces the scene (a script's manifest has always meant the scene as that script built it) under `ManifestStore.update`, copying listed files in under run-unique names first and removing the previous manifest's files after; `makeOCCTMCPServer(scriptStagePromoter:)` lets a host promote instead. `scriptsPin`, which was 1.4.2 and so resolved the stable 1.7.0 without any of this, is 1.7.1-beta.4 and a test holds it equal to `Package.swift`'s. Open question for the owner: whether `execute_script` should merge into a populated scene as `occtkit import` does; it replaces, as it always has.
+
 ## 2026-10-15
 
 * **Update**: #250. `ManifestStore.update(willWrite:_:)`: advisory `flock` on `manifest.lock`, a callback that receives the exact bytes under the lock before the atomic rename, and every mutating tool moved onto it (re-applying its change to the manifest read under the lock). `write` takes the same lock. A malformed manifest is `ManifestError.malformed` everywhere, not "No scene loaded", and `read_brep`, `import_file` and `segment_mesh_zones` no longer overwrite it. Source-compatible: `ManifestStore.init(path:)` gained a defaulted `lockTimeout`.
