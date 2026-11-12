@@ -104,6 +104,11 @@ extension DrawingReadTools {
 
     private static func simd(_ p: DXF.Point) -> SIMD3<Double> { SIMD3(p.x, p.y, p.z) }
 
+    // Why this is not OCCTSwiftIO's `DXFLoader`: its `load(from:)` is internal and merges every entity
+    // into one compound, dropping z, so there is no edge per entity to measure from. The line, circle,
+    // arc, bulge and ellipse recipes below follow it (same chord count, same bulge centre formula);
+    // when OCCTSwiftIO exposes per-entity shapes this file should take them instead.
+
     /// The edges an entity draws, as OCCT shapes, and whether they only approximate it.
     ///
     /// An ellipse is cut into 48 chords, as OCCTSwiftIO's own DXF loader does, because OCCT's
@@ -250,7 +255,7 @@ extension DrawingReadTools {
                         "An ellipse end is approximated by 48 chords, so the distance to it is "
                             + "accurate to the chord error, not exact.")
                 }
-                return IntrospectionTools.encode(
+                return encode(
                     MeasureResult(
                         source: sourceRef(loaded), measure: measure, a: endRecord(endA),
                         b: endRecord(endB), vertex: nil, value: result.distance,
@@ -272,7 +277,7 @@ extension DrawingReadTools {
                     let degrees = try angleDeg(
                         (p.x - apex.x, p.y - apex.y, p.z - apex.z),
                         (q.x - apex.x, q.y - apex.y, q.z - apex.z))
-                    return IntrospectionTools.encode(
+                    return encode(
                         MeasureResult(
                             source: sourceRef(loaded), measure: measure,
                             a: .init(
@@ -300,7 +305,7 @@ extension DrawingReadTools {
                 notes.append(
                     "The angle runs between the lines' drawn directions (start to end); "
                         + "acuteAngleDeg is the angle between the lines themselves.")
-                return IntrospectionTools.encode(
+                return encode(
                     MeasureResult(
                         source: sourceRef(loaded), measure: measure, a: endRecord(endA),
                         b: endRecord(endB), vertex: nil, value: degrees, unit: "degrees",
@@ -318,7 +323,7 @@ extension DrawingReadTools {
                 default:
                     throw MeasureError("`radius` takes a circle or arc entity as `a`.")
                 }
-                return IntrospectionTools.encode(
+                return encode(
                     MeasureResult(
                         source: sourceRef(loaded), measure: measure, a: endRecord(endA), b: nil,
                         vertex: nil, value: radius, unit: "drawing units", valueMm: mm(radius),

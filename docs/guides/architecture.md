@@ -28,15 +28,15 @@ See the [Tool Reference](../reference/) for the full per-tool listing; each entr
 
 The scene is a directory (the **output directory**) containing:
 
-- `manifest.json` — a `ScriptManifest` with one `BodyDescriptor` per body (id, name, colour, BREP path). Every tool that reads or mutates geometry looks up bodies by their string `bodyId` from this file.
-- `*.brep` — one OpenCASCADE BREP file per body.
-- `annotations.json` — a sidecar holding `dimensions[]` and `primitives[]` independently of the manifest, used by `add_dimension`, `add_scene_primitive`, and `render_preview`.
+- `manifest.json`: a `ScriptManifest` with one `BodyDescriptor` per body (id, name, colour, BREP path). Every tool that reads or mutates geometry looks up bodies by their string `bodyId` from this file.
+- `*.brep`: one OpenCASCADE BREP file per body.
+- `annotations.json`: a sidecar holding `dimensions[]` and `primitives[]` independently of the manifest, used by `add_dimension`, `add_scene_primitive`, and `render_preview`.
 
 **Output directory resolution** (first match wins):
 0. The `outputDirectory` passed to `makeOCCTMCPServer(outputDirectory:)` by an embedding host (a task-local override set around each tool call)
 1. `OCCTMCP_OUTPUT_DIR` environment variable
-2. iCloud Drive — `~/Library/Mobile Documents/com~apple~CloudDocs/OCCTSwiftScripts/output/`
-3. Local fallback — `~/.occtswift-scripts/output/`
+2. iCloud Drive: `~/Library/Mobile Documents/com~apple~CloudDocs/OCCTSwiftScripts/output/`
+3. Local fallback: `~/.occtswift-scripts/output/`
 
 Because both servers write to the same directory, OCCTSwiftViewport's `ScriptWatcher` detects the manifest update and triggers a live 3D reload automatically.
 
@@ -63,7 +63,7 @@ import ScriptHarness
 let ctx = ScriptContext()
 let C = ScriptContext.Colors.self
 
-// build geometry — guard-unwrap optionals, never force-unwrap
+// build geometry: guard-unwrap optionals, never force-unwrap
 // boolean operators: a - b (subtract), a + b (union), a & b (intersect)
 
 try ctx.add(shape, id: "part", color: C.steel, name: "My Part")
@@ -74,7 +74,7 @@ try ctx.emit(description: "what this model is")
 
 ## selectionId and history wiring
 
-**selectionIds** are stable references to sub-shape topology — faces, edges, or vertices — across mutations. The format is `sel:<bodyId>#<kind>[<idx>]`, which is self-describing and parseable without additional context.
+**selectionIds** are stable references to sub-shape topology (faces, edges, or vertices) across mutations. The format is `sel:<bodyId>#<kind>[<idx>]`, which is self-describing and parseable without additional context.
 
 `select_topology` mints selectionIds. `remap_selection` carries them forward after a body has been mutated, using the following resolution chain:
 
@@ -86,7 +86,7 @@ Tools that write history records:
 
 | Tool | History path |
 |---|---|
-| `transform_body` | Implicit identity — no records written; every node maps 1:1, `findDerivedOrSelf` returns `[self]` |
+| `transform_body` | Implicit identity: no records written; every node maps 1:1, `findDerivedOrSelf` returns `[self]` |
 | `heal_shape` | Implicit identity if pre/post topology counts match; falls back to centroid heuristic if shape repair changed topology |
 | `boolean_op` | Per-input history via OCCTSwift's `*WithFullHistory` variants; recorded under the output body and both inputs |
 | `apply_feature` | Per-feature history via `FeatureReconstructor.BuildResult.histories[id]`; covers boolean / hole / second-additive / fillet / chamfer |
@@ -106,17 +106,17 @@ When no history record exists (e.g. after `execute_script` or `mirror_or_pattern
 The Swift server is built on a layered family of packages:
 
 ```
-OCCTSwift          — OpenCASCADE kernel wrapper (Shape, BRep, topology, history)
-OCCTSwiftViewport  — Metal viewport + offscreen renderer
+OCCTSwift         : OpenCASCADE kernel wrapper (Shape, BRep, topology, history)
+OCCTSwiftViewport : Metal viewport + offscreen renderer
       ↓ bridge
-OCCTSwiftTools     — Shape ↔ ViewportBody conversion; Curve / Surface / Wire / Point converters
+OCCTSwiftTools    : Shape ↔ ViewportBody conversion; Curve / Surface / Wire / Point converters
       ↓ services
-OCCTSwiftAIS       — Selection, manipulators, 3D dimensions
-OCCTSwiftMesh      — Mesh algorithms (QEM decimation, etc.)
-DrawingComposer    — 2D drawing / general-arrangement output (via OCCTSwiftScripts)
+OCCTSwiftAIS      : Selection, manipulators, 3D dimensions
+OCCTSwiftMesh     : Mesh algorithms (QEM decimation, etc.)
+DrawingComposer   : 2D drawing / general-arrangement output (via OCCTSwiftScripts)
 ```
 
-`render_preview` depends on **OCCTSwiftTools + OCCTSwiftViewport** to compose body overlays (measurements, annotations, point clouds, bounding boxes). The Node server does not have in-process access to this stack — it shells to `occtkit` for every call.
+`render_preview` depends on **OCCTSwiftTools + OCCTSwiftViewport** to compose body overlays (measurements, annotations, point clouds, bounding boxes). The Node server does not have in-process access to this stack: it shells to `occtkit` for every call.
 
 For the ecosystem package versions and dependency pins, see `Package.swift` and the [OCCTMCP README](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools).
 
@@ -124,6 +124,6 @@ For the ecosystem package versions and dependency pins, see `Package.swift` and 
 
 ## Source layout quick-reference
 
-**Swift** — `Sources/OCCTMCPCore/` (library) + `Sources/OCCTMCPServer/main.swift` (stdio binding). Tools are grouped by family under `Sources/OCCTMCPCore/Tools/`.
+**Swift**: `Sources/OCCTMCPCore/` (library) + `Sources/OCCTMCPServer/main.swift` (stdio binding). Tools are grouped by family under `Sources/OCCTMCPCore/Tools/`.
 
-**Node** — `src/index.ts` (server factory), `src/tools.ts` (core), `src/scene-tools.ts` (manifest manipulation), `src/verb-tools.ts` and `src/api-tools.ts` (occtkit verb wrappers), `src/occtkit-serve.ts` (long-lived child process).
+**Node**: `src/index.ts` (server factory), `src/tools.ts` (core), `src/scene-tools.ts` (manifest manipulation), `src/verb-tools.ts` and `src/api-tools.ts` (occtkit verb wrappers), `src/occtkit-serve.ts` (long-lived child process).

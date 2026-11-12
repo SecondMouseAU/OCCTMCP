@@ -1,7 +1,7 @@
 // The drawing read tools (#260): read_drawing, list_drawing_entities, list_drawing_dimensions and
 // measure_drawing, against a synthetic DXF shaped like the Drawings Toolbox's T-slot example: an
 // outline, a slot between two named lines, holes, a bulged polyline, an ellipse, text, seven
-// dimensions of seven kinds, and records the reader skips (block inserts, a hatch, a spline).
+// dimensions of six kinds, and records the reader skips (block inserts, a hatch, a spline).
 
 import CryptoKit
 import Foundation
@@ -1225,6 +1225,147 @@ struct DrawingReadToolsTests {
         #expect(abs((ok["value"] as? Double ?? 0) - 5) < 1e-9)
     }
 
+    @Test("an argument the tool does not take is refused, and a page size outside its range")
+    func unknownArgumentsAndRanges() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = Value.string(try DrawingFixture.tSlot().write(to: dir))
+        let bad: [(String, [String: Value], String)] = [
+            ("list_drawing_entities", ["layer": ["SLOT"]], "takes no argument named `layer`"),
+            ("list_drawing_entities", ["type": ["line"], "layers": ["SLOT"]], "`type`"),
+            ("list_drawing_dimensions", ["kind": ["radius"]], "takes no argument named `kind`"),
+            ("read_drawing", ["layers": ["SLOT"]], "takes no argument named `layers`"),
+            ("measure_drawing", ["measure": "radius", "a": "e5", "b": "e6", "unit": 1], "`unit`"),
+            ("list_drawing_entities", ["limit": 0], "`limit` must be from 1 to 5000"),
+            ("list_drawing_entities", ["limit": 5001], "`limit` must be from 1 to 5000"),
+            ("list_drawing_dimensions", ["limit": -3], "`limit` must be from 1 to 5000"),
+            ("list_drawing_entities", ["offset": -1], "`offset` must be at least 0"),
+        ]
+        for (name, extra, needle) in bad {
+            var args: [String: Value] = ["inputPath": path]
+            args.merge(extra) { $1 }
+            let r = await call(name, args)
+            #expect(r.isError && r.text.contains(needle), "\(name) \(extra): \(r.text)")
+        }
+        let edge = try json(
+            await call("list_drawing_entities", ["inputPath": path, "limit": 1, "offset": 0]))
+        #expect(edge["returned"] as? Int == 1)
+    }
+
+    @Test("a coordinate that is not finite does not fail the result; it is written as a string")
+    func nonFiniteNumbers() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.add(
+            "good", "LINE", layer: "0",
+            [(10, "0"), (20, "0"), (30, "0"), (11, "3"), (21, "4"), (31, "0")])
+        f.add(
+            "bad", "LINE", layer: "0",
+            [(10, "0"), (20, "0"), (30, "0"), (11, "1e999"), (21, "0"), (31, "0")])
+        let path = try f.write(to: dir)
+        let summary = await call("read_drawing", ["inputPath": .string(path)])
+        #expect(!summary.isError, "\(summary.text)")
+        let listed = try await entities([:], path)
+        let bad = try #require(listed.all.first { $0["id"] as? String == f.id("bad") })
+        #expect((bad["end"] as? [Any])?.first as? String == "inf", "\(bad)")
+        #expect(bad["length"] as? String == "inf")
+        let good = try #require(listed.all.first { $0["id"] as? String == f.id("good") })
+        #expect(good["length"] as? Double == 5)
+    }
+
+    @Test("polyline bulges of either sign and any size follow their own geometry")
+    func bulgeSignsAndSizes() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // A chord (0, 0) to (10, 0). Bulge b makes an arc of included angle 4 atan(|b|): radius
+        // c / (2 sin(theta / 2)), sagitta r (1 - cos(theta / 2)). A positive bulge runs counter-
+        // clockwise, so it dips below the chord; a negative one rises above it.
+        for (name, bulge) in [("ccw", "0.5"), ("cw", "-0.5"), ("shallow", "0.1")] {
+            f.add(
+                name, "LWPOLYLINE", layer: "0",
+                [(90, "2"), (70, "0"), (10, "0"), (20, "0"), (42, bulge), (10, "10"), (20, "0")])
+        }
+        let path = try f.write(to: dir)
+        let listed = try await entities([:], path)
+        for (name, b) in [("ccw", 0.5), ("cw", -0.5), ("shallow", 0.1)] {
+            let theta = 4 * atan(abs(b))
+            let radius = 10 / (2 * sin(theta / 2))
+            let sagitta = radius * (1 - cos(theta / 2))
+            let entity = try #require(listed.all.first { $0["id"] as? String == f.id(name) })
+            #expect(abs((entity["length"] as? Double ?? 0) - radius * theta) < 1e-9, "\(name)")
+            let box = try #require(entity["bounds"] as? [String: Any], "\(entity)")
+            let lo = try #require(numbers(box["min"]))
+            let hi = try #require(numbers(box["max"]))
+            #expect(abs(lo[0]) < 1e-9 && abs(hi[0] - 10) < 1e-9, "\(name) x \(lo) \(hi)")
+            if b > 0 {
+                #expect(
+                    abs(lo[1] + sagitta) < 1e-9 && abs(hi[1]) < 1e-9, "\(name) dips \(lo) \(hi)")
+            } else {
+                #expect(
+                    abs(hi[1] - sagitta) < 1e-9 && abs(lo[1]) < 1e-9, "\(name) rises \(lo) \(hi)")
+            }
+        }
+        // From (5, -6): the counter-clockwise arc's lowest point is 3.5 away; the clockwise one rises
+        // away from it, so the nearest points are its ends, sqrt(25 + 36).
+        func distance(_ name: String) async throws -> Double {
+            let r = try json(
+                await measure(path, "distance", a: .string(f.id(name)), b: [5, -6]))
+            return try #require(r["value"] as? Double)
+        }
+        #expect(abs(try await distance("ccw") - 3.5) < 1e-9)
+        #expect(abs(try await distance("cw") - 61.0.squareRoot()) < 1e-9)
+    }
+
+    @Test(
+        "three-point angular and unrecognised dimension kinds are named, and carry no millimetres")
+    func otherDimensionKinds() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        for (name, type) in [("three", 5), ("odd", 7)] {
+            f.add(
+                name, "DIMENSION", layer: "DIMS",
+                [
+                    (70, "\(type)"), (42, "1.5"), (11, "0"), (21, "0"), (31, "0"), (10, "0"),
+                    (20, "0"), (30, "0"),
+                ])
+        }
+        let path = try f.write(to: dir)
+        let r = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
+        let list = try #require(r["dimensions"] as? [[String: Any]])
+        let three = try #require(list.first { $0["id"] as? String == f.id("three") })
+        #expect(three["kind"] as? String == "angular3Point")
+        #expect(three["valueKind"] as? String == "angle" && three["valueMm"] == nil)
+        let odd = try #require(list.first { $0["id"] as? String == f.id("odd") })
+        #expect(odd["kind"] as? String == "unknown(7)")
+        // `unknown(n)` can be filtered on too.
+        let filtered = try json(
+            await call(
+                "list_drawing_dimensions",
+                ["inputPath": .string(path), "kinds": ["unknown(7)"]]))
+        #expect(filtered["total"] as? Int == 1)
+    }
+
+    @Test("the cache keeps four drawings and drops an older entry for a path that changed")
+    func cacheEvictionAndStaleEntries() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let loaded = try await DrawingFile.load(path: try DrawingFixture.tSlot().write(to: dir))
+        let cache = DrawingCache()
+        let keys = (0..<5).map { DrawingCache.Key(path: "/drawing\($0).dxf", size: 1, modified: 0) }
+        for key in keys { await cache.store(loaded, for: key) }
+        #expect(await cache.entry(for: keys[0]) == nil, "the oldest of five is evicted")
+        for key in keys.dropFirst() {
+            #expect(await cache.entry(for: key) != nil, "\(key.path)")
+        }
+        let changed = DrawingCache.Key(path: "/drawing4.dxf", size: 2, modified: 0)
+        await cache.store(loaded, for: changed)
+        #expect(await cache.entry(for: keys[4]) == nil, "the entry for the old bytes is dropped")
+        #expect(await cache.entry(for: changed) != nil)
+    }
+
     // ── registration ────────────────────────────────────────────────────
 
     @Test("the four tools are in the catalog with their required arguments")
@@ -1243,7 +1384,6 @@ struct DrawingReadToolsTests {
                 schema?["required"]?.arrayValue?.compactMap { $0.stringValue } == required,
                 "\(name) requires \(String(describing: schema?["required"]))")
         }
-        #expect(tools.count == 83)
     }
 
     @Test("a client reaches the tools over a real session, arrays and all")

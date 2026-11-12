@@ -178,6 +178,9 @@ enum DrawingFile {
 
     /// Count the entity records SwiftDXF skips, by type and by layer.
     ///
+    /// SwiftDXF 0.3.0 reports this itself (`Drawing.skipped`) and models `SPLINE`; this pin has
+    /// neither, so the count is made here. When the pin moves, take SwiftDXF's and drop this.
+    ///
     /// SwiftDXF reports only what it modelled, so a block insert or a hatch leaves no trace in
     /// `DXF.Drawing`. This reads the raw group-code stream of the `ENTITIES` section for the rest.
     static func scanSkipped(_ data: Data) -> LoadedDrawing.Skipped {

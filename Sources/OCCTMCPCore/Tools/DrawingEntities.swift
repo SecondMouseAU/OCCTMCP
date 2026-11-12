@@ -27,7 +27,8 @@ enum DrawingEntities {
 
     // `DXF.Entity` gains cases when SwiftDXF does (0.3.0 adds `spline`, and OCCTSwiftIO 2.0.0-beta.5
     // requires it), so every switch over it ends in `@unknown default`: a build that resolves a newer
-    // SwiftDXF compiles, and reads an entity it has no mapping for as type `other`, with no geometry.
+    // SwiftDXF compiles, and reads an entity it has no mapping for as type `other`, with no layer,
+    // colour, bounds or geometry (nothing is made up), and `read_drawing` warns about it.
 
     static func typeName(_ entity: DXF.Entity) -> String {
         switch entity {
@@ -48,7 +49,8 @@ enum DrawingEntities {
         "line", "circle", "arc", "ellipse", "point", "text", "polyline", "dimension",
     ]
 
-    static func layer(_ entity: DXF.Entity) -> String {
+    /// The entity's layer, nil for an entity this build has no mapping for (it is not made up).
+    static func layer(_ entity: DXF.Entity) -> String? {
         switch entity {
         case .line(_, _, let layer, _), .circle(_, _, let layer, _), .arc(_, _, _, _, let layer, _),
             .ellipse(_, _, _, _, _, let layer, _), .point(_, let layer, _),
@@ -57,11 +59,12 @@ enum DrawingEntities {
         case .dimension(let d):
             return d.layer
         @unknown default:
-            return "0"
+            return nil
         }
     }
 
-    static func color(_ entity: DXF.Entity) -> Int {
+    /// The entity's AutoCAD Color Index, nil for an entity this build has no mapping for.
+    static func color(_ entity: DXF.Entity) -> Int? {
         switch entity {
         case .line(_, _, _, let color), .circle(_, _, _, let color), .arc(_, _, _, _, _, let color),
             .ellipse(_, _, _, _, _, _, let color), .point(_, _, let color),
@@ -70,7 +73,7 @@ enum DrawingEntities {
         case .dimension(let d):
             return d.color
         @unknown default:
-            return 256
+            return nil
         }
     }
 
@@ -85,10 +88,7 @@ enum DrawingEntities {
         return sweep
     }
 
-    /// The arc a polyline bulge describes between two vertices, counter-clockwise.
-    ///
-    /// `bulge` is `tan(θ/4)` for the included angle θ, positive when the arc runs counter-clockwise
-    /// from `a` to `b`. Returns nil for a straight segment or coincident vertices.
+    /// The arc a polyline bulge describes, counter-clockwise.
     struct BulgeArc {
         let center: DXF.Point
         let radius: Double
@@ -98,6 +98,11 @@ enum DrawingEntities {
         var length: Double { radius * (end - start) }
     }
 
+    /// The arc a polyline bulge describes between two vertices.
+    ///
+    /// `bulge` is `tan(θ/4)` for the included angle θ, positive when the arc runs counter-clockwise
+    /// from `a` to `b` and negative when it runs clockwise. Returns nil for a straight segment or
+    /// coincident vertices.
     static func bulgeArc(from a: DXF.Point, to b: DXF.Point, bulge: Double) -> BulgeArc? {
         guard abs(bulge) > 1e-12, a.x != b.x || a.y != b.y else { return nil }
         let h = (1 / bulge - bulge) / 2

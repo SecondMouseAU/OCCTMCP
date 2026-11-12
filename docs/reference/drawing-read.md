@@ -26,8 +26,11 @@ the filesystem's timestamp resolution of the previous read would be served from 
 
 Arguments must have the right type (`types`, `layers`, `kinds` arrays of strings, `rect` four
 numbers, `limit` and `offset` integers, `mmPerUnit` a number); a wrong type is an error, not an
-ignored argument. JSON `null` means the argument is absent. An entity id has one spelling, exactly
-what the tools return, so `e+5` and `e007` are refused.
+ignored argument; so is an argument name the tool does not take (`layer` for `layers`) and a
+`limit` outside 1 to 5000. JSON `null` means the argument is absent. An entity id has one spelling,
+exactly what the tools return, so `e+5` and `e007` are refused. A coordinate that is not finite (a
+`1e999` in the file) is written as the string `"inf"`, `"-inf"` or `"nan"` instead of failing the
+result.
 
 ## What is read, and what is not
 
@@ -41,8 +44,10 @@ what the tools return, so `e+5` and `e007` are refused.
   drawn in a mirrored or rotated coordinate system is read at its stored coordinates, unflipped, and
   nothing warns about it.
 - **A future SwiftDXF may add entity types.** An entity the tools have no mapping for is listed with
-  type `other` and no geometry (SwiftDXF 0.3.0, required by OCCTSwiftIO 2.0.0-beta.5, adds
-  splines), and `measure_drawing` refuses it.
+  type `other` and no layer, colour, bounds or geometry (nothing is made up), a layer filter never
+  matches it, `read_drawing` warns about it and `measure_drawing` refuses it. SwiftDXF 0.3.0, which
+  OCCTSwiftIO 2.0.0-beta.5 requires, adds splines; this server is built against 0.2.1 and does not
+  map them yet.
 - **What the reader skips is reported, not hidden.** SwiftDXF models the entity types above and
   drops the rest of the `ENTITIES` section (`INSERT`, `HATCH`, `SPLINE`, `LEADER` and so on) and does not read
   the `BLOCKS` section, so a block insert places no geometry. `read_drawing` counts the skipped
@@ -52,8 +57,9 @@ what the tools return, so `e+5` and `e007` are refused.
 
 - **Entity ids.** An entity's id is `e` and its position in the drawing's entity list (`e0`,
   `e1`, ...). SwiftDXF keeps no DXF handles, so the id is the index. It is stable for the same file
-  bytes: `read_drawing` returns the file's SHA-256, and every result carries the file name and hash
-  so a caller can tell when ids no longer mean what they did. Skipped records take no index.
+  bytes and this reader: `read_drawing` returns the file's SHA-256, and every result carries the file
+  name and hash so a caller can tell when ids no longer mean what they did. A newer SwiftDXF that
+  models more entity types shifts the ids after them. Skipped records take no index.
 - **Units.** Coordinates and values are in **drawing units**. The drawing's units are the DXF
   `$INSUNITS` code, returned with its name and millimetres per unit (codes 0 to 24 as ezdxf lists
   them). A unitless or undeclared drawing has no millimetre figure and the tools say so; pass
@@ -181,7 +187,8 @@ has `id` (the same `e<index>` as in `list_drawing_entities`), `kind`, `valueKind
 `angle`), `value` (the stored measurement, DXF group 42, absent when the file omits it, which ezdxf notes is
 common), `valueUnit`, `valueMm`, `valueFromPoints` and `valueFromPointsMm` (see below), `text` (the
 user's text override, absent when the dimension shows its own value: a text of exactly `<>` is
-DXF's "show the measured value", while `<> H7` is kept),
+DXF's "show the measured value", `<> H7` is kept, and a single space, DXF's "suppress the text", is
+returned as a single space),
 `textPosition`, `definitionPoints`, `layer` and `color`.
 
 - Each definition point carries its DXF `group` (10, 13, 14, 15 or 16) and, where SwiftDXF

@@ -440,12 +440,26 @@ private func builtinCatalogTools() -> [Tool] {
                         "enum": .array([.string("distance"), .string("angle"), .string("radius")]),
                     ]),
                     "a": .object([
+                        "oneOf": .array([
+                            .object(["type": .string("string")]),
+                            .object([
+                                "type": .string("array"),
+                                "items": .object(["type": .string("number")]),
+                            ]),
+                        ]),
                         "description": .string(
-                            "An entity id such as \"e12\", or a point [x, y] or [x, y, z].")
+                            "An entity id such as \"e12\", or a point [x, y] or [x, y, z]."),
                     ]),
                     "b": .object([
+                        "oneOf": .array([
+                            .object(["type": .string("string")]),
+                            .object([
+                                "type": .string("array"),
+                                "items": .object(["type": .string("number")]),
+                            ]),
+                        ]),
                         "description": .string(
-                            "An entity id such as \"e12\", or a point [x, y] or [x, y, z].")
+                            "An entity id such as \"e12\", or a point [x, y] or [x, y, z]."),
                     ]),
                     "vertex": .object([
                         "type": .string("array"),
@@ -2819,7 +2833,13 @@ func dispatch(
         guard let inputPath = arguments["inputPath"]?.stringValue else {
             return ToolText("read_drawing requires `inputPath`.", isError: true).asCallToolResult()
         }
-        return await DrawingReadTools.readDrawing(inputPath: inputPath).asCallToolResult()
+        do {
+            try DrawingReadTools.rejectUnknownArguments(
+                arguments, allowed: ["inputPath"], tool: "read_drawing")
+            return await DrawingReadTools.readDrawing(inputPath: inputPath).asCallToolResult()
+        } catch {
+            return ToolText("\(error)", isError: true).asCallToolResult()
+        }
 
     case "list_drawing_entities":
         guard let inputPath = arguments["inputPath"]?.stringValue else {
@@ -2827,6 +2847,10 @@ func dispatch(
                 .asCallToolResult()
         }
         do {
+            try DrawingReadTools.rejectUnknownArguments(
+                arguments,
+                allowed: ["inputPath", "types", "layers", "rect", "rectMode", "limit", "offset"],
+                tool: "list_drawing_entities")
             return await DrawingReadTools.listDrawingEntities(
                 inputPath: inputPath,
                 types: try DrawingReadTools.stringList(arguments["types"], name: "types"),
@@ -2834,8 +2858,10 @@ func dispatch(
                 rect: try DrawingReadTools.numberList(arguments["rect"], name: "rect"),
                 rectMode: try DrawingReadTools.optionalString(
                     arguments["rectMode"], name: "rectMode"),
-                limit: try DrawingReadTools.optionalInt(arguments["limit"], name: "limit"),
-                offset: try DrawingReadTools.optionalInt(arguments["offset"], name: "offset")
+                limit: try DrawingReadTools.optionalInt(
+                    arguments["limit"], name: "limit", in: 1...5000),
+                offset: try DrawingReadTools.optionalInt(
+                    arguments["offset"], name: "offset", in: 0...Int.max)
             ).asCallToolResult()
         } catch {
             return ToolText("\(error)", isError: true).asCallToolResult()
@@ -2847,12 +2873,17 @@ func dispatch(
                 .asCallToolResult()
         }
         do {
+            try DrawingReadTools.rejectUnknownArguments(
+                arguments, allowed: ["inputPath", "layers", "kinds", "limit", "offset"],
+                tool: "list_drawing_dimensions")
             return await DrawingReadTools.listDrawingDimensions(
                 inputPath: inputPath,
                 layers: try DrawingReadTools.stringList(arguments["layers"], name: "layers"),
                 kinds: try DrawingReadTools.stringList(arguments["kinds"], name: "kinds"),
-                limit: try DrawingReadTools.optionalInt(arguments["limit"], name: "limit"),
-                offset: try DrawingReadTools.optionalInt(arguments["offset"], name: "offset")
+                limit: try DrawingReadTools.optionalInt(
+                    arguments["limit"], name: "limit", in: 1...5000),
+                offset: try DrawingReadTools.optionalInt(
+                    arguments["offset"], name: "offset", in: 0...Int.max)
             ).asCallToolResult()
         } catch {
             return ToolText("\(error)", isError: true).asCallToolResult()
@@ -2866,6 +2897,9 @@ func dispatch(
                 .asCallToolResult()
         }
         do {
+            try DrawingReadTools.rejectUnknownArguments(
+                arguments, allowed: ["inputPath", "measure", "a", "b", "vertex", "mmPerUnit"],
+                tool: "measure_drawing")
             return await DrawingReadTools.measureDrawing(
                 inputPath: inputPath, measure: measure, a: arguments["a"], b: arguments["b"],
                 vertex: DrawingReadTools.present(arguments["vertex"]),

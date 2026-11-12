@@ -6,7 +6,7 @@ has_children: true
 
 # OCCTMCP Tool Reference
 
-A **detailed, per-tool reference** for the OCCTMCP MCP surface — one page per *tool family*, every
+A **detailed, per-tool reference** for the OCCTMCP MCP surface: one page per *tool family*, every
 tool documented: what it does, its JSON-Schema parameters, what it returns, a runnable example call
 with an example response, the underlying OCCTSwift / occtkit it drives, and gotchas.
 
@@ -16,8 +16,8 @@ canonical 83-tool surface documented here; the **Node** server exposes a 37-tool
 notes its Node availability.
 
 This complements the other docs:
-- [Cookbook](../guides/cookbook/) — *task-oriented* recipes that chain these tools.
-- [README tool table](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools) — the one-line catalog.
+- [Cookbook](../guides/cookbook/): *task-oriented* recipes that chain these tools.
+- [README tool table](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools): the one-line catalog.
 
 ## Page layout
 
@@ -42,7 +42,7 @@ nav_order: <n>
 
 ## `tool_name`     ← one `##` per tool, in the page's tool order
 
-<one-line summary — what it does.>
+<one-line summary: what it does.>
 
 **Server:** Swift + Node   *(or)*   Swift only
 
@@ -55,7 +55,7 @@ nav_order: <n>
 
 <omit the row's table entirely if the tool takes no arguments; say "No parameters.">
 
-**Returns** — <what the JSON result contains; note error conditions.>
+**Returns**: <what the JSON result contains; note error conditions.>
 
 **Example**
 
@@ -68,22 +68,22 @@ nav_order: <n>
 { "volume": 1000.0, "boundingBoxOptimal": { "min": [0,0,0], "max": [10,10,10] } }
 ​```
 
-**Notes** — gotchas / cross-references. *(omit if none)*
-**Drives** — the OCCTSwift call / occtkit verb behind it. *(omit if unknown)*
+**Notes**: gotchas / cross-references. *(omit if none)*
+**Drives**: the OCCTSwift call / occtkit verb behind it. *(omit if unknown)*
 ```
 
 ## Entry rules (the contract)
 
-1. **Parameters come verbatim from the JSON Schema** provided to you (`docs-build/schemas/<family>.json`)
-   — names, types, `required`, and the schema `description`. Do not invent or rename parameters.
+1. **Parameters come verbatim from the JSON Schema** provided to you (`docs-build/schemas/<family>.json`):
+   names, types, `required`, and the schema `description`. Do not invent or rename parameters.
 2. **Every tool in the family file gets one `##` section**, in the order listed in that file.
-3. **`Server:` line is required** — use the `nodeAvailable` flag in the schema: `Swift + Node` when
+3. **`Server:` line is required**: use the `nodeAvailable` flag in the schema: `Swift + Node` when
    true, `Swift only` when false.
-4. **Examples must be schema-faithful** — only real parameters, correct types. Keep them minimal and
+4. **Examples must be schema-faithful**: only real parameters, correct types. Keep them minimal and
    realistic (a `bodyId` like `"part"`, a path under the output dir). Mark illustrative result JSON as
    an example; don't over-specify exact numbers you can't know.
 5. **No invention.** Behaviour comes from the schema `description`, the [README](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools),
-   and the architecture notes in your prompt. If a detail is unclear, state it briefly — don't fabricate.
+   and the architecture notes in your prompt. If a detail is unclear, state it briefly: don't fabricate.
 6. **Concise.** Reference, not prose: one summary line, a parameter table, returns, one example.
 
 ## Families

@@ -66,8 +66,9 @@ public enum DrawingReadTools {
     struct EntityRecord: Encodable {
         let id: String
         let type: String
-        let layer: String
-        let color: Int
+        /// Absent for an entity this build has no mapping for.
+        let layer: String?
+        let color: Int?
         let bounds: Box?
         var start: [Double]?
         var end: [Double]?
@@ -211,6 +212,22 @@ public enum DrawingReadTools {
 
     // ── shared argument handling ────────────────────────────────────────
 
+    /// JSON for a result.
+    ///
+    /// A number that is not finite (a `1e999` or `nan` in the file) is written as the string
+    /// `"inf"`, `"-inf"` or `"nan"`, rather than failing the whole result.
+    static func encode<T: Encodable>(_ value: T) -> ToolText {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+        do {
+            return .init(String(decoding: try encoder.encode(value), as: UTF8.self))
+        } catch {
+            return .init("Failed to encode result: \(error.localizedDescription)", isError: true)
+        }
+    }
+
     /// A bad argument, named.
     struct ArgumentError: Error, CustomStringConvertible {
         let description: String
@@ -225,12 +242,33 @@ public enum DrawingReadTools {
     }
 
     /// An optional integer; absent and JSON `null` are nil, anything else that is not one is an error.
-    static func optionalInt(_ value: Value?, name: String) throws -> Int? {
+    static func optionalInt(
+        _ value: Value?, name: String, in range: ClosedRange<Int> = Int.min...Int.max
+    ) throws -> Int? {
         guard let value = present(value) else { return nil }
         guard let int = value.intValue else {
             throw ArgumentError(description: "`\(name)` must be an integer.")
         }
+        guard range.contains(int) else {
+            let bounds =
+                range.upperBound == Int.max
+                ? "at least \(range.lowerBound)" : "from \(range.lowerBound) to \(range.upperBound)"
+            throw ArgumentError(description: "`\(name)` must be \(bounds).")
+        }
         return int
+    }
+
+    /// Refuse an argument name the tool does not take, so a misspelt filter is not an ignored one.
+    static func rejectUnknownArguments(
+        _ arguments: [String: Value], allowed: [String], tool: String
+    ) throws {
+        let unknown = arguments.keys.filter { !allowed.contains($0) }.sorted()
+        guard unknown.isEmpty else {
+            throw ArgumentError(
+                description:
+                    "\(tool) takes no argument named \(unknown.map { "`\($0)`" }.joined(separator: ", ")). "
+                    + "Arguments: \(allowed.joined(separator: ", ")).")
+        }
     }
 
     /// An optional finite number, with the same absent and `null` rule.
@@ -367,7 +405,9 @@ public enum DrawingReadTools {
         for entity in drawing.entities {
             let type = DrawingEntities.typeName(entity)
             byType[type, default: 0] += 1
-            byLayer[DrawingEntities.layer(entity), default: [:]][type, default: 0] += 1
+            if let layer = DrawingEntities.layer(entity) {
+                byLayer[layer, default: [:]][type, default: 0] += 1
+            }
             if let box = DrawingEntities.bounds(of: entity) {
                 if union == nil {
                     union = box
@@ -393,6 +433,11 @@ public enum DrawingReadTools {
                     + "so no millimetre figure is given. measure_drawing takes `mmPerUnit` to supply one."
             )
         }
+        if let other = byType["other"], other > 0 {
+            warnings.append(
+                "\(other) entity(ies) are of a type this server has no mapping for and are listed as "
+                    + "type `other`, with no layer, colour or geometry.")
+        }
         if let inserts = loaded.skipped.byType["INSERT"], inserts > 0 {
             warnings.append(
                 "\(inserts) block insert(s) are not expanded, so the geometry they place is missing "
@@ -407,7 +452,7 @@ public enum DrawingReadTools {
             guard let lo = drawing.extMin, let hi = drawing.extMax else { return nil }
             return Box(min: lo, max: hi)
         }()
-        return IntrospectionTools.encode(
+        return encode(
             DrawingReport(
                 source: loaded.source,
                 units: UnitsRecord(
@@ -468,7 +513,11 @@ public enum DrawingReadTools {
         var matching: [Int] = []
         for (index, entity) in loaded.drawing.entities.enumerated() {
             if let typeSet, !typeSet.contains(DrawingEntities.typeName(entity)) { continue }
-            if let layerSet, !layerSet.contains(DrawingEntities.layer(entity)) { continue }
+            if let layerSet {
+                guard let layer = DrawingEntities.layer(entity), layerSet.contains(layer) else {
+                    continue
+                }
+            }
             if let window {
                 guard let box = DrawingEntities.bounds(of: entity) else { continue }
                 let hit =
@@ -486,7 +535,7 @@ public enum DrawingReadTools {
         let records = slice.map {
             entityRecord(loaded.drawing.entities[$0], index: $0, mmPerUnit: loaded.mmPerUnit)
         }
-        return IntrospectionTools.encode(
+        return encode(
             EntityListing(
                 source: sourceRef(loaded), total: matching.count, offset: paging.offset,
                 returned: records.count, truncated: paging.offset + records.count < matching.count,
@@ -535,7 +584,7 @@ public enum DrawingReadTools {
         }
         let paging = page(offset: offset, limit: limit, maxLimit: 5000, defaultLimit: 500)
         let slice = Array(all.dropFirst(paging.offset).prefix(paging.limit))
-        return IntrospectionTools.encode(
+        return encode(
             DimensionListing(
                 source: sourceRef(loaded), total: all.count, offset: paging.offset,
                 returned: slice.count, truncated: paging.offset + slice.count < all.count,

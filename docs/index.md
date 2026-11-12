@@ -11,14 +11,14 @@ family. The LLM picks a typed tool; OCCTMCP runs the OCCT operation in-process a
 PNG + a `manifest.json` scene the viewer auto-reloads.
 
 ```json
-// boolean_op — subtract one scene body from another
+// boolean_op: subtract one scene body from another
 { "op": "subtract", "aBodyId": "block", "bBodyId": "pin", "outputBodyId": "result" }
 ```
 
 Two interchangeable servers read/write the same scene:
 
 - **Swift** (`occtmcp-server`), the **primary**, in-process server. **83 typed tools.** macOS 15+.
-- **Node** (`dist/index.js`) — shells out to the `occtkit` CLI. **37-tool subset** (selection / remap /
+- **Node** (`dist/index.js`): shells out to the `occtkit` CLI. **37-tool subset** (selection / remap /
   annotations / reconstruction are Swift-only). Runs anywhere Node 18+ does.
 
 For geometry the typed tools don't cover, the LLM falls back to **`execute_script`**: arbitrary Swift
@@ -26,7 +26,7 @@ against the full OCCTSwift API, compiled and run in-process.
 
 ## Cookbook
 
-Task-oriented recipes — prose plus the actual tool calls (arguments + example results), chained into
+Task-oriented recipes: prose plus the actual tool calls (arguments + example results), chained into
 real workflows, with `render_preview` figures. The **[Cookbook index](guides/cookbook/)** lists all areas:
 
 [Authoring](guides/cookbook/authoring.md) ·
@@ -44,14 +44,14 @@ real workflows, with `render_preview` figures. The **[Cookbook index](guides/coo
 
 ## Reference
 
-- **[Tool Reference](reference/)** — per-tool-family detail: every tool's JSON-Schema parameters,
+- **[Tool Reference](reference/)**: per-tool-family detail: every tool's JSON-Schema parameters,
   returns, an example call + result, Node availability, and the OCCTSwift / occtkit behind it.
-- [README tool table](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools) — the one-line catalog.
+- [README tool table](https://github.com/SecondMouseAU/OCCTMCP#mcp-tools): the one-line catalog.
 
 ## Guides & concepts
 
-- [Getting started](guides/getting-started.md) — install, wire up `.mcp.json`, make your first call.
-- [Architecture](guides/architecture.md) — the two servers, the manifest scene model, history & remap, the layered OCCTSwift ecosystem.
+- [Getting started](guides/getting-started.md): install, wire up `.mcp.json`, make your first call.
+- [Architecture](guides/architecture.md): the two servers, the manifest scene model, history & remap, the layered OCCTSwift ecosystem.
 
 ## Project
 
