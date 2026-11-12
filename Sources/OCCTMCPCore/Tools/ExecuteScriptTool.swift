@@ -158,11 +158,13 @@ public enum ExecuteScriptTool {
         )
     }
 
-    static func runProcess(executable: String, args: [String]) async throws -> RunResult {
+    static func runProcess(
+        executable: String, args: [String], currentDirectory: URL = cacheDir
+    ) async throws -> RunResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args
-        process.currentDirectoryURL = cacheDir
+        process.currentDirectoryURL = currentDirectory
         // The script's `ScriptContext` resolves its output directory from the
         // environment, so a host-supplied directory has to reach the child that way.
         if let hostDirectory = OCCTMCPPaths.outputDirectoryOverride {
@@ -175,6 +177,8 @@ public enum ExecuteScriptTool {
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        // Listen for the exit from before the child exists (#265).
+        let exited = ProcessExit(process)
         try process.run()
 
         // Drain both pipes concurrently with the child still running, each in
@@ -199,12 +203,16 @@ public enum ExecuteScriptTool {
         async let stderrData = drain(stderrPipe.fileHandleForReading)
         let (stdoutBytes, stderrBytes) = await (stdoutData, stderrData)
 
-        process.waitUntilExit()
+        // Not `process.waitUntilExit()`. On a process with no termination handler it waits on the
+        // run loop of the thread that called `run()`, and after the awaits above this task can be
+        // on another thread, whose run loop never hears of the exit, so the call never returns
+        // (#265).
+        let exitCode = await exited.status()
 
         return RunResult(
             stdout: String(data: stdoutBytes, encoding: .utf8) ?? "",
             stderr: String(data: stderrBytes, encoding: .utf8) ?? "",
-            exitCode: process.terminationStatus
+            exitCode: exitCode
         )
     }
 
