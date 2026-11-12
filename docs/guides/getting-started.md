@@ -17,11 +17,11 @@ This page covers installing OCCTMCP, wiring it into an MCP client, and making yo
 ### Node server
 
 - Node.js 18+
-- The `occtkit` CLI on `$PATH` — install it by running `make install` inside a clone of
+- The `occtkit` CLI on `$PATH`: install it by running `make install` inside a clone of
   [OCCTSwiftScripts](https://github.com/SecondMouseAU/OCCTSwiftScripts), or keep a sibling clone at
   `~/Projects/OCCTSwiftScripts` so OCCTMCP can fall back to `swift run -c release occtkit` automatically
 
-The Node server exposes a 37-tool subset; the Swift server exposes all 79 tools (selection, remap,
+The Node server exposes a 37-tool subset; the Swift server exposes all 83 tools (selection, remap,
 annotations, reconstruction, mesh-zone analysis, mesh inspection, alignment, the viewport selection
 bridge, and more are Swift-only). See the [Tool Reference](../reference/) for per-tool server
 availability.
@@ -108,8 +108,8 @@ directory exported as `OCCTMCP_OUTPUT_DIR`.
 
 The scene files written there are:
 
-- `manifest.json` — the current scene (body IDs, colors, file paths)
-- `annotations.json` — dimensions and scene primitives
+- `manifest.json`: the current scene (body IDs, colors, file paths)
+- `annotations.json`: dimensions and scene primitives
 - One `.brep` file per body
 
 To set a custom output dir in your MCP client config, add an `env` key:
@@ -134,7 +134,7 @@ To set a custom output dir in your MCP client config, add an `env` key:
 ### 1. Build a box with `execute_script`
 
 For geometry the typed tools don't cover, the LLM authors a short Swift script. Here is the minimal
-template — the only correct shape:
+template: the only correct shape:
 
 ```swift
 import OCCTSwift
@@ -172,7 +172,7 @@ directory, and returns the updated manifest.
 }
 ```
 
-Returns the manifest — body IDs, display names, colors, and output-file paths. Use the `bodyId`
+Returns the manifest: body IDs, display names, colors, and output-file paths. Use the `bodyId`
 values (`"box"` here) to target subsequent tools.
 
 ### 3. Render a preview with `render_preview`
@@ -195,6 +195,6 @@ primitive overlays are composited automatically if you have added any via `add_d
 
 ## Next steps
 
-- **[Cookbook](../guides/cookbook/)** — task-oriented recipes for construction, analysis, selection,
+- **[Cookbook](../guides/cookbook/)**: task-oriented recipes for construction, analysis, selection,
   annotations, import/export, and more
-- **[Tool Reference](../reference/)** — every tool's parameters, return shape, and an example call
+- **[Tool Reference](../reference/)**: every tool's parameters, return shape, and an example call

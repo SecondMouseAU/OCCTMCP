@@ -13,12 +13,12 @@ generated: { by: claude-code/opus-5, at: 2026-06-22 }
 An **MCP (Model Context Protocol) server** that gives LLMs the ability to author, inspect, and
 iterate on 3D CAD models with [OpenCASCADE](https://www.opencascade.com/) via the
 [OCCTSwift](https://github.com/SecondMouseAU/OCCTSwift) family. The primary Swift implementation
-calls OCCT directly in-process (no subprocess, no JSONL marshalling) and exposes **79 typed MCP
+calls OCCT directly in-process (no subprocess, no JSONL marshalling) and exposes **83 typed MCP
 tools** spanning authoring, scene reads/mutation, introspection, construction, analysis, I/O,
 mesh, drawing, selection/remap, dimension overlays, the agent-to-viewport-host selection bridge,
 and an attributed reconstruction graph.
 
-The repo ships two implementations side-by-side: the **Swift** server (primary, 79 tools,
+The repo ships two implementations side-by-side: the **Swift** server (primary, 83 tools,
 macOS 15+) and the original **Node / TypeScript** server (37 tools, shells out to `occtkit`).
 
 ## Role in the ecosystem
@@ -31,7 +31,8 @@ macOS 15+) and the original **Node / TypeScript** server (37 tools, shells out t
   DrawingComposer),
   [OCCTSwiftTools](https://github.com/SecondMouseAU/OCCTSwiftTools),
   [OCCTSwiftViewport](https://github.com/SecondMouseAU/OCCTSwiftViewport),
-  [OCCTSwiftAIS](https://github.com/SecondMouseAU/OCCTSwiftAIS).
+  [OCCTSwiftAIS](https://github.com/SecondMouseAU/OCCTSwiftAIS),
+  [OCCTSwiftIO](https://github.com/SecondMouseAU/OCCTSwiftIO) (the drawing read tools' DXF import).
 - **External deps (not in `depends_on`):** the official
   [modelcontextprotocol/swift-sdk](https://github.com/modelcontextprotocol/swift-sdk) (MCP).
 - **Feeds products:** none declared yet; the LLM-facing CAD surface over the OCCTSwift kernel.

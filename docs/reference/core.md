@@ -79,8 +79,9 @@ meant "the scene as this script built it"): the new bodies' files are copied in 
 earlier file has, `manifest.json` is swapped under the manifest lock, and the files the previous
 manifest listed are then removed, so a failure before the swap leaves the old scene whole. Other
 files in the scene directory, `annotations.json` among them, are not touched; `provenance.json` is
-cleared, as `clear_scene` clears it. The stage is removed afterwards. The SPM workspace is `~/.occtmcp-cache/workspace`, or the directory in
-`OCCTMCP_SCRIPT_WORKSPACE` when that is set. Cold start is ~60 s on the first call (full SPM build of OCCTSwift); subsequent calls
+cleared, as `clear_scene` clears it. The stage is removed afterwards. The SPM workspace is
+`~/.occtmcp-cache/workspace`, or the directory in `OCCTMCP_SCRIPT_WORKSPACE` when that is set. Cold
+start is ~60 s on the first call (full SPM build of OCCTSwift); subsequent calls
 are ~1–2 s incremental. Fallible OCCTSwift factories return optionals: unwrap with `guard let`,
 never force-unwrap. Boolean operators on `Shape`: `a - b` subtract, `a + b` union, `a & b`
 intersect. The manifest write triggers the OCCTSwiftViewport live 3D reload.
@@ -97,7 +98,7 @@ Return the source of the most recent Swift CAD script executed in this session.
 
 No parameters.
 
-**\1**: The Swift source string of the last `execute_script` call in this session, or an
+**Returns**: The Swift source string of the last `execute_script` call in this session, or an
 error if no script has been run yet.
 
 **Example**
@@ -124,7 +125,7 @@ Read the current scene manifest (bodies, colors, materials).
 
 No parameters.
 
-**\1**: The contents of `manifest.json`: the list of bodies currently in the scene, each
+**Returns**: The contents of `manifest.json`: the list of bodies currently in the scene, each
 with its `id`, `name`, `color`, material, and BREP file reference.
 
 **Example**
@@ -155,7 +156,7 @@ directory.
 
 No parameters.
 
-**\1**: A list of file paths for every recognised CAD export format found in the output
+**Returns**: A list of file paths for every recognised CAD export format found in the output
 directory. Does not trigger an export; use `export_scene` (scene-mutation family) to write new
 files.
 
@@ -191,7 +192,7 @@ OCCTSwift docs for the OCCT API categories.
 |------|------|:--------:|-------------|
 | `category` | string | no | `'mcp_tools'` for the live tool catalog; any other value returns a pointer to the OCCTSwift sources / docs. |
 
-**\1**: When `category` is `"mcp_tools"`: the full JSON Schema of every registered tool,
+**Returns**: When `category` is `"mcp_tools"`: the full JSON Schema of every registered tool,
 suitable for LLM auto-discovery. Otherwise: a pointer to OCCTSwift source documentation.
 
 **Example**
@@ -214,7 +215,7 @@ suitable for LLM auto-discovery. Otherwise: a pointer to OCCTSwift source docume
 }
 ```
 
-**\1**: Call this at session start with `category: "mcp_tools"` to let the LLM discover the
+**Notes**: Call this at session start with `category: "mcp_tools"` to let the LLM discover the
 full tool surface without relying on static documentation.
 
 ---
@@ -227,7 +228,7 @@ Sanity-check tool: returns `"pong"` so callers can verify the OCCTMCP Swift serv
 
 No parameters.
 
-**\1**: The string `"pong"`.
+**Returns**: The string `"pong"`.
 
 **Example**
 
@@ -265,6 +266,104 @@ let server = await makeOCCTMCPServer(extraTools: [
 - `get_api_reference` with `category: "mcp_tools"` lists the live catalog, so it includes the extra
   tools and omits any built-in they replaced.
 - With no extras (the default) the catalog and behaviour are unchanged.
+
+### What an extra tool can hold, add and report
+
+A handler is a closure, so it can carry whatever the tool needs between calls. A pair of tools
+that share a ledger, a solve or a recipe the human is editing hold it the same way:
+
+```swift
+actor Ledger {
+    private var entries: [String] = []
+    func append(_ entry: String) { entries.append(entry) }
+    var all: [String] { entries }
+}
+
+let ledger = Ledger()
+let extras = [
+    ExtraTool(tool: ledgerAddTool, handler: { args in
+        await ledger.append(args["entry"]?.stringValue ?? "")
+        return .init(content: [.text(text: "recorded", annotations: nil, _meta: nil)])
+    }),
+    ExtraTool(tool: ledgerListTool, handler: { _ in
+        .init(content: [.text(text: await ledger.all.joined(separator: ","), annotations: nil, _meta: nil)])
+    }),
+]
+```
+
+- The state lives as long as the closure that holds it, so one `Ledger` per server is one session.
+  Handlers run concurrently (the SDK handles each request on its own task), so guard shared
+  state with an actor or a lock, as above.
+- A tool call is not retried and has no identity beyond its arguments: a handler that needs to
+  tie one call to another does it through its own state or through the scene.
+
+**Adding a body to the scene.** `SceneBodies.add(shape:)` writes a BREP body into the scene and
+returns the id it was given. It is the code `read_brep` and `import_file` use, so a body a handler
+adds is staged beside the manifest, moved into place under the manifest lock, pushed onto
+`SceneHistory` (so `compare_versions` can diff against it), and reported to the host's
+`manifestWriteObserver` under the handler's own tool name.
+
+```swift
+let id = try await SceneBodies.add(shape: solid, idPrefix: "profile", color: [0.8, 0.2, 0.2, 1])
+// "profile", or "profile_1" if that id was taken. Built-in tools take it as `bodyId`.
+```
+
+- Pass `bodyId` to choose the id. A taken id throws `ManifestError.bodyIdTaken` and leaves the
+  existing body alone. Without it the first free `idPrefix`, `idPrefix_1`, `idPrefix_2` is used,
+  chosen under the manifest lock, so concurrent adds with one prefix each get their own id.
+- A body's file is `<id>.brep`. An add whose file name another body already has, compared without
+  regard to case because the scene may sit on a case-insensitive volume, throws
+  `SceneBodiesError.fileInUse` and overwrites nothing; a generated id skips such names. `read_brep`
+  and `import_file` apply the same rule.
+- An id names the body's file, so it must not be empty, start with a dot or contain `/`; anything
+  else throws `SceneBodiesError.invalidBodyId` before anything is written. `read_brep` and
+  `import_file` now apply the same rule.
+- `allowInvalid: true` writes a shape that fails validation, as `import_file` does for a mesh shell.
+- It does not check that the shape has an extent. `read_brep` does, and a handler that reports a
+  bounding box should check `shape.bounds` first.
+- The body is always written as BREP. A handler that wants a `step` body writes the file and the
+  manifest entry itself, through `ManifestStore.update`.
+
+**Finding a body again.** `SceneBodies.body(withId:)` returns the manifest entry and
+`SceneBodies.shape(ofBody:)` returns its shape, read the way a built-in reading tool reads it: the
+host's own shape from `bodyShapeProvider` when it supplies one, else the body's file read by its
+`format`, parsed afresh on each call. That is right for geometry: measure it, take a volume, tessellate
+it. It is not a way to resolve a `selectionId` or a `GraphUID`. Those resolve through the body's
+retained lineage graph, a node index there is not a position in `Shape.faces()`, and a freshly parsed
+shape is not a node of that graph. A host that holds the shape its picks index into returns it from
+`bodyShapeProvider`, and the shape a handler reads here is then that same one. Errors are
+`IntrospectionTools.ToolError` (no scene, no such body, file missing) or `BodyLoadError` (unreadable
+file); a handler that lets one escape produces an `isError` result that names it.
+
+Both resolve the scene directory from the calling task, so they must run on the tool call's own
+task or a child of it. `Task.detached` drops the directory passed to `outputDirectory:` and falls
+back to the process default.
+
+**Progress.** `OCCTMCPContext.reportProgress(_:total:message:)` sends `notifications/progress`
+for the running call when the client put a `progressToken` in the request's `_meta`, and does
+nothing otherwise, so a handler calls it unconditionally:
+
+```swift
+for (i, step) in steps.enumerated() {
+    try Task.checkCancellation()
+    try await step.run()
+    await OCCTMCPContext.reportProgress(Double(i + 1), total: Double(steps.count), message: step.name)
+}
+```
+
+Send values that rise with each call, and only while the handler is running: the spec ends a
+request's progress when it completes. A notification that cannot be sent is dropped and never fails
+the call. The built-in tools do not report progress today; this is for handlers that run for
+seconds, such as a constraint solve.
+
+**Cancellation.** When a client sends `notifications/cancelled`, the SDK cancels the Swift task
+running the handler. A handler awaiting a cancellable call (`Task.sleep`, a `URLSession` request) is
+interrupted at that await. Awaiting an actor's method is not a cancellation point, and neither is a
+synchronous loop: check `try Task.checkCancellation()` between steps. Rethrow `CancellationError`
+rather than turning it into a result. A handler that ignores the cancellation runs to its end,
+because the server waits for it, but the server then sends no response for a request that was
+cancelled, as the MCP spec asks, whatever the handler returned. The host's `toolCallObserver` still
+sees the call finish.
 
 ## Embedding: promoting a script's output
 
@@ -321,6 +420,82 @@ let server = await makeOCCTMCPServer(
 - `toolCallObserver` receives events one at a time, in order, on its own task: a slow observer never
   delays a tool result. Events carry a `callID` that ties a start to its finish.
 - With neither set (the default) behaviour is unchanged.
+
+## Body formats, and supplying a body's shape
+
+A manifest body carries a `format`, and every tool that reads a body's shape reads its file by
+that format: `brep` through `Shape.loadBREP`, `step` through the STEP reader, and `iges`, `stl`
+and `obj` as `import_file` does (one shared reader, so a body and an import of the same file
+agree). The value is matched case-insensitively and `stp`, `igs` and `brp` are accepted. STEP is
+read with a 1 mm target unit, as `import_file` reads it. A format outside that list is an error
+that names it, as is a file that does not parse:
+
+```text
+Failed to read step body "valve" from /scene/valve.step: Failed to read /scene/valve.step: <status>
+Body "valve" has format "glb", which this server cannot read. Supported formats: step, iges, obj, brep, stl.
+```
+
+Tools that write a body back write BREP and copy the input body's `format` onto the result:
+`transform_body`, `apply_feature`, `heal_shape` and `align_bodies` overwrite the body's own file,
+and `boolean_op` and `mirror_or_pattern` write a new file. A `step` body would be overwritten
+with BREP bytes or a BREP file would be labelled `step`, so these accept `brep` bodies only and
+refuse any other with `This tool edits brep bodies only`, leaving the file and the manifest as
+they were. The raw-path tools (`graph_validate`, `graph_compact` and the other `brep_path`
+tools) read BREP by construction.
+
+A host that already holds a body's shape can hand it to the tools, so a pick the host made and
+the entity a tool reads are the same one. A STEP assembly read twice can come back with a
+different face order or different `GraphUID`s, and the host's own copy is the one its picks index
+into:
+
+```swift
+let server = await makeOCCTMCPServer(
+    outputDirectory: sceneDirectory,
+    bodyShapeProvider: { body, outputDir in
+        // The shape the host loaded for this body, or nil to let the tool read the file.
+        hostScene.shape(forBodyId: body.id)
+    })
+```
+
+- The provider is consulted first, by every read of a body's shape, including the history-aware
+  reads behind `select_topology`, `get_selection`, `auto_dimension`, `select_by_feature` and
+  `measure_distance`. Returning nil falls through to the format dispatch above. Throwing fails
+  the tool call, except in the few lookups that already treat an unreadable body as absent
+  (`remap_selection`, the `diff_overlay` markers and the source side of `find_correspondences`),
+  where it counts as unreadable.
+- The body's file stays the manifest's record of it, and most tools check it exists before asking
+  the provider, so a host should still write the file. The provider replaces reading it.
+- The retained lineage graph for a body is built from the provided shape and cached by that
+  shape's identity as well as by the body file's fingerprint. A host that swaps the shape it holds
+  without touching the file gets a rebuilt lineage, so a `selectionId`'s index and uid stay those
+  of the shape the host holds. A lookup the host declines reads the file, never the host's old
+  shape.
+- Editing tools never ask the provider: they start from the body's file, and `align_bodies` with
+  `apply: true` reads the file it is about to overwrite (a dry run reads like any other tool). A
+  lineage built from the host's shape is not continued into an edit, so an edit runs on the same
+  input whichever tool ran before it, and a `GraphUID` minted from a host pick does not survive
+  the edit; `remap_selection` then resolves it by a lower rung. For the same reason a host-backed
+  read of a body after an edit rebuilds its lineage from the host's shape (a refreshed copy is a
+  different shape from the edit's output), which drops the history the edit recorded, so call
+  `remap_selection` before reading the body again. A host that supplies shapes for bodies those
+  tools edit should refresh its copy when the manifest changes, as it would for any edit.
+- The registry keeps the host's shape alive in the body's lineage entry until that body is looked
+  up again, renamed or cleared, so a host that drops a large body can find it retained.
+- The provider is called synchronously, on whichever executor the tool is already running on:
+  the main actor for `render_preview`, `pick_surface_point`, `align_bodies` and the mesh, heatmap,
+  zone, fit and symmetry tools, and inside the history registry's actor for the lineage reads
+  (`select_topology`, `get_selection`, `auto_dimension`, `select_by_feature`, `measure_distance`).
+  It must return without waiting on either: a hop to the main actor with `DispatchQueue.main.sync`
+  deadlocks in the main-actor tools, and `MainActor.assumeIsolated` traps in the rest. Keep the
+  shapes in a lock-protected map and read that. The tool is handed the shape itself, uncopied, so
+  the host also owns synchronisation of anything else that reads it while a tool runs.
+- A tool that tessellates a body (`generate_mesh`, `render_preview`, `pick_surface_point` and the
+  mesh and deviation tools) meshes the provided shape itself, and OCCT keeps a triangulation on
+  the shape it meshes. A host that keeps its own display triangulation on that shape can return a
+  copy for those tools, at the cost of the shared identity above, or accept that they share it.
+- The provider is a task-local scoped to each tool call, like the observers above, so two servers
+  in one process never see each other's. It is not seen from a `Task.detached`.
+- With no provider (the default) behaviour is unchanged for `brep` bodies.
 
 ## Embedding: committing the manifest
 

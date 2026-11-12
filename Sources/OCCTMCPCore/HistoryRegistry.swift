@@ -10,11 +10,13 @@
 // identity, and Shape.loadBREP mints a new TShape tree every call even for byte-identical content,
 // so re-loading from disk between hops silently produces a zero-record absorb.
 //
-// `currentInput` is the single path every history-aware tool uses to obtain its starting Shape:
-// fingerprint match (mtime+size on the body's BREP file) returns the cached liveShape/graph/root
-// with no disk read; any mismatch (first touch, or an out-of-band rewrite, e.g. execute_script)
-// triggers a fresh load and a fresh graph. `commit` absorbs a mutation's ShapeHistoryRef into the
-// graph currentInput returned and writes the resulting lineage back. When there's no ref, or the
+// `currentEditInput` (editing tools) and `currentInput(bodyId:body:outputDir:)` (reading tools,
+// which may be handed the embedding host's own shape) are the two paths every history-aware tool
+// uses to obtain its starting Shape: fingerprint match (mtime+size on the body's file) returns the
+// cached liveShape/graph/root with no disk read; any mismatch (first touch, or an out-of-band
+// rewrite, e.g. execute_script) triggers a fresh load and a fresh graph. `commit` absorbs a
+// mutation's ShapeHistoryRef into the graph the lookup returned and writes the resulting lineage
+// back. When there's no ref, or the
 // absorb fails or no-ops (add() returns nil, or historyRecordCount doesn't grow, the TShape-
 // identity gap surfacing despite currentInput's best effort), it falls back to a generation reset:
 // a fresh graph built from the output alone, exactly today's behaviour.
@@ -37,6 +39,7 @@
 
 import Foundation
 import OCCTSwift
+import ScriptHarness
 import simd
 
 public enum HistoryRegistryError: Error, CustomStringConvertible {
@@ -72,6 +75,9 @@ public actor HistoryRegistry {
         var liveShape: Shape
         var root: BRepGraph.NodeRef
         var fingerprint: FileFingerprint
+        /// True when `liveShape` is the embedding host's own shape rather than one read from the
+        /// file, so a lookup that has no host shape to offer rebuilds from the file instead.
+        var fromHost = false
     }
 
     private var entries: [String: LineageEntry] = [:]
@@ -112,22 +118,101 @@ public actor HistoryRegistry {
         return FileFingerprint(mtime: date.timeIntervalSince1970, size: size)
     }
 
-    /// Resolve the Shape + retained graph to mutate for `bodyId` at `path`.
+    /// Resolve the Shape + retained graph an editing tool starts from, for `bodyId` at `path`.
     ///
     /// Re-stats `path` (no content read) and compares against the cached fingerprint: a match
     /// returns the cached liveShape/graph/root with no disk I/O at all. Any mismatch (no entry
-    /// yet, or the file changed out from under the registry) loads fresh from disk and starts a
-    /// brand-new graph, caching it under `bodyId` before returning.
+    /// yet, the file changed out from under the registry, or the cached lineage was built from an
+    /// embedding host's shape) loads the file as BREP and starts a brand-new graph, caching it
+    /// under `bodyId` before returning. An edit therefore always starts from the file, whatever a
+    /// reading tool ran before it.
+    ///
+    /// For tools that write BREP back to `path`, which must also have checked the body is `brep`
+    /// (`BodyLoader.editRefusal`). It never asks the embedding host for a shape. A tool that only
+    /// reads the body calls `currentInput(bodyId:body:outputDir:)`.
+    @discardableResult
+    public func currentEditInput(
+        bodyId: String,
+        path: String
+    ) throws -> (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool) {
+        try resolveInput(bodyId: bodyId, path: path, lookup: .editing) {
+            try Shape.loadBREP(fromPath: path)
+        }
+    }
+
+    /// The same, for a tool that only reads `body`: the host's own shape when it supplies one,
+    /// otherwise the body's file read by its manifest `format`.
+    ///
+    /// A host shape is cached by identity as well as by file fingerprint. The file need not change
+    /// when the host swaps the shape it holds, so a cached lineage built from a different shape
+    /// is rebuilt from the host's, keeping `GraphUID`s and `index` values those of the shape the
+    /// host actually holds. A lineage built from the host's shape is not served to a lookup the
+    /// host declines, which reads the file instead.
+    @discardableResult
+    public func currentInput(
+        bodyId: String,
+        body: BodyDescriptor,
+        outputDir: String
+    ) throws -> (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool) {
+        try resolveInput(
+            bodyId: bodyId, path: "\(outputDir)/\(body.file)",
+            lookup: .reading(host: try BodyLoader.hostShape(for: body, outputDir: outputDir))
+        ) {
+            try BodyLoader.loadFromFile(body: body, outputDir: outputDir)
+        }
+    }
+
+    /// The pre-#258 name of `currentEditInput(bodyId:path:)`, which reads the file as BREP.
+    ///
+    /// Kept so an embedding host that calls it still compiles. A reading tool should call
+    /// `currentInput(bodyId:body:outputDir:)`, which reads by the body's manifest `format`.
+    @available(
+        *, deprecated,
+        message:
+            "reads BREP only: use currentEditInput(bodyId:path:) before an edit, or currentInput(bodyId:body:outputDir:) to read"
+    )
     @discardableResult
     public func currentInput(
         bodyId: String,
         path: String
     ) throws -> (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool) {
+        try currentEditInput(bodyId: bodyId, path: path)
+    }
+
+    /// Who is asking, which decides whether a cached lineage still answers.
+    private enum Lookup {
+        /// An editing tool: starts from the file, so a lineage built from a host's shape is not
+        /// continued. What an edit runs on then never depends on which tool ran before it.
+        case editing
+        /// A reading tool, with the shape the host supplied for the body, nil when it supplied none.
+        case reading(host: Shape?)
+
+        var hostShape: Shape? {
+            if case .reading(let host) = self { return host }
+            return nil
+        }
+
+        func accepts(_ entry: LineageEntry) -> Bool {
+            switch self {
+            case .editing: return !entry.fromHost
+            case .reading(let host):
+                return host.map { $0.isSame(as: entry.liveShape) } ?? !entry.fromHost
+            }
+        }
+    }
+
+    private func resolveInput(
+        bodyId: String,
+        path: String,
+        lookup: Lookup,
+        load: () throws -> Shape
+    ) throws -> (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool) {
         let fp = Self.fingerprint(atPath: path)
-        if let entry = entries[bodyId], let fp, entry.fingerprint == fp {
+        if let entry = entries[bodyId], let fp, entry.fingerprint == fp, lookup.accepts(entry) {
             return (entry.liveShape, entry.graph, entry.root, false)
         }
-        let shape = try Shape.loadBREP(fromPath: path)
+        let hostShape = lookup.hostShape
+        let shape = try hostShape ?? load()
         guard let graph = BRepGraph(shape: shape),
             let root = Self.trackableRoot(for: shape, in: graph)
         else {
@@ -137,7 +222,8 @@ public actor HistoryRegistry {
             graph: graph,
             liveShape: shape,
             root: root,
-            fingerprint: fp ?? FileFingerprint(mtime: 0, size: 0)
+            fingerprint: fp ?? FileFingerprint(mtime: 0, size: 0),
+            fromHost: hostShape != nil
         )
         return (shape, graph, root, true)
     }

@@ -28,7 +28,7 @@ UV-grid sample each face and cast an inward ray to the opposite wall; reports mi
 | `minAcceptable` | number | no | Thickness threshold (mm). Samples below this are flagged as thin regions. |
 | `samplingDensity` | string (`"coarse"` \| `"medium"` \| `"fine"`) | no | Ray-casting grid density per face. Defaults to `"medium"` when omitted. |
 
-**Returns** — JSON object with `min`, `max`, and `mean` thickness values (mm), plus a `thinRegions` array of sample locations where thickness fell below `minAcceptable`. Returns an error string if the body is not found.
+**Returns**: JSON object with `min`, `max`, and `mean` thickness values (mm), plus a `thinRegions` array of sample locations where thickness fell below `minAcceptable`. Returns an error string if the body is not found.
 
 **Example**
 
@@ -48,7 +48,7 @@ UV-grid sample each face and cast an inward ray to the opposite wall; reports mi
 }
 ```
 
-**Notes** — `samplingDensity: "fine"` increases accuracy at the cost of speed; use `"coarse"` for a quick sanity check on large bodies.
+**Notes**: `samplingDensity: "fine"` increases accuracy at the cost of speed; use `"coarse"` for a quick sanity check on large bodies.
 
 ---
 
@@ -65,7 +65,7 @@ Pairwise interference and minimum-clearance check between two or more bodies; ea
 | `bodyIds` | string[] (min 2) | yes | IDs of the bodies to check against each other. All pairs are evaluated. |
 | `computeContacts` | boolean | no | When `true`, include up to 16 contact / near-contact point pairs per body pair. |
 
-**Returns** — JSON array of pair results, each with `bodyA`, `bodyB`, `minDistance` (mm; ≈ 0 or negative indicates interference), and optionally `contacts` (array of point pairs). Returns an error string if fewer than two valid bodies are found.
+**Returns**: JSON array of pair results, each with `bodyA`, `bodyB`, `minDistance` (mm; ≈ 0 or negative indicates interference), and optionally `contacts` (array of point pairs). Returns an error string if fewer than two valid bodies are found.
 
 **Example**
 
@@ -91,7 +91,7 @@ Pairwise interference and minimum-clearance check between two or more bodies; ea
 }
 ```
 
-**Notes** — A `minDistance` of 0 means the bodies are exactly touching; a negative value indicates interference (overlap). See [`measure_distance`](introspection.md#measure_distance) for a quick two-body gap check without contact points.
+**Notes**: A `minDistance` of 0 means the bodies are exactly touching; a negative value indicates interference (overlap). See [`measure_distance`](introspection.md#measure_distance) for a quick two-body gap check without contact points.
 
 ---
 
@@ -108,7 +108,7 @@ Heal imported or non-watertight geometry via OCCT ShapeFix; returns before/after
 | `bodyId` | string | yes | ID of the body to heal in place. |
 | `outputBodyId` | string | no | If provided, the healed result is stored under this new ID and the original body is left unchanged. |
 
-**Returns** — JSON object with `before` and `after` sections each containing validity flags and face/edge/vertex counts, plus a `topologyPreserved` boolean. Returns an error string if the body is not found or healing fails.
+**Returns**: JSON object with `before` and `after` sections each containing validity flags and face/edge/vertex counts, plus a `topologyPreserved` boolean. Returns an error string if the body is not found or healing fails.
 
 **Example**
 
@@ -125,4 +125,4 @@ Heal imported or non-watertight geometry via OCCT ShapeFix; returns before/after
 }
 ```
 
-**Notes** — Run [`validate_geometry`](introspection.md#validate_geometry) before and after to confirm the repair. If `topologyPreserved` is `false`, selection IDs minted before healing fall back to the centroid heuristic during remap rather than the history-based path. Use `outputBodyId` to keep the original body available for comparison with [`measure_deviation`](introspection.md#measure_deviation).
+**Notes**: Run [`validate_geometry`](introspection.md#validate_geometry) before and after to confirm the repair. If `topologyPreserved` is `false`, selection IDs minted before healing fall back to the centroid heuristic during remap rather than the history-based path. Use `outputBodyId` to keep the original body available for comparison with [`measure_deviation`](introspection.md#measure_deviation). Accepts `brep` bodies only: it overwrites the body's own BREP file, so a body of any other format is refused with `This tool edits brep bodies only` and left untouched (see [Body formats](core.md#body-formats-and-supplying-a-bodys-shape)).

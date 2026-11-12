@@ -52,14 +52,15 @@ public enum DrawingTools {
             }
             let inputPath = "\(outputDir)/\(body.file)"
             guard FileManager.default.fileExists(atPath: inputPath) else {
-                return .init("BREP file missing: \(inputPath)", isError: true)
+                return .init(
+                    "\(body.format.uppercased()) file missing: \(inputPath)", isError: true)
             }
             do {
-                let shape = try Shape.loadBREP(fromPath: inputPath)
+                let shape = try BodyLoader.loadShape(body: body, outputDir: outputDir)
                 loaded.append((id, body.name ?? id, shape))
             } catch {
                 return .init(
-                    "Failed to load BREP \(id): \(error.localizedDescription)", isError: true)
+                    "Failed to load body \(id): \(error.localizedDescription)", isError: true)
             }
         }
 

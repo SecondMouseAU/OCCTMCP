@@ -95,7 +95,7 @@ OCCTSwift alone.
    the Metal target, the MCP Swift SDK's swift-nio transport replaced, and OCCTSwiftIO gated. Not
    needed for the Node route.
 
-## Tool classification for the Swift server (79 tools)
+## Tool classification for the Swift server (83 tools)
 
 Heuristic: for each case in `Server.dispatch`, the handler file's imports. A comment that merely
 mentions a type is counted, so treat the Viewport columns as an upper bound.
@@ -105,6 +105,7 @@ mentions a type is counted, so treat the Viewport columns as an upper bound.
 | Pure OCCTSwift, no Viewport | 63 | everything not listed below, including selection, remap, topology and metrics, graph, construction, mesh diagnostics, thickness, deviation, reconstruct, assembly, drawing, I/O |
 | Builds `ViewportBody` values for output (needs the type, not the GPU) | 11 | remove_body, clear_scene, rename_body, set_appearance, compare_versions, align_bodies, segment_mesh_zones, zone_continuity_sweep, mesh_curvature, detect_mesh_features, fit_primitives |
 | Needs a renderer or the viewport ray pick | 4 | render_preview, signed_deviation_heatmap, overlay_render, pick_surface_point |
+| Reads DXF through OCCTSwiftIO, which a wasm build gates (#260) | 4 | read_drawing, list_drawing_entities, list_drawing_dimensions, measure_drawing |
 | Spawns a process | 1 | execute_script |
 
 ## Known costs

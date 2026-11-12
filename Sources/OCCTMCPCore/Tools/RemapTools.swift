@@ -74,7 +74,7 @@ public enum RemapTools {
             // already do (OCCTSwift #943) rather than being matched against a
             // tolerance derived from a fabricated zero-size box.
             guard FileManager.default.fileExists(atPath: path),
-                let shape = try? Shape.loadBREP(fromPath: path),
+                let shape = try? BodyLoader.loadShape(body: body, outputDir: outputDir),
                 let bb = shape.bounds
             else {
                 for id in ids {

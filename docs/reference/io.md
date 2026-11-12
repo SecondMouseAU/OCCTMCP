@@ -25,11 +25,11 @@ Add a `.brep` file from disk to the scene as a new body.
 | name | type | required | description |
 |------|------|:--------:|-------------|
 | `inputPath` | string | yes | Path to the `.brep` file to load. |
-| `bodyId` | string | no | ID to assign in the scene manifest; auto-generated if omitted. |
+| `bodyId` | string | no | ID to assign in the scene manifest; auto-generated if omitted (the Swift server uses the file name without its extension). On the Swift server the id names the body's file, so it must not be empty, start with a dot or contain `/`; the error says so. |
 | `color` | number[] | no | RGB or RGBA colour for the body (values 0–1). |
 | `allowInvalid` | boolean | no | Load a topologically invalid / loose-face shape as-is (skip the validity write-gate) so `compute_metrics` / `measure_deviation` / `validate_geometry` can run on an in-progress reconstruction. Default `false`. |
 
-**Returns** — The updated scene manifest entry for the new body, including its assigned `bodyId` and bounding info. Returns an error if the file does not exist or fails to parse (and `allowInvalid` is `false`).
+**Returns**: The updated scene manifest entry for the new body, including its assigned `bodyId` and bounding info. Returns an error if the file does not exist or fails to parse (and `allowInvalid` is `false`).
 
 A file that parses but holds nothing with a bounding box (an empty or null shape) is also an error. The bounding box is read before the scene is written, so this case leaves the scene untouched rather than registering a body whose reported extent would have to be invented.
 
@@ -44,7 +44,7 @@ A file that parses but holds nothing with a bounding box (an empty or null shape
 { "bodyId": "part", "name": "part", "path": "/Users/me/output/part.brep" }
 ```
 
-**Notes** — Set `allowInvalid: true` when loading a mesh-reconstructed solid that has open shells or non-manifold edges; the shape is added as-is so you can immediately call `validate_geometry` to inspect its defects or `measure_deviation` to certify it against a reference mesh. The validity gate is re-applied on the next `export_scene` call.
+**Notes**: Set `allowInvalid: true` when loading a mesh-reconstructed solid that has open shells or non-manifold edges; the shape is added as-is so you can immediately call `validate_geometry` to inspect its defects or `measure_deviation` to certify it against a reference mesh. The validity gate is re-applied on the next `export_scene` call. On the Swift server a body whose file name (`<id>.brep`) another body already has, compared without regard to case, is refused instead of overwriting that body's file.
 
 ---
 
@@ -60,10 +60,10 @@ Multi-format CAD import (STEP / IGES / BREP / STL / OBJ). Adds the imported shap
 |------|------|:--------:|-------------|
 | `inputPath` | string | yes | Path to the file to import. |
 | `format` | `"auto"` \| `"step"` \| `"iges"` \| `"brep"` \| `"stl"` \| `"obj"` | no | File format; defaults to `"auto"`, inferred from extension (`.step`/`.stp`, `.iges`/`.igs`, `.brep`/`.brp`, `.stl`, `.obj`). An explicit `format` **overrides** the extension sniff. |
-| `idPrefix` | string | no | Prefix for auto-generated body IDs when the file contains multiple parts. |
+| `idPrefix` | string | no | Prefix for auto-generated body IDs when the file contains multiple parts. On the Swift server, like a `bodyId`, it must not be empty, start with a dot or contain `/`. |
 | `allowInvalid` | boolean | no | Import a topologically invalid / loose-face shape as-is (skip the validity write-gate) so the analysis tools can measure an in-progress reconstruction. Default `false`. |
 
-**Returns** — The scene manifest entries for all bodies added, each with its `bodyId`. Returns an error if the format is unrecognised or import fails.
+**Returns**: The scene manifest entries for all bodies added, each with its `bodyId`. Returns an error if the format is unrecognised or import fails.
 
 **Example**
 
@@ -76,11 +76,11 @@ Multi-format CAD import (STEP / IGES / BREP / STL / OBJ). Adds the imported shap
 { "added": [{ "bodyId": "bracket_0", "name": "bracket_0" }] }
 ```
 
-**Notes** — Like `read_brep`, `allowInvalid: true` bypasses the write-gate so you can load a loose-face or open-shell STEP file produced by a reconstruction tool and immediately measure it with `measure_deviation` or `validate_geometry`. STEP assemblies with multiple solids produce one body per solid, each prefixed with `idPrefix`.
+**Notes**: Like `read_brep`, `allowInvalid: true` bypasses the write-gate so you can load a loose-face or open-shell STEP file produced by a reconstruction tool and immediately measure it with `measure_deviation` or `validate_geometry`. STEP assemblies with multiple solids produce one body per solid, each prefixed with `idPrefix`. On the Swift server a body whose file name (`<id>.brep`) another body already has, compared without regard to case, is refused instead of overwriting that body's file.
 
-BREP (`.brep` / `.brp`) is a single shape, so it imports as one body. On the **Swift** server it loads in-process via `Shape.loadBREP`. On the **Node** server it is routed to the occtkit `load-brep` verb — occtkit's `import` verb itself has no BREP loader — so `import_file` is a single entry point for every format on both servers (you don't need to fall back to `read_brep` for BREP).
+BREP (`.brep` / `.brp`) is a single shape, so it imports as one body. On the **Swift** server it loads in-process via `Shape.loadBREP`. On the **Node** server it is routed to the occtkit `load-brep` verb (occtkit's `import` verb itself has no BREP loader), so `import_file` is a single entry point for every format on both servers (you don't need to fall back to `read_brep` for BREP).
 
-**Mesh formats (STL / OBJ)** load in-process on the Swift server as a *raw triangulated shell* (`Shape.loadSTL` / `Shape.loadOBJ`, no sew/heal so an open scan skin isn't distorted). Because a mesh shell isn't a valid solid, the write-gate is skipped automatically for these formats (you don't need `allowInvalid`). This is the front door for a **reference scan / STL skin** — import it, then certify a reconstruction against it with [`measure_deviation`](introspection.md#measure_deviation) or [`cross_section_compare`](introspection.md#cross_section_compare).
+**Mesh formats (STL / OBJ)** load in-process on the Swift server as a *raw triangulated shell* (`Shape.loadSTL` / `Shape.loadOBJ`, no sew/heal so an open scan skin isn't distorted). Because a mesh shell isn't a valid solid, the write-gate is skipped automatically for these formats (you don't need `allowInvalid`). This is the front door for a **reference scan / STL skin**, import it, then certify a reconstruction against it with [`measure_deviation`](introspection.md#measure_deviation) or [`cross_section_compare`](introspection.md#cross_section_compare).
 
 ---
 
@@ -98,7 +98,7 @@ Export the current scene (or a named subset of bodies) to STEP / IGES / BREP / S
 | `outputPath` | string | yes | Destination file path (must be writable). |
 | `bodyIds` | string[] | no | Subset of body IDs to export; omit to export the entire scene. |
 
-**Returns** — Confirmation with the written `outputPath` and the list of body IDs exported. Returns an error if no scene bodies exist or the path is not writable.
+**Returns**: Confirmation with the written `outputPath` and the list of body IDs exported. Returns an error if no scene bodies exist or the path is not writable.
 
 **Example**
 
@@ -111,7 +111,7 @@ Export the current scene (or a named subset of bodies) to STEP / IGES / BREP / S
 { "outputPath": "/Users/me/output/assembly.step", "exported": ["base", "bracket", "lid"] }
 ```
 
-**Notes** — `glb` produces a single binary glTF bundle suitable for web viewers. Use `bodyIds` to isolate a subassembly without removing bodies from the scene. Internally this runs a one-shot templated script via `occtkit` on both the Swift and Node servers.
+**Notes**: `glb` produces a single binary glTF bundle suitable for web viewers. Use `bodyIds` to isolate a subassembly without removing bodies from the scene. Internally this runs a one-shot templated script via `occtkit` on both the Swift and Node servers.
 
 ---
 
@@ -143,7 +143,7 @@ Write XCAF document- or component-level metadata onto an OCAF document and save 
 | `drawnBy` | string | Author or drafter name. |
 | `customAttrs` | object (string→string) | Arbitrary key/value pairs. |
 
-**Returns** — Confirmation with the written `outputPath`. Returns an error if the input file cannot be read or the output path is not writable.
+**Returns**: Confirmation with the written `outputPath`. Returns an error if the input file cannot be read or the output path is not writable.
 
 **Example**
 
@@ -168,4 +168,4 @@ Write XCAF document- or component-level metadata onto an OCAF document and save 
 { "outputPath": "/Users/me/output/assembly_meta.xbf" }
 ```
 
-**Notes** — The output is always `.xbf` (binary OCAF format), regardless of the input format. To target a specific sub-component, set `scope: "component"` and provide `componentId` (zero-based index into the XCAF shape tree). Use `inspect_assembly` (see [Introspection & measurement](introspection.md#inspect_assembly)) to discover component indices first. An `.xbf` input (such as a previous output) is read with the OCAF reader and keeps its earlier metadata. An empty file, a file without the binary OCAF `BINFILE` header, or a body the reader rejects returns an error naming the cause.
+**Notes**: The output is always `.xbf` (binary OCAF format), regardless of the input format. To target a specific sub-component, set `scope: "component"` and provide `componentId` (zero-based index into the XCAF shape tree). Use `inspect_assembly` (see [Introspection & measurement](introspection.md#inspect_assembly)) to discover component indices first. An `.xbf` input (such as a previous output) is read with the OCAF reader and keeps its earlier metadata. An empty file, a file without the binary OCAF `BINFILE` header, or a body the reader rejects returns an error naming the cause.

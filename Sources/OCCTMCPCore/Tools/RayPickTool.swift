@@ -62,9 +62,8 @@ public enum RayPickTool {
 
         var bodies: [ViewportBody] = []
         for body in manifest.bodies {
-            let path = "\(outputDir)/\(body.file)"
             do {
-                let shape = try Shape.loadBREP(fromPath: path)
+                let shape = try BodyLoader.loadShape(body: body, outputDir: outputDir)
                 let color = RenderPreviewTool.bodyColor(body)
                 let bid = body.id ?? UUID().uuidString
                 if let vb = RenderPreviewTool.viewportBody(for: shape, id: bid, color: color) {

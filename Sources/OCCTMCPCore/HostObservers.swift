@@ -1,14 +1,34 @@
-// Hooks for an embedding host: which tool is running, what each manifest write carries, and a
-// per-call event stream. All are scoped to the call through task-locals or an ordered pump, so
-// two servers in one process never see each other's calls.
+// Hooks for an embedding host: which tool is running, what each manifest write carries, a
+// per-call event stream, the shape the host holds for a body, and how a script's stage is
+// promoted. All are scoped to the call through task-locals or an ordered pump, so two servers in
+// one process never see each other's calls.
 
 import Foundation
 import MCP
+import OCCTSwift
+import ScriptHarness
 
 /// Called under the manifest lock with the exact bytes about to be written and the running tool.
 ///
 /// `tool` is nil for a write made outside any tool call. Throwing aborts the write.
 public typealias ManifestWriteObserver = @Sendable (_ data: Data, _ tool: String?) throws -> Void
+
+/// Supplies the shape a host already holds for a body, so a tool reads the host's own copy.
+///
+/// Called with the body and the scene directory. Return nil to let the tool read the body's file
+/// by its `format`. Throwing fails the tool call that asked for the shape.
+///
+/// It is called synchronously on whichever executor the tool is already running on: the main
+/// actor for some tools, the history registry's actor for lineage reads. It must not block
+/// waiting on either, so read from state the host guards with a lock.
+public typealias BodyShapeProvider =
+    @Sendable (_ body: BodyDescriptor, _ outputDir: String) throws -> Shape?
+
+/// Sends one progress update for the `tools/call` it was made for.
+///
+/// `progress` rises with each call; `total` is the expected final value when known.
+public typealias ProgressReporter =
+    @Sendable (_ progress: Double, _ total: Double?, _ message: String?) async -> Void
 
 /// Takes a finished `execute_script` run's output into the scene.
 ///
@@ -31,8 +51,25 @@ public enum OCCTMCPContext {
     /// The observer an embedding host asked for, scoped to the current task.
     @TaskLocal public static var manifestWriteObserver: ManifestWriteObserver?
 
+    /// The body shape provider an embedding host asked for, scoped to the current task.
+    @TaskLocal public static var bodyShapeProvider: BodyShapeProvider?
+
     /// The script stage promoter an embedding host asked for, scoped to the current task.
     @TaskLocal public static var scriptStagePromoter: ScriptStagePromoter?
+
+    /// Where this call's progress updates go, set only when the client sent a `progressToken`.
+    @TaskLocal public static var progressReporter: ProgressReporter?
+
+    /// Report progress on the tool call this task is running, if the client asked for it.
+    ///
+    /// A no-op when the request carried no `progressToken` and outside any tool call, so a handler
+    /// can call it unconditionally. Send values that rise with each call, as the MCP spec asks.
+    /// A notification that cannot be sent is dropped and never fails the call.
+    public static func reportProgress(
+        _ progress: Double, total: Double? = nil, message: String? = nil
+    ) async {
+        await progressReporter?(progress, total, message)
+    }
 }
 
 /// One step in the life of a `tools/call`, delivered to the host's `ToolCallObserver`.

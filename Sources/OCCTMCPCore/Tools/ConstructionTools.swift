@@ -48,6 +48,7 @@ public enum ConstructionTools {
         guard let body = manifest.body(withId: bodyId) else {
             return .init("Body not found: \(bodyId)", isError: true)
         }
+        if let refusal = BodyLoader.editRefusal(for: body) { return refusal }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let inputPath = "\(outputDir)/\(body.file)"
         guard FileManager.default.fileExists(atPath: inputPath) else {
@@ -63,7 +64,8 @@ public enum ConstructionTools {
 
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: inputPath)
+            lineage = try await HistoryRegistry.shared.currentEditInput(
+                bodyId: bodyId, path: inputPath)
         } catch {
             return .init("Failed to load BREP: \(error)", isError: true)
         }
@@ -191,6 +193,9 @@ public enum ConstructionTools {
         guard let bBody = manifest.body(withId: bBodyId) else {
             return .init("Body not found: \(bBodyId)", isError: true)
         }
+        for body in [aBody, bBody] {
+            if let refusal = BodyLoader.editRefusal(for: body) { return refusal }
+        }
         let outId = outputBodyId ?? "\(op.rawValue)-\(aBodyId)-\(bBodyId)"
         if manifest.bodies.contains(where: {
             $0.id == outId && $0.id != aBodyId && $0.id != bBodyId
@@ -206,8 +211,10 @@ public enum ConstructionTools {
         let aLineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         let bLineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            aLineage = try await HistoryRegistry.shared.currentInput(bodyId: aBodyId, path: aPath)
-            bLineage = try await HistoryRegistry.shared.currentInput(bodyId: bBodyId, path: bPath)
+            aLineage = try await HistoryRegistry.shared.currentEditInput(
+                bodyId: aBodyId, path: aPath)
+            bLineage = try await HistoryRegistry.shared.currentEditInput(
+                bodyId: bBodyId, path: bPath)
         } catch {
             return .init("Failed to load input BREP: \(error)", isError: true)
         }
@@ -399,6 +406,7 @@ public enum ConstructionTools {
         guard let body = manifest.body(withId: bodyId) else {
             return .init("Body not found: \(bodyId)", isError: true)
         }
+        if let refusal = BodyLoader.editRefusal(for: body) { return refusal }
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let inputPath = "\(outputDir)/\(body.file)"
         guard FileManager.default.fileExists(atPath: inputPath) else {
@@ -411,7 +419,8 @@ public enum ConstructionTools {
 
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
-            lineage = try await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: inputPath)
+            lineage = try await HistoryRegistry.shared.currentEditInput(
+                bodyId: bodyId, path: inputPath)
         } catch {
             return .init("Failed to load BREP: \(error)", isError: true)
         }

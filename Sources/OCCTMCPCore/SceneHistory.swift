@@ -31,6 +31,15 @@ public actor SceneHistory {
         }
     }
 
+    /// Push a manifest the caller already holds, for a writer that learns the previous state under
+    /// the manifest lock and records it once its write has succeeded.
+    func record(_ manifest: ScriptManifest) {
+        snapshots.append(manifest)
+        if snapshots.count > Self.maxSnapshots {
+            snapshots.removeFirst()
+        }
+    }
+
     public func count() -> Int { snapshots.count }
 
     public func clear() { snapshots.removeAll() }

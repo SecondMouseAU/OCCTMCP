@@ -79,6 +79,10 @@ public struct ExtraTool: Sendable {
 /// `toolCallObserver` sees each call start and finish; see `HostObservers.swift`. Neither changes
 /// behaviour when `nil`.
 ///
+/// `bodyShapeProvider` lets the host hand a tool the shape it already holds for a body, so a pick
+/// the host made and the entity a tool reads are the same one; `nil` from it, or no provider,
+/// reads the body's file by its manifest `format`. See `BodyLoader.swift`.
+///
 /// `scriptStagePromoter` takes over `execute_script`'s last step: the script writes into a stage
 /// directory outside the scene, and the promoter, not OCCTMCP, puts what it wrote into the scene.
 /// `nil` keeps the built-in promotion, which replaces the scene with the run's output.
@@ -87,6 +91,7 @@ public func makeOCCTMCPServer(
     outputDirectory: URL? = nil,
     manifestWriteObserver: ManifestWriteObserver? = nil,
     toolCallObserver: ToolCallObserver? = nil,
+    bodyShapeProvider: BodyShapeProvider? = nil,
     scriptStagePromoter: ScriptStagePromoter? = nil
 ) async -> Server {
     let server = Server(
@@ -99,7 +104,7 @@ public func makeOCCTMCPServer(
     await registerTools(
         on: server, extraTools: extraTools, outputDirectory: outputDirectory,
         manifestWriteObserver: manifestWriteObserver, toolCallObserver: toolCallObserver,
-        scriptStagePromoter: scriptStagePromoter)
+        bodyShapeProvider: bodyShapeProvider, scriptStagePromoter: scriptStagePromoter)
     return server
 }
 
@@ -107,6 +112,7 @@ func registerTools(
     on server: Server, extraTools: [ExtraTool] = [], outputDirectory: URL? = nil,
     manifestWriteObserver: ManifestWriteObserver? = nil,
     toolCallObserver: ToolCallObserver? = nil,
+    bodyShapeProvider: BodyShapeProvider? = nil,
     scriptStagePromoter: ScriptStagePromoter? = nil
 ) async {
     let pump = toolCallObserver.map { ToolCallEventPump(observer: $0) }
@@ -116,22 +122,46 @@ func registerTools(
         return .init(tools: tools)
     }
 
-    await server.withMethodHandler(CallTool.self) { params in
+    // `[weak server]`: the server owns this handler, so a strong capture would keep every server,
+    // with its observers and `ExtraTool` state, alive for the life of the process.
+    await server.withMethodHandler(CallTool.self) { [weak server] params in
         let arguments = params.arguments ?? [:]
         let callID = UUID()
         pump?.emit(params.name, arguments, .started, id: callID)
+        let reporter = progressReporter(for: params._meta?.progressToken, on: server)
         let result = await OCCTMCPPaths.withOutputDirectory(outputDirectory) {
             await OCCTMCPContext.$manifestWriteObserver.withValue(manifestWriteObserver) {
-                await OCCTMCPContext.$scriptStagePromoter.withValue(scriptStagePromoter) {
-                    await OCCTMCPContext.$currentTool.withValue(params.name) {
-                        await dispatch(
-                            callName: params.name, arguments: arguments, extraTools: extraTools)
+                await OCCTMCPContext.$bodyShapeProvider.withValue(bodyShapeProvider) {
+                    await OCCTMCPContext.$scriptStagePromoter.withValue(scriptStagePromoter) {
+                        await OCCTMCPContext.$progressReporter.withValue(reporter) {
+                            await OCCTMCPContext.$currentTool.withValue(params.name) {
+                                await dispatch(
+                                    callName: params.name, arguments: arguments,
+                                    extraTools: extraTools)
+                            }
+                        }
                     }
                 }
             }
         }
         pump?.emit(params.name, arguments, .finished(isError: result.isError ?? false), id: callID)
+        // The client cancelled this request and is no longer waiting: the MCP spec says a cancelled
+        // request gets no response, and the SDK sends none for a thrown `CancellationError`.
+        try Task.checkCancellation()
         return result
+    }
+}
+
+/// A reporter that sends `notifications/progress` for `token`, or nil when the client sent none.
+///
+/// Holds the server weakly: the server owns the handler that calls this.
+private func progressReporter(for token: ProgressToken?, on server: Server?) -> ProgressReporter? {
+    guard let token else { return nil }
+    return { [weak server] progress, total, message in
+        guard let server else { return }
+        let notification = ProgressNotification.message(
+            .init(progressToken: token, progress: progress, total: total, message: message))
+        try? await server.notify(notification)
     }
 }
 
@@ -191,7 +221,8 @@ private func builtinCatalogTools() -> [Tool] {
                     "bodyId": .object([
                         "type": .string("string"),
                         "description": .string(
-                            "Specific body to validate. If omitted, validates every BREP body."),
+                            "Specific body to validate. If omitted, validates every body except raw stl/obj mesh shells, each read by its manifest `format`; a body that cannot be read gets an `error` entry."
+                        ),
                     ])
                 ]),
                 "additionalProperties": .bool(false),
@@ -334,6 +365,161 @@ private func builtinCatalogTools() -> [Tool] {
             ])
         ),
         Tool(
+            name: "read_drawing",
+            description:
+                "Read a 2D engineering drawing (ASCII DXF) as a drawing, not a picture, and summarise it: entity counts by type and by layer, the drawing's units (the DXF $INSUNITS code, its name and millimetres per unit), its extents (declared in the header and computed from the entities), the source record (file name, byte count, SHA-256, DXF version, reader) and what the reader skipped (entity records it does not model, such as block inserts, hatches and splines, by type and layer; the reader does not separate model space from paper space) with warnings. Start here: the SHA-256 identifies the bytes every entity id (e<index>) refers to. Read-only; touches no scene body. Returns numbers and names, never an image. DWG and JWW are not read yet and return an error saying so.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "inputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Absolute path of the drawing file (a leading ~ is expanded). Only ASCII DXF is read today."
+                        ),
+                    ])
+                ]),
+                "required": .array([.string("inputPath")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "list_drawing_entities",
+            description:
+                "List the entities of a 2D drawing (ASCII DXF) with identity, geometry and layer, filtered by type, layer or a rectangle on the sheet. Each entity has an id (e<index>, stable for the same file bytes; see read_drawing's sha256), type, layer, colour, bounds and its geometry as numbers in drawing units: line start/end/length; circle center/radius; arc center/radius/angles/start/end/length; ellipse center/majorAxis/ratio/params; polyline vertices/bulges/closed/length; text at/height/text; point at; dimension (the same record list_drawing_dimensions returns). `rect` is [xmin, ymin, xmax, ymax] in drawing units; rectMode `intersects` (default) keeps entities whose bounds overlap it, `within` keeps those wholly inside. Arc and bulge bounds are tight; an elliptical arc takes its whole ellipse's bounds; text is its insertion point. Paged: `limit` (default 200, max 5000) and `offset`; `total` counts matches before paging. Read-only.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "inputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Absolute path of the drawing file (a leading ~ is expanded). Only ASCII DXF is read today."
+                        ),
+                    ]),
+                    "types": .object([
+                        "type": .string("array"),
+                        "items": .object([
+                            "type": .string("string"),
+                            "enum": .array(
+                                [
+                                    "line", "circle", "arc", "ellipse", "point", "text", "polyline",
+                                    "dimension",
+                                ]
+                                .map { .string($0) }),
+                        ]),
+                    ]),
+                    "layers": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                    ]),
+                    "rect": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("number")]),
+                        "minItems": .int(4),
+                        "maxItems": .int(4),
+                        "description": .string(
+                            "[xmin, ymin, xmax, ymax] on the sheet, in drawing units."),
+                    ]),
+                    "rectMode": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("intersects"), .string("within")]),
+                    ]),
+                    "limit": .object([
+                        "type": .string("integer"), "minimum": .int(1), "maximum": .int(5000),
+                    ]),
+                    "offset": .object(["type": .string("integer"), "minimum": .int(0)]),
+                ]),
+                "required": .array([.string("inputPath")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "list_drawing_dimensions",
+            description:
+                "List every DIMENSION in a 2D drawing (ASCII DXF): id (e<index>, as in list_drawing_entities), kind (linear, aligned, angular, diameter, radius, angular3Point, ordinate), the stored value in drawing units and in millimetres when the drawing declares its units (absent when the file omits it), `valueFromPoints` (the length between the dimension's own definition points, for aligned, radius and diameter dimensions: a check on the stored value, and the value when the file has none), the user's text override (absent when the dimension shows its own value, including a text of exactly `<>`), the text position, the definition points (each with its DXF group code, and its role where documented: a linear or aligned dimension's dimension-line point and two extension-line origins, a radius or diameter's two ends), layer and colour. Angular values are returned as stored: DXF does not declare their unit. Filter by `layers` or `kinds`; paged by `limit` (default 500) and `offset`. Read-only; returns numbers, not a rendering.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "inputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Absolute path of the drawing file (a leading ~ is expanded). Only ASCII DXF is read today."
+                        ),
+                    ]),
+                    "layers": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                    ]),
+                    "kinds": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                    ]),
+                    "limit": .object([
+                        "type": .string("integer"), "minimum": .int(1), "maximum": .int(5000),
+                    ]),
+                    "offset": .object(["type": .string("integer"), "minimum": .int(0)]),
+                ]),
+                "required": .array([.string("inputPath")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "measure_drawing",
+            description:
+                "Measure on a 2D drawing (ASCII DXF) between named entities or points, in drawing units and in millimetres. `measure: distance` takes `a` and `b`, each an entity id (e<index> from list_drawing_entities) or a point [x, y(, z)], and returns the exact minimum distance with the nearest point on each end (OCCT extrema over edges built from the entities, so a slot width is the true gap between two lines or arcs; text and dimension entities have no geometry, use their point). `measure: angle` takes two line entities `a` and `b`, or a `vertex` point with points `a` and `b`, and returns degrees (0 to 180, between the drawn directions) and the acute angle between the lines. `measure: radius` takes a circle or arc entity `a` and returns the radius and diameter. Millimetres come from the drawing's declared units; a unitless drawing gives none unless `mmPerUnit` is passed. Read-only.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "inputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Absolute path of the drawing file (a leading ~ is expanded). Only ASCII DXF is read today."
+                        ),
+                    ]),
+                    "measure": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("distance"), .string("angle"), .string("radius")]),
+                    ]),
+                    "a": .object([
+                        "oneOf": .array([
+                            .object(["type": .string("string")]),
+                            .object([
+                                "type": .string("array"),
+                                "items": .object(["type": .string("number")]),
+                            ]),
+                        ]),
+                        "description": .string(
+                            "An entity id such as \"e12\", or a point [x, y] or [x, y, z]."),
+                    ]),
+                    "b": .object([
+                        "oneOf": .array([
+                            .object(["type": .string("string")]),
+                            .object([
+                                "type": .string("array"),
+                                "items": .object(["type": .string("number")]),
+                            ]),
+                        ]),
+                        "description": .string(
+                            "An entity id such as \"e12\", or a point [x, y] or [x, y, z]."),
+                    ]),
+                    "vertex": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("number")]),
+                        "description": .string(
+                            "For `angle` between points: the apex, as [x, y] or [x, y, z]."),
+                    ]),
+                    "mmPerUnit": .object([
+                        "type": .string("number"),
+                        "exclusiveMinimum": .int(0),
+                        "description": .string(
+                            "Millimetres per drawing unit, overriding the drawing's declared units."
+                        ),
+                    ]),
+                ]),
+                "required": .array([.string("inputPath"), .string("measure"), .string("a")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
             name: "get_api_reference",
             description:
                 "Returns a catalog of every MCP tool this server exposes (category=mcp_tools), or a pointer to OCCTSwift docs for the OCCT API categories. Use mcp_tools for LLM auto-discovery.",
@@ -353,7 +539,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "apply_feature",
             description:
-                "Apply a single feature spec (drill / fillet / chamfer / extrude / revolve / thread / boolean) to a scene body via OCCTSwift's FeatureReconstructor. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
+                "Apply a single feature spec (drill / fillet / chamfer / extrude / revolve / thread / boolean) to a scene body via OCCTSwift's FeatureReconstructor. Without outputBodyId, replaces in place; with outputBodyId, adds a new body. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1350,7 +1536,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "transform_body",
             description:
-                "Apply translate / rotate / uniform-scale to a scene body. Without outputBodyId, replaces in place; with outputBodyId, adds a new body.",
+                "Apply translate / rotate / uniform-scale to a scene body. Without outputBodyId, replaces in place; with outputBodyId, adds a new body. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1382,7 +1568,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "boolean_op",
             description:
-                "Boolean op (union / subtract / intersect / split) between two scene bodies. Output is added as a new body.",
+                "Boolean op (union / subtract / intersect / split) between two scene bodies. Output is added as a new body. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1405,7 +1591,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "mirror_or_pattern",
             description:
-                "Mirror / linear / circular pattern of a body. Output is a single (possibly compound) body added to the scene.",
+                "Mirror / linear / circular pattern of a body. Output is a single (possibly compound) body added to the scene. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -1468,7 +1654,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "heal_shape",
             description:
-                "Heal imported / non-watertight geometry via OCCT ShapeFix. Returns before/after stats.",
+                "Heal imported / non-watertight geometry via OCCT ShapeFix. Returns before/after stats. Brep bodies only (a body of another manifest format is refused).",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -2026,7 +2212,7 @@ private func builtinCatalogTools() -> [Tool] {
                     "apply": .object([
                         "type": .string("boolean"),
                         "description": .string(
-                            "If true, write the recovered transform onto the source body in place (generation-reset history, same as transform_body). Default false (measure only)."
+                            "If true, write the recovered transform onto the source body in place (generation-reset history, same as transform_body); the source must be a brep body. Default false (measure only)."
                         ),
                     ]),
                 ]),
@@ -2682,6 +2868,87 @@ func dispatch(
         return await DrawingTools.generateDrawing(
             bodyIds: bodyIds, outputPath: outputPath, spec: spec
         ).asCallToolResult()
+
+    case "read_drawing":
+        guard let inputPath = arguments["inputPath"]?.stringValue else {
+            return ToolText("read_drawing requires `inputPath`.", isError: true).asCallToolResult()
+        }
+        do {
+            try DrawingReadTools.rejectUnknownArguments(
+                arguments, allowed: ["inputPath"], tool: "read_drawing")
+            return await DrawingReadTools.readDrawing(inputPath: inputPath).asCallToolResult()
+        } catch {
+            return ToolText("\(error)", isError: true).asCallToolResult()
+        }
+
+    case "list_drawing_entities":
+        guard let inputPath = arguments["inputPath"]?.stringValue else {
+            return ToolText("list_drawing_entities requires `inputPath`.", isError: true)
+                .asCallToolResult()
+        }
+        do {
+            try DrawingReadTools.rejectUnknownArguments(
+                arguments,
+                allowed: ["inputPath", "types", "layers", "rect", "rectMode", "limit", "offset"],
+                tool: "list_drawing_entities")
+            return await DrawingReadTools.listDrawingEntities(
+                inputPath: inputPath,
+                types: try DrawingReadTools.stringList(arguments["types"], name: "types"),
+                layers: try DrawingReadTools.stringList(arguments["layers"], name: "layers"),
+                rect: try DrawingReadTools.numberList(arguments["rect"], name: "rect"),
+                rectMode: try DrawingReadTools.optionalString(
+                    arguments["rectMode"], name: "rectMode"),
+                limit: try DrawingReadTools.optionalInt(
+                    arguments["limit"], name: "limit", in: 1...5000),
+                offset: try DrawingReadTools.optionalInt(
+                    arguments["offset"], name: "offset", in: 0...Int.max)
+            ).asCallToolResult()
+        } catch {
+            return ToolText("\(error)", isError: true).asCallToolResult()
+        }
+
+    case "list_drawing_dimensions":
+        guard let inputPath = arguments["inputPath"]?.stringValue else {
+            return ToolText("list_drawing_dimensions requires `inputPath`.", isError: true)
+                .asCallToolResult()
+        }
+        do {
+            try DrawingReadTools.rejectUnknownArguments(
+                arguments, allowed: ["inputPath", "layers", "kinds", "limit", "offset"],
+                tool: "list_drawing_dimensions")
+            return await DrawingReadTools.listDrawingDimensions(
+                inputPath: inputPath,
+                layers: try DrawingReadTools.stringList(arguments["layers"], name: "layers"),
+                kinds: try DrawingReadTools.stringList(arguments["kinds"], name: "kinds"),
+                limit: try DrawingReadTools.optionalInt(
+                    arguments["limit"], name: "limit", in: 1...5000),
+                offset: try DrawingReadTools.optionalInt(
+                    arguments["offset"], name: "offset", in: 0...Int.max)
+            ).asCallToolResult()
+        } catch {
+            return ToolText("\(error)", isError: true).asCallToolResult()
+        }
+
+    case "measure_drawing":
+        guard let inputPath = arguments["inputPath"]?.stringValue,
+            let measure = arguments["measure"]?.stringValue
+        else {
+            return ToolText("measure_drawing requires `inputPath` and `measure`.", isError: true)
+                .asCallToolResult()
+        }
+        do {
+            try DrawingReadTools.rejectUnknownArguments(
+                arguments, allowed: ["inputPath", "measure", "a", "b", "vertex", "mmPerUnit"],
+                tool: "measure_drawing")
+            return await DrawingReadTools.measureDrawing(
+                inputPath: inputPath, measure: measure, a: arguments["a"], b: arguments["b"],
+                vertex: DrawingReadTools.present(arguments["vertex"]),
+                mmPerUnit: try DrawingReadTools.optionalNumber(
+                    arguments["mmPerUnit"], name: "mmPerUnit")
+            ).asCallToolResult()
+        } catch {
+            return ToolText("\(error)", isError: true).asCallToolResult()
+        }
 
     case "get_api_reference":
         let category = arguments["category"]?.stringValue ?? "mcp_tools"

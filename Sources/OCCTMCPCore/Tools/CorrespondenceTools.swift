@@ -204,7 +204,9 @@ public enum CorrespondenceTools {
         let outputDir = (store.path as NSString).deletingLastPathComponent
         let targetPath = "\(outputDir)/\(targetBody.file)"
         guard FileManager.default.fileExists(atPath: targetPath) else {
-            return .init("Target BREP missing or unreadable: \(targetPath)", isError: true)
+            return .init(
+                "Target \(targetBody.format.uppercased()) missing or unreadable: \(targetPath)",
+                isError: true)
         }
         // #91/#93: resolve through the retained lineage graph so target
         // sub-shape indices below are graph indices (correct for a later
@@ -213,9 +215,12 @@ public enum CorrespondenceTools {
             (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
             targetLineage = try await HistoryRegistry.shared.currentInput(
-                bodyId: targetBodyId, path: targetPath)
+                bodyId: targetBodyId, body: targetBody, outputDir: outputDir)
         } catch {
-            return .init("Target BREP missing or unreadable: \(targetPath)", isError: true)
+            return .init(
+                "Target \(targetBody.format.uppercased()) missing or unreadable: \(targetPath) "
+                    + "(\(error.localizedDescription))",
+                isError: true)
         }
         let targetShape = targetLineage.shape
         let targetGraph = targetLineage.graph
@@ -519,9 +524,9 @@ public enum CorrespondenceTools {
     ) async -> SIMD3<Double>? {
         let bodyId = anchor.bodyId
         guard let body = manifest.body(withId: bodyId) else { return nil }
-        let path = "\(outputDir)/\(body.file)"
         guard
-            let lineage = try? await HistoryRegistry.shared.currentInput(bodyId: bodyId, path: path)
+            let lineage = try? await HistoryRegistry.shared.currentInput(
+                bodyId: bodyId, body: body, outputDir: outputDir)
         else {
             return nil
         }
@@ -570,7 +575,7 @@ public enum CorrespondenceTools {
         sourceBodyId: String
     ) -> TransformHint? {
         guard let sourceBody = manifest.body(withId: sourceBodyId),
-            let sourceShape = try? Shape.loadBREP(fromPath: "\(outputDir)/\(sourceBody.file)")
+            let sourceShape = try? BodyLoader.loadShape(body: sourceBody, outputDir: outputDir)
         else {
             return nil
         }
