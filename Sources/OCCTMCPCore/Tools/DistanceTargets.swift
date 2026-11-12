@@ -64,12 +64,15 @@ extension IntrospectionTools {
             guard let anchor = await registry.anchor(for: ref) else {
                 throw DistanceTargetError.badReference(role: role, ref: ref)
             }
-            let loaded = try loadShape(bodyId: anchor.bodyId, store: store)
             guard let nodeKind = anchor.nodeKind, let index = anchor.index else {
-                return DistanceTarget(bodyId: anchor.bodyId, shape: loaded.shape)
+                return DistanceTarget(
+                    bodyId: anchor.bodyId,
+                    shape: try loadShape(bodyId: anchor.bodyId, store: store).shape)
             }
+            let resolved = try resolveBody(bodyId: anchor.bodyId, store: store)
             let lineage = try await HistoryRegistry.shared.currentInput(
-                bodyId: anchor.bodyId, path: loaded.path)
+                bodyId: anchor.bodyId, body: resolved.body,
+                outputDir: (store.path as NSString).deletingLastPathComponent)
             guard let sub = lineage.graph.shape(nodeKind: nodeKind, nodeIndex: index) else {
                 throw DistanceTargetError.unresolved(role: role, ref: ref)
             }

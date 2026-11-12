@@ -30,7 +30,7 @@ struct HistoryRegistryLineageTests {
         try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: path))
 
         // Establish the lineage and mint a UID for face 0 BEFORE any mutation.
-        let lineage0 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage0 = try await registry.currentEditInput(bodyId: "part", path: path)
         #expect(lineage0.isFreshLoad, "first currentInput call should be a fresh load, no prior entry")
         let instanceID0 = lineage0.graph.instanceID
         let uid0 = try #require(
@@ -61,7 +61,7 @@ struct HistoryRegistryLineageTests {
         )
         #expect(committed1, "hop 1 should absorb as a continuation, not a generation reset")
 
-        let lineage1 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage1 = try await registry.currentEditInput(bodyId: "part", path: path)
         #expect(!lineage1.isFreshLoad, "currentInput right after commit() should hit the fingerprint cache, not reload")
         #expect(lineage1.graph.instanceID == instanceID0, "graph identity should be retained across hop 1")
         #expect(lineage1.graph.contains(uid: uid0), "pre-hop-1 UID should still resolve after hop 1")
@@ -94,7 +94,7 @@ struct HistoryRegistryLineageTests {
         )
         #expect(committed2, "hop 2 should absorb as a continuation, not a generation reset")
 
-        let lineage2 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage2 = try await registry.currentEditInput(bodyId: "part", path: path)
         #expect(!lineage2.isFreshLoad)
         #expect(
             lineage2.graph.instanceID == instanceID0,
@@ -123,7 +123,7 @@ struct HistoryRegistryLineageTests {
 
         let box = try #require(Shape.box(width: 10, height: 10, depth: 10))
         try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: path))
-        let lineage0 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage0 = try await registry.currentEditInput(bodyId: "part", path: path)
         let instanceID0 = lineage0.graph.instanceID
 
         // ref: nil is always a generation reset by construction (no
@@ -137,7 +137,7 @@ struct HistoryRegistryLineageTests {
         )
         #expect(!committed, "ref: nil should always report a generation reset")
 
-        let lineage1 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage1 = try await registry.currentEditInput(bodyId: "part", path: path)
         #expect(
             lineage1.graph.instanceID != instanceID0,
             "a generation reset should mint a NEW graph instance, not keep mutating the old one"
@@ -154,7 +154,7 @@ struct HistoryRegistryLineageTests {
 
         let box = try #require(Shape.box(width: 10, height: 10, depth: 10))
         try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: path))
-        let lineage0 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage0 = try await registry.currentEditInput(bodyId: "part", path: path)
         let instanceID0 = lineage0.graph.instanceID
 
         // A real, non-nil history, but produced from an UNRELATED shape rather than from
@@ -171,7 +171,7 @@ struct HistoryRegistryLineageTests {
             from: (lineage0.graph, lineage0.root), operationName: "test-foreign-history")
         #expect(!committed, "history from an unrelated shape must not count as a continuation")
 
-        let lineage1 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage1 = try await registry.currentEditInput(bodyId: "part", path: path)
         #expect(
             lineage1.graph.instanceID != instanceID0,
             "a rejected absorb should mint a NEW graph instance, not keep the old lineage")
@@ -187,7 +187,7 @@ struct HistoryRegistryLineageTests {
 
         let box = try #require(Shape.box(width: 40, height: 40, depth: 40))
         try Exporter.writeBREP(shape: box, to: URL(fileURLWithPath: path))
-        let lineage0 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage0 = try await registry.currentEditInput(bodyId: "part", path: path)
 
         // FeatureReconstructor's hole output registers as .compound even
         // though it wraps a single solid, verified directly against the
@@ -215,7 +215,7 @@ struct HistoryRegistryLineageTests {
         )
         #expect(committed, "hole feature should absorb as a continuation")
 
-        let lineage1 = try await registry.currentInput(bodyId: "part", path: path)
+        let lineage1 = try await registry.currentEditInput(bodyId: "part", path: path)
         #expect(
             lineage1.root.kind == .solid,
             "the stored root should be drilled down to the wrapped solid, not left as .compound: a .compound root can't be tracked by a LATER add() call"

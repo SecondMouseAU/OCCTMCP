@@ -265,9 +265,9 @@ public enum SelectionBridgeTools {
                 uid: entry.uid, anchor: nil, error: message)
         }
 
-        let loaded: (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String)
+        let loaded: (manifest: ScriptManifest, body: BodyDescriptor, path: String)
         do {
-            loaded = try IntrospectionTools.loadShape(bodyId: entry.bodyId, store: store)
+            loaded = try IntrospectionTools.resolveBody(bodyId: entry.bodyId, store: store)
         } catch {
             return failure("\(error)")
         }
@@ -275,7 +275,8 @@ public enum SelectionBridgeTools {
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
             lineage = try await HistoryRegistry.shared.currentInput(
-                bodyId: entry.bodyId, path: loaded.path)
+                bodyId: entry.bodyId, body: loaded.body,
+                outputDir: (store.path as NSString).deletingLastPathComponent)
         } catch {
             return failure("\(error)")
         }

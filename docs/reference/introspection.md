@@ -12,7 +12,7 @@ These tools read the current scene without modifying it: validating geometry, qu
 
 [`validate_geometry`](#validate_geometry) · [`compute_metrics`](#compute_metrics) · [`query_topology`](#query_topology) · [`measure_distance`](#measure_distance) · [`measure_deviation`](#measure_deviation) · [`measure_vertex_fit`](#measure_vertex_fit) · [`deviation_histogram`](#deviation_histogram) · [`cross_section_compare`](#cross_section_compare) · [`symmetric_difference_volume`](#symmetric_difference_volume) · [`recognize_features`](#recognize_features) · [`inspect_assembly`](#inspect_assembly)
 
-Signed / spatially-resolved surface comparison — the certify-a-reconstruction toolset (#61–#63, #66, #70) — also renders to PNG via [`signed_deviation_heatmap`](mesh-visualization.md#signed_deviation_heatmap) and [`overlay_render`](mesh-visualization.md#overlay_render).
+Signed / spatially-resolved surface comparison (the certify-a-reconstruction toolset, #61–#63, #66, #70) also renders to PNG via [`signed_deviation_heatmap`](mesh-visualization.md#signed_deviation_heatmap) and [`overlay_render`](mesh-visualization.md#overlay_render).
 
 ---
 
@@ -26,9 +26,9 @@ Per-body topology validation against OCCTSwift's `TopologyGraph.validate()`.
 
 | name | type | required | description |
 |------|------|:--------:|-------------|
-| `bodyId` | string | no | Specific body to validate. If omitted, validates every BREP body in the scene. |
+| `bodyId` | string | no | Specific body to validate. If omitted, validates every body in the scene except raw `stl` / `obj` mesh shells (name one to validate it), each read by its manifest `format`; a body that cannot be read gets an `error` entry rather than being skipped (Swift server). |
 
-**Returns** — JSON object with a per-body validity report: `valid` boolean and a list of any violations found (open shells, bad orientation, degenerate edges, etc.). Returns an error string if the body is not found.
+**Returns**: JSON object with a per-body validity report: `valid` boolean and a list of any violations found (open shells, bad orientation, degenerate edges, etc.). Returns an error string if the body is not found.
 
 **Example**
 
@@ -41,7 +41,7 @@ Per-body topology validation against OCCTSwift's `TopologyGraph.validate()`.
 { "bodyId": "housing", "valid": true, "issues": [] }
 ```
 
-**Drives** — `GraphIO` + `TopologyGraph.validate()` in-process (no subprocess).
+**Drives**: `GraphIO` + `TopologyGraph.validate()` in-process (no subprocess).
 
 ---
 
@@ -56,9 +56,9 @@ Compute volume, surface area, center of mass, bounding box, and/or principal axe
 | name | type | required | description |
 |------|------|:--------:|-------------|
 | `bodyId` | string | yes | Body to measure. |
-| `metrics` | string[] | no | Subset to compute. Default: all except `boundingBoxOptimal`. Items: `volume`, `surfaceArea`, `centerOfMass`, `boundingBox`, `boundingBoxOptimal`, `principalAxes`. `boundingBoxOptimal` (tight AddOptimal extent) is opt-in — list it explicitly. |
+| `metrics` | string[] | no | Subset to compute. Default: all except `boundingBoxOptimal`. Items: `volume`, `surfaceArea`, `centerOfMass`, `boundingBox`, `boundingBoxOptimal`, `principalAxes`. `boundingBoxOptimal` (tight AddOptimal extent) is opt-in, so list it explicitly. |
 
-**Returns** — JSON object keyed by requested metric name. `boundingBox` and `boundingBoxOptimal` each return `{ min: [x,y,z], max: [x,y,z] }`. `centerOfMass` returns `[x,y,z]`. `principalAxes` returns three orthogonal unit vectors. Returns an error string if the body is not found.
+**Returns**: JSON object keyed by requested metric name. `boundingBox` and `boundingBoxOptimal` each return `{ min: [x,y,z], max: [x,y,z] }`. `centerOfMass` returns `[x,y,z]`. `principalAxes` returns three orthogonal unit vectors. Returns an error string if the body is not found.
 
 **Example**
 
@@ -75,11 +75,11 @@ Compute volume, surface area, center of mass, bounding box, and/or principal axe
 }
 ```
 
-**Notes** — `boundingBox` uses `Bnd_Box` and over-reports extents for curved B-spline faces (it encloses the control-point hull, not the actual surface). Use `boundingBoxOptimal` (`BRepBndLib::AddOptimal`) when you need the tight envelope, at a small extra compute cost. `boundingBoxOptimal` is intentionally excluded from the default-all set.
+**Notes**: `boundingBox` uses `Bnd_Box` and over-reports extents for curved B-spline faces (it encloses the control-point hull, not the actual surface). Use `boundingBoxOptimal` (`BRepBndLib::AddOptimal`) when you need the tight envelope, at a small extra compute cost. `boundingBoxOptimal` is intentionally excluded from the default-all set.
 
 Both bounding-box keys are **omitted entirely** for a body that has no bounding box at all (an empty or null shape). They are never reported as a zero-sized box at the origin, which would be indistinguishable from a real zero-sized body sitting at the origin. Treat an absent key as "not measurable", not as zero.
 
-**Drives** — direct OCCTSwift property calls (no `occtkit` subprocess).
+**Drives**: direct OCCTSwift property calls (no `occtkit` subprocess).
 
 ---
 
@@ -105,7 +105,7 @@ Find faces, edges, or vertices on a body matching optional criteria. Returns sta
 
 `includeNeighbors` and `oppositeFaces` with any `entity` other than `face` are errors.
 
-**Returns** — Array of matching topology entries, each with its stable ID, an `index` (the `N` in `face[N]`, in `Shape.faces()/.edges()/.vertices()` enumeration order: the same `index` `get_selection` reports for the same entity, but NOT the index embedded in a `selectionId`, which is a BRepGraph node index that only coincides for faces; call `select_topology` to mint a `selectionId` rather than composing one by hand), and geometric properties (type, area/length as applicable). Face entries (#197) also carry `center` (a point at the surface's UV midpoint, which can lie off a heavily trimmed face) and `normal` at that point, so faces can be compared without selecting each one first. With `includeNeighbors` (#199), a face also carries `neighbors` (`[{index, convexity, sharedEdgeCount}]`, ascending `index`, all in `Shape.faces()` order so they match `face[N]` and `get_selection`'s `index`), `neighborCount` (the true count) and `neighborsTruncated` (true when `neighborLimit` cut the list). On a compound where two solids share a face, the shared face's occurrences merge into one entry and their shared-edge counts add. With `oppositeFaces`, a planar face also carries `oppositeFace` (`{index, distance, method}`), the nearest planar face that is anti-parallel, lies behind this face along its outward normal, and overlaps it when both are projected into this face's plane (ties go to the lower index). It is advisory: absent for non-planar faces and when nothing qualifies. `exact` traces each face's outer wire and tests the two outlines for positive-area overlap, so a candidate that only touches the face's range, or sits in the missing corner of an L-shaped face, is rejected; holes are ignored. If an outline cannot be traced as one closed loop, that pair falls back to the bounding-box test, `oppositeFace.method` reads `bbox`, and the report gains a top-level `warnings` array (omitted when empty) naming how many reported hits the bbox test decided. Edge entries (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit `direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians, measured from the circle's own xAxis) for CIRCULAR edges. Face entries whose `surfaceType` is `cylinder` or `sphere` (#249) also carry `radius`; a cylinder adds a unit `axis` direction and `axisPoint`, a point on that axis, and a sphere adds `sphereCenter` (a sphere has no `axis`). Both are absent on every other surface type, and the same fields appear on the `select_topology` and `get_selection` anchors. Returns an empty array when no entities match the filter.
+**Returns**: Array of matching topology entries, each with its stable ID, an `index` (the `N` in `face[N]`, in `Shape.faces()/.edges()/.vertices()` enumeration order: the same `index` `get_selection` reports for the same entity, but NOT the index embedded in a `selectionId`, which is a BRepGraph node index that only coincides for faces; call `select_topology` to mint a `selectionId` rather than composing one by hand), and geometric properties (type, area/length as applicable). Face entries (#197) also carry `center` (a point at the surface's UV midpoint, which can lie off a heavily trimmed face) and `normal` at that point, so faces can be compared without selecting each one first. With `includeNeighbors` (#199), a face also carries `neighbors` (`[{index, convexity, sharedEdgeCount}]`, ascending `index`, all in `Shape.faces()` order so they match `face[N]` and `get_selection`'s `index`), `neighborCount` (the true count) and `neighborsTruncated` (true when `neighborLimit` cut the list). On a compound where two solids share a face, the shared face's occurrences merge into one entry and their shared-edge counts add. With `oppositeFaces`, a planar face also carries `oppositeFace` (`{index, distance, method}`), the nearest planar face that is anti-parallel, lies behind this face along its outward normal, and overlaps it when both are projected into this face's plane (ties go to the lower index). It is advisory: absent for non-planar faces and when nothing qualifies. `exact` traces each face's outer wire and tests the two outlines for positive-area overlap, so a candidate that only touches the face's range, or sits in the missing corner of an L-shaped face, is rejected; holes are ignored. If an outline cannot be traced as one closed loop, that pair falls back to the bounding-box test, `oppositeFace.method` reads `bbox`, and the report gains a top-level `warnings` array (omitted when empty) naming how many reported hits the bbox test decided. Edge entries (#119) also carry `endpoints` (`[start, end]`, every edge kind) plus a unit `direction` for LINE edges, and `circleCenter`/`radius`/`axis`/`startAngle`/`endAngle` (radians, measured from the circle's own xAxis) for CIRCULAR edges. Face entries whose `surfaceType` is `cylinder` or `sphere` (#249) also carry `radius`; a cylinder adds a unit `axis` direction and `axisPoint`, a point on that axis, and a sphere adds `sphereCenter` (a sphere has no `axis`). Both are absent on every other surface type, and the same fields appear on the `select_topology` and `get_selection` anchors. Returns an empty array when no entities match the filter.
 
 **Example**
 
@@ -121,7 +121,7 @@ Find faces, edges, or vertices on a body matching optional criteria. Returns sta
 ]
 ```
 
-**Notes** — The returned IDs can be passed directly to [`select_topology`](selection.md#select_topology) to mint a `selectionId` for use in remap and annotation workflows.
+**Notes**: The returned IDs can be passed directly to [`select_topology`](selection.md#select_topology) to mint a `selectionId` for use in remap and annotation workflows.
 
 ---
 
@@ -141,7 +141,7 @@ Minimum distance between two scene bodies, or between two sub-shapes of them. Re
 | `to` | string | no | Sub-shape to measure to, same forms as `from`. |
 | `computeContacts` | boolean | no | Also return up to 32 contact pairs (closest point pairs). |
 
-**Returns** — JSON object with `minDistance` (minimum gap in model units), `isParallel` and `contacts`. `contacts` is empty unless `computeContacts` is true, in which case it holds up to 32 pairs, each with `fromPoint`, `toPoint` and `distance`. A sub-shape measurement returns the same shape.
+**Returns**: JSON object with `minDistance` (minimum gap in model units), `isParallel` and `contacts`. `contacts` is empty unless `computeContacts` is true, in which case it holds up to 32 pairs, each with `fromPoint`, `toPoint` and `distance`. A sub-shape measurement returns the same shape.
 
 A `face[N]` / `edge[N]` reference uses the `query_topology` labels, which are `Shape.faces()` / `Shape.edges()` order. A `selectionId` instead embeds a BRepGraph node index, and resolves through the body's retained graph; never hand-build one from a `face[N]` label. Vertices are measured through `selectionId` only. A `from` or `to` left out measures that side's whole body, and a reference that does not resolve is an error, never a silent whole-body measurement.
 
@@ -168,13 +168,13 @@ Two faces of one body (#249):
 { "fromBodyId": "bracket", "from": "face[0]", "to": "face[2]" }
 ```
 
-**Notes** — This is the **minimum gap** metric — not surface deviation. For comparing a reconstruction against a reference mesh use [`measure_deviation`](#measure_deviation) instead. A result of ≈0 means bodies are touching or penetrating; it does not indicate the amount of overlap.
+**Notes**: This is the **minimum gap** metric, not surface deviation. For comparing a reconstruction against a reference mesh use [`measure_deviation`](#measure_deviation) instead. A result of ≈0 means bodies are touching or penetrating; it does not indicate the amount of overlap.
 
 ---
 
 ## `measure_deviation`
 
-Signed, spatially-resolved surface deviation between two scene bodies — the primary metric for certifying a reconstruction against its source mesh. As of #62 the report is a full vector (not just a min gap), with an optional per-station sweep along an axis.
+Signed, spatially-resolved surface deviation between two scene bodies, the primary metric for certifying a reconstruction against its source mesh. As of #62 the report is a full vector (not just a min gap), with an optional per-station sweep along an axis.
 
 **Server:** Swift + Node
 
@@ -188,13 +188,13 @@ Signed, spatially-resolved surface deviation between two scene bodies — the pr
 | `maxSamples` | integer | no | Max source surface samples per direction (stride-subsampled). Default 20000. |
 | `sectionAxis` | number[3] | no | `[x,y,z]` axis to bin the forward samples along. With `sections`, adds a per-station `signedMean` sweep. |
 | `sections` | integer | no | Number of along-axis bins for the per-section sweep (≥2). Requires `sectionAxis`. |
-| `signMode` | string | no | `robust` (default) or `nearest` — see [Which way is out?](#which-way-is-out-signmode). |
+| `signMode` | string | no | `robust` (default) or `nearest`; see [Which way is out?](#which-way-is-out-signmode). |
 
-**Returns** — JSON object:
-- `fromToTo` / `toToFrom` — directed deviation each way: `{ max, rms, mean, p95, signedMean, signedMin, signedMax, worstPoint, samples, signedSamples, ambiguousSamples, ambiguousFraction }`. `signedMean ≠ 0` reveals a systematic proud(+) / shy(−) bias a Hausdorff hides; `fromToTo` catches over-extension, `toToFrom` under-coverage. The signed trio is **`null`** when no sample had a trustworthy sign (`signedSamples: 0`) — read that as *unavailable*, never as *no bias*.
-- `symmetricHausdorff` — the single worst-case **nearest-surface** distance in either direction. Unaffected by `signMode`.
-- `signMode` — which correspondence rule ran.
-- `sections` (optional) — when `sectionAxis`+`sections` given, an array of `{ offset, signedMean, rms, samples }` per station; a near-constant non-zero `signedMean` across stations is the systematic section-error fingerprint. Sign-ambiguous samples are excluded from a station's figures but still define the axis span, so `offset` always measures from the body's minimum projection.
+**Returns**: JSON object:
+- `fromToTo` / `toToFrom`: directed deviation each way: `{ max, rms, mean, p95, signedMean, signedMin, signedMax, worstPoint, samples, signedSamples, ambiguousSamples, ambiguousFraction }`. `signedMean ≠ 0` reveals a systematic proud(+) / shy(−) bias a Hausdorff hides; `fromToTo` catches over-extension, `toToFrom` under-coverage. The signed trio is **`null`** when no sample had a trustworthy sign (`signedSamples: 0`): read that as *unavailable*, never as *no bias*.
+- `symmetricHausdorff`: the single worst-case **nearest-surface** distance in either direction. Unaffected by `signMode`.
+- `signMode`: which correspondence rule ran.
+- `sections` (optional): when `sectionAxis`+`sections` given, an array of `{ offset, signedMean, rms, samples }` per station; a near-constant non-zero `signedMean` across stations is the systematic section-error fingerprint. Sign-ambiguous samples are excluded from a station's figures but still define the axis span, so `offset` always measures from the body's minimum projection.
 
 All distances are in model units. Sign convention: **+ proud** (from outside the reference), **− shy**.
 
@@ -215,7 +215,7 @@ All distances are in model units. Sign convention: **+ proud** (from outside the
 }
 ```
 
-**Notes** — Unlike [`measure_distance`](#measure_distance) (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface. Fidelity scales with `deflection`. Import the reference mesh with [`import_file`](io.md#import_file)`(format: "stl")` or load an invalid in-progress reconstruction with [`read_brep`](io.md#read_brep)`(allowInvalid: true)` before calling.
+**Notes**: Unlike [`measure_distance`](#measure_distance) (minimum gap, ≈0 for overlapping bodies), this samples each body's tessellated surface. Fidelity scales with `deflection`. Import the reference mesh with [`import_file`](io.md#import_file)`(format: "stl")` or load an invalid in-progress reconstruction with [`read_brep`](io.md#read_brep)`(allowInvalid: true)` before calling.
 
 ---
 
@@ -261,7 +261,7 @@ Exact per-vertex distance table from `fromBodyId`'s own vertices to `toBodyId`'s
 
 ## `deviation_histogram`
 
-Signed point-to-surface deviation *distribution* between two bodies — the statistical companion to `measure_deviation`, with an optional histogram PNG (#62). Swift-only.
+Signed point-to-surface deviation *distribution* between two bodies, the statistical companion to `measure_deviation`, with an optional histogram PNG (#62). Swift-only.
 
 **Server:** Swift
 
@@ -273,12 +273,12 @@ Signed point-to-surface deviation *distribution* between two bodies — the stat
 | `referenceBodyId` | string | yes | Reference body. |
 | `deflection` | number | no | Mesh linear deflection. Default 0.5% of the from-body bbox diagonal. |
 | `tolerance` | number | no | If set, the report includes `withinTolerance` (fraction of samples within `tolerance` of the nearest reference surface). |
-| `signMode` | string | no | `robust` (default) or `nearest` — see [Which way is out?](#which-way-is-out-signmode). |
+| `signMode` | string | no | `robust` (default) or `nearest`; see [Which way is out?](#which-way-is-out-signmode). |
 | `outputPath` | string | no | Write a histogram PNG here. Omit for numbers only. |
 
-**Returns** — `{ mean, std, median, p95, signedMin, signedMax, maxAbs, withinTolerance?, buckets: [{ lo, hi, count }], samples, signedSamples, ambiguousSamples, ambiguousFraction, signMode }`. Sign convention: + proud, − shy.
+**Returns**: `{ mean, std, median, p95, signedMin, signedMax, maxAbs, withinTolerance?, buckets: [{ lo, hi, count }], samples, signedSamples, ambiguousSamples, ambiguousFraction, signMode }`. Sign convention: + proud, − shy.
 
-The distribution — `mean` / `std` / `median` / `signedMin` / `signedMax` / `buckets` — is built from sign-reliable samples only, because one flipped sign plants a mirror hump at −d and reads as exactly the bimodal systematic error this tool exists to spot. They come back **`null`** (and `buckets` empty, and no PNG) when nothing had a trustworthy sign. `p95` / `maxAbs` / `withinTolerance` are magnitudes to the **nearest** surface and keep every sample, so `maxAbs` can be *smaller* than `|signedMin|` against an open thin-walled reference — see below.
+The distribution (`mean` / `std` / `median` / `signedMin` / `signedMax` / `buckets`) is built from sign-reliable samples only, because one flipped sign plants a mirror hump at −d and reads as exactly the bimodal systematic error this tool exists to spot. They come back **`null`** (and `buckets` empty, and no PNG) when nothing had a trustworthy sign. `p95` / `maxAbs` / `withinTolerance` are magnitudes to the **nearest** surface and keep every sample, so `maxAbs` can be *smaller* than `|signedMin|` against an open thin-walled reference; see below.
 
 ---
 
@@ -286,18 +286,18 @@ The distribution — `mean` / `std` / `median` / `signedMin` / `signedMax` / `bu
 
 `measure_deviation`, `deviation_histogram` and [`signed_deviation_heatmap`](mesh-visualization.md#signed_deviation_heatmap) share one signed-distance engine, so they share a `signMode` knob.
 
-A deviation's **sign** depends on which reference triangle a sample is judged against, and against an **open, thin-walled** reference (a raw scan / STL skin) the nearest one is often the wrong one. A candidate flank sitting 4.5 mm inside a 2 mm wall is only 2.5 mm from that wall's *inner* surface, so that surface wins on proximity and — its outward normal facing the cavity — reports **+2.5 proud for a part that is 4.5 shy**. Wrong side, wrong magnitude, and nothing ties, so no coin-flip check catches it ([#72](https://github.com/SecondMouseAU/OCCTMCP/issues/72)).
+A deviation's **sign** depends on which reference triangle a sample is judged against, and against an **open, thin-walled** reference (a raw scan / STL skin) the nearest one is often the wrong one. A candidate flank sitting 4.5 mm inside a 2 mm wall is only 2.5 mm from that wall's *inner* surface, so that surface wins on proximity and, its outward normal facing the cavity, reports **+2.5 proud for a part that is 4.5 shy**. Wrong side, wrong magnitude, and nothing ties, so no coin-flip check catches it ([#72](https://github.com/SecondMouseAU/OCCTMCP/issues/72)).
 
 | mode | behaviour |
 |------|-----------|
 | `robust` *(default, v1.17.0+)* | Rejects reference triangles whose outward normal opposes the sample's own before the nearest survivor wins, recovering both the side and the magnitude. Samples with no compatible surface in reach are reported `ambiguous` and withheld from the signed statistics rather than guessed. |
-| `nearest` | The nearest triangle wins, whatever it is — the pre-v1.17 rule. Correct against a watertight / single-surface reference. |
+| `nearest` | The nearest triangle wins, whatever it is: the pre-v1.17 rule. Correct against a watertight / single-surface reference. |
 
 **Two families of number, and `signMode` moves only one:**
 
 | family | measures to | moved by `signMode`? |
 |--------|-------------|:--------------------:|
-| `max` / `rms` / `mean` / `p95` / `worstPoint` / `symmetricHausdorff` / `maxAbs` / `withinTolerance` | the **nearest** reference surface | no — same meaning as pre-v1.17 |
+| `max` / `rms` / `mean` / `p95` / `worstPoint` / `symmetricHausdorff` / `maxAbs` / `withinTolerance` | the **nearest** reference surface | no, same meaning as pre-v1.17 |
 | `signedMean` / `signedMin` / `signedMax` / `sections` / histogram buckets / heatmap colours | the surface the sample **corresponds to** | yes |
 
 Against a watertight reference these are the same surface and the two families agree. Against an open thin-walled one they diverge on purpose: `max: 2.5` next to `signedMin: -4.5` says the nearest reference geometry is an inner wall 2.5 away while the skin that flank belongs to is 4.5 above it. Both true. **A gap between them is itself the tell that the reference is thin-walled.**
@@ -308,7 +308,7 @@ An `ambiguousFraction` near 1.0 means the reference's winding is likely inverted
 
 ## `cross_section_compare`
 
-Slice **both** bodies at N stations across their shared axis-extent overlap and compare the 2D profiles — the highest-leverage detector of a reconstruction whose cross-section is the wrong shape everywhere yet whose 3D mean looks fine (#61, #66, #70). Swift-only.
+Slice **both** bodies at N stations across their shared axis-extent overlap and compare the 2D profiles, the highest-leverage detector of a reconstruction whose cross-section is the wrong shape everywhere yet whose 3D mean looks fine (#61, #66, #70). Swift-only.
 
 **Server:** Swift
 
@@ -326,9 +326,9 @@ Slice **both** bodies at N stations across their shared axis-extent overlap and 
 | `outputDir` | string | no | Directory for per-station overlay PNGs. Omit for numbers only. |
 | `imagePrefix` | string | no | Filename prefix for station PNGs. Default `"section"`. |
 
-**Returns** — a report with `overlap` (`[lo,hi]` shared axis extent), `referenceMode` (`"envelope"` | `"profile"`), `meanSignedAcrossSections`, `maxAbsSignedSection`, `worstStation` / `worstAxisCoord`, `warnings[]`, and a `sections[]` array. Each section carries `station`, `axisCoord` (**world** position along the axis), `offset` (overlap-relative), `signedMean` / `rms` / `maxAbs`, `centroidOffset`, `areaRatio`, `shapeL2` (pose-invariant shape scalar — defined for open profiles too), `fromContours` / `referenceContours` / `fromOpenPaths` / `referenceOpenPaths`, `openProfile`, `registrationSmell`, and `imagePath`.
+**Returns**: a report with `overlap` (`[lo,hi]` shared axis extent), `referenceMode` (`"envelope"` | `"profile"`), `meanSignedAcrossSections`, `maxAbsSignedSection`, `worstStation` / `worstAxisCoord`, `warnings[]`, and a `sections[]` array. Each section carries `station`, `axisCoord` (**world** position along the axis), `offset` (overlap-relative), `signedMean` / `rms` / `maxAbs`, `centroidOffset`, `areaRatio`, `shapeL2` (pose-invariant shape scalar, defined for open profiles too), `fromContours` / `referenceContours` / `fromOpenPaths` / `referenceOpenPaths`, `openProfile`, `registrationSmell`, and `imagePath`.
 
-**Notes** — Handles open-shell references (raw scan / STL skin) whose sections are open arcs. `registrationSmell` flags a station that sliced only one body (mis-registration / differing extents). Pair with [`import_file`](io.md#import_file)`(format: "stl")` to get the reference mesh into the scene.
+**Notes**: Handles open-shell references (raw scan / STL skin) whose sections are open arcs. `registrationSmell` flags a station that sliced only one body (mis-registration / differing extents). Pair with [`import_file`](io.md#import_file)`(format: "stl")` to get the reference mesh into the scene.
 
 ---
 
@@ -389,7 +389,7 @@ Detect pockets and holes via OCCTSwift's Attributed Adjacency Graph (AAG) heuris
 | `bodyId` | string | yes | Body to analyse. |
 | `kinds` | string[] (enum) | no | Feature kinds to detect: `pocket`, `hole`. Default: both. |
 
-**Returns** — JSON object with a `features` array. Each entry includes the feature `kind`, the face indices that make up the feature, and geometric properties (e.g. diameter for holes, depth for pockets).
+**Returns**: JSON object with a `features` array. Each entry includes the feature `kind`, the face indices that make up the feature, and geometric properties (e.g. diameter for holes, depth for pockets).
 
 **Example**
 
@@ -407,7 +407,7 @@ Detect pockets and holes via OCCTSwift's Attributed Adjacency Graph (AAG) heuris
 }
 ```
 
-**Notes** — For the full graph-level feature recognition pipeline (B-Rep graph output, `featureNodeIds`) see [`feature_recognize`](topology-graph.md#feature_recognize) in the Topology graph family. This tool returns a lightweight per-body feature list; `feature_recognize` writes a labelled `TopologyGraph` for downstream reconstruction use.
+**Notes**: For the full graph-level feature recognition pipeline (B-Rep graph output, `featureNodeIds`) see [`feature_recognize`](topology-graph.md#feature_recognize) in the Topology graph family. This tool returns a lightweight per-body feature list; `feature_recognize` writes a labelled `TopologyGraph` for downstream reconstruction use.
 
 ---
 
@@ -421,11 +421,11 @@ Walk an XCAF assembly hierarchy and return the component tree with transforms.
 
 | name | type | required | description |
 |------|------|:--------:|-------------|
-| `bodyId` | string | no | Scene body (BREP — returns a degenerate single-node response). |
+| `bodyId` | string | no | Scene body (BREP: returns a degenerate single-node response). |
 | `inputPath` | string | no | Absolute path to a STEP, IGES, or XBF file for the full tree. |
 | `depth` | integer (≥0) | no | Maximum tree depth to traverse. Default: unlimited. |
 
-**Returns** — JSON assembly tree: each node has `name`, `shape` (if a leaf), `transform` (4×4 matrix), and a `children` array. A BREP `bodyId` returns a single-node tree.
+**Returns**: JSON assembly tree: each node has `name`, `shape` (if a leaf), `transform` (4×4 matrix), and a `children` array. A BREP `bodyId` returns a single-node tree.
 
 **Example**
 
@@ -445,4 +445,4 @@ Walk an XCAF assembly hierarchy and return the component tree with transforms.
 }
 ```
 
-**Notes** — Pass `inputPath` (not `bodyId`) to get the full multi-level component tree from a STEP/IGES/XBF file. An `.xbf` input (for example the output of [`set_assembly_metadata`](io.md#set_assembly_metadata)) is read with the OCAF reader; an empty, non-OCAF or unreadable `.xbf` returns an error. Use [`import_file`](io.md#import_file) first if you want the assembly bodies added to the scene.
+**Notes**: Pass `inputPath` (not `bodyId`) to get the full multi-level component tree from a STEP/IGES/XBF file. An `.xbf` input (for example the output of [`set_assembly_metadata`](io.md#set_assembly_metadata)) is read with the OCAF reader; an empty, non-OCAF or unreadable `.xbf` returns an error. Use [`import_file`](io.md#import_file) first if you want the assembly bodies added to the scene.

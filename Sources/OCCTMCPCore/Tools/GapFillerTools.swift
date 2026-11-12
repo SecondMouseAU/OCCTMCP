@@ -129,7 +129,7 @@ public enum GapFillerTools {
             guard let body = manifest.body(withId: bodyId) else { return }
             let path = "\(outputDir)/\(body.file)"
             guard FileManager.default.fileExists(atPath: path),
-                let shape = try? Shape.loadBREP(fromPath: path),
+                let shape = try? BodyLoader.loadShape(body: body, outputDir: outputDir),
                 let bb = shape.bounds
             else { return }
             let centre = [
@@ -203,9 +203,9 @@ public enum GapFillerTools {
         store: ManifestStore = ManifestStore(),
         registry: SelectionRegistry = .shared
     ) async -> ToolText {
-        let loaded: (manifest: ScriptManifest, body: BodyDescriptor, shape: Shape, path: String)
+        let loaded: (manifest: ScriptManifest, body: BodyDescriptor, path: String)
         do {
-            loaded = try IntrospectionTools.loadShape(bodyId: bodyId, store: store)
+            loaded = try IntrospectionTools.resolveBody(bodyId: bodyId, store: store)
         } catch {
             return .init("select_by_feature: \(error)", isError: true)
         }
@@ -222,12 +222,14 @@ public enum GapFillerTools {
         let lineage: (shape: Shape, graph: BRepGraph, root: BRepGraph.NodeRef, isFreshLoad: Bool)
         do {
             lineage = try await HistoryRegistry.shared.currentInput(
-                bodyId: bodyId, path: loaded.path)
+                bodyId: bodyId, body: loaded.body,
+                outputDir: (store.path as NSString).deletingLastPathComponent)
         } catch {
-            // No input found that reaches this: loadShape just loaded the same file, and a
-            // loadable BREP built a graph for every shape tried (vertex, nested compounds, empty
-            // boolean results). Only a file replaced between the two loads gets here, so this is
-            // kept as a defensive error rather than a success-shaped message (#235).
+            // This is the first read of the body, since resolveBody does not parse it: a file the
+            // reader rejects fails here, and so does one replaced mid-call. A loadable shape
+            // builds a graph for every kind tried (vertex, nested compounds, empty boolean
+            // results), so a failure is reported as an error rather than a success-shaped message
+            // (#235).
             return .init("select_by_feature: \(error)", isError: true)
         }
         let shape = lineage.shape

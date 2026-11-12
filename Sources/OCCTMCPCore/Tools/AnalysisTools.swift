@@ -38,17 +38,25 @@ public enum AnalysisTools {
             }
             targets = [body]
         } else {
-            targets = manifest.bodies.filter { $0.format == "brep" }
+            // A raw triangulated shell (stl, obj) has a face per triangle and is never a valid
+            // solid, so a scene-wide validate leaves it out as it always has. An unreadable
+            // format stays in, to be reported with an error entry. Name it to validate one.
+            targets = manifest.bodies.filter {
+                IOTools.ImportFormat(spelling: $0.format)?.isMesh != true
+            }
         }
         if targets.isEmpty {
-            return .init("No BREP bodies in scene.")
+            return .init(
+                manifest.bodies.isEmpty
+                    ? "No bodies in scene."
+                    : "No bodies to validate: the scene holds only raw stl/obj mesh shells. "
+                        + "Pass a bodyId to validate one.")
         }
 
         var records: [ValidateReport.BodyRecord] = []
         for body in targets {
-            let path = "\(outputDir)/\(body.file)"
             do {
-                let shape = try Shape.loadBREP(fromPath: path)
+                let shape = try BodyLoader.loadShape(body: body, outputDir: outputDir)
                 let graph = try GraphIO.buildGraph(from: shape)
                 let report = GraphIO.ValidationReport(graph.validate())
                 records.append(
