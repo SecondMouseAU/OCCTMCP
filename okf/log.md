@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-11-12
+
+* **Update**: #261. An `ExtraTool` handler can now add a body to the scene and find one again by id through the code the built-in tools use: `SceneBodies.add(shape:)` (the staged write, manifest lock, history snapshot and write observer that `read_brep` and `import_file` now share, with body ids checked to be usable as file names), `SceneBodies.body(withId:)` and `SceneBodies.shape(ofBody:)` (format dispatch and the host's shape provider). `OCCTMCPContext.reportProgress` sends MCP progress for a handler when the client asked for it. `ExtraToolSessionTests` pins the rest of the contract through a real client and server: state held by a handler survives between calls and is per session, calls run concurrently, and a client's cancellation cancels the handler's task. The `Task.detached` rule now has a test that fails when it is broken.
+
 ## 2026-10-15
 
 * **Update**: #250. `ManifestStore.update(willWrite:_:)`: advisory `flock` on `manifest.lock`, a callback that receives the exact bytes under the lock before the atomic rename, and every mutating tool moved onto it (re-applying its change to the manifest read under the lock). `write` takes the same lock. A malformed manifest is `ManifestError.malformed` everywhere, not "No scene loaded", and `read_brep`, `import_file` and `segment_mesh_zones` no longer overwrite it. Source-compatible: `ManifestStore.init(path:)` gained a defaulted `lockTimeout`.
