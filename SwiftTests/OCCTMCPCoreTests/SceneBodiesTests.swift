@@ -18,6 +18,8 @@ private actor StartGate {
         await withCheckedContinuation { waiting.append($0) }
     }
 
+    var waitingCount: Int { waiting.count }
+
     func open() {
         isOpen = true
         for continuation in waiting { continuation.resume() }
@@ -90,6 +92,12 @@ struct SceneBodiesTests {
         #expect(await history.count() == 1)
         let previous = try #require(await history.snapshot(since: 1))
         #expect(previous.bodies.compactMap(\.id) == ["one"], "snapshot must precede the add")
+        // An add that is refused before anything is written leaves the history alone.
+        await #expect(throws: ManifestError.bodyIdTaken("two")) {
+            _ = try await SceneBodies.add(
+                shape: try box(), bodyId: "two", store: store, history: history)
+        }
+        #expect(await history.count() == 1, "a refused add pushed a snapshot")
     }
 
     @Test("adds racing for one id: exactly one wins, and the scene holds one intact body")
@@ -111,7 +119,10 @@ struct SceneBodiesTests {
                             shape: shape, bodyId: "same", store: store, history: history)) != nil
                 }
             }
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            // Open only once every task has built its shape and is waiting.
+            for _ in 0..<500 where await gate.waitingCount < 8 {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
             await gate.open()
             var count = 0
             for await won in group where won { count += 1 }
@@ -143,7 +154,10 @@ struct SceneBodiesTests {
                         shape: shape, idPrefix: "part", store: store, history: history)
                 }
             }
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            // Open only once every task has built its shape and is waiting.
+            for _ in 0..<500 where await gate.waitingCount < 8 {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
             await gate.open()
             var got: [String] = []
             for await id in group { if let id { got.append(id) } }
@@ -196,6 +210,28 @@ struct SceneBodiesTests {
         #expect(
             !FileManager.default.fileExists(
                 atPath: dir.deletingLastPathComponent().appendingPathComponent("escape.brep").path))
+    }
+
+    @Test("a manifest write that fails once the body file is in place removes the file")
+    func rollsBackOnWriteFailure() async throws {
+        struct Veto: Error {}
+        let (dir, store) = try makeStore()
+        defer { cleanUp(dir) }
+        _ = try await SceneBodies.add(
+            shape: try box(), bodyId: "kept", store: store, history: SceneHistory())
+        let before = try Data(contentsOf: URL(fileURLWithPath: store.path))
+        do {
+            let veto: ManifestWriteObserver = { _, _ in throw Veto() }
+            try await OCCTMCPContext.$manifestWriteObserver.withValue(veto) {
+                _ = try await SceneBodies.add(
+                    shape: try box(), bodyId: "lost", store: store, history: SceneHistory())
+            }
+            Issue.record("add succeeded although the manifest write was vetoed")
+        } catch is Veto {
+        }
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
+        #expect(files == ["kept.brep", "manifest.json", "manifest.lock"], "\(files)")
+        #expect(try Data(contentsOf: URL(fileURLWithPath: store.path)) == before)
     }
 
     @Test("an id that cannot name a file is refused and nothing is written")

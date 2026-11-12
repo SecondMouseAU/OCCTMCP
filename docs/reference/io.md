@@ -25,7 +25,7 @@ Add a `.brep` file from disk to the scene as a new body.
 | name | type | required | description |
 |------|------|:--------:|-------------|
 | `inputPath` | string | yes | Path to the `.brep` file to load. |
-| `bodyId` | string | no | ID to assign in the scene manifest; defaults to the file name without its extension. The id names the body's file, so it must not be empty, start with a dot or contain `/`; the error says so. |
+| `bodyId` | string | no | ID to assign in the scene manifest; auto-generated if omitted (the Swift server uses the file name without its extension). On the Swift server the id names the body's file, so it must not be empty, start with a dot or contain `/`; the error says so. |
 | `color` | number[] | no | RGB or RGBA colour for the body (values 0–1). |
 | `allowInvalid` | boolean | no | Load a topologically invalid / loose-face shape as-is (skip the validity write-gate) so `compute_metrics` / `measure_deviation` / `validate_geometry` can run on an in-progress reconstruction. Default `false`. |
 
@@ -60,7 +60,7 @@ Multi-format CAD import (STEP / IGES / BREP / STL / OBJ). Adds the imported shap
 |------|------|:--------:|-------------|
 | `inputPath` | string | yes | Path to the file to import. |
 | `format` | `"auto"` \| `"step"` \| `"iges"` \| `"brep"` \| `"stl"` \| `"obj"` | no | File format; defaults to `"auto"`, inferred from extension (`.step`/`.stp`, `.iges`/`.igs`, `.brep`/`.brp`, `.stl`, `.obj`). An explicit `format` **overrides** the extension sniff. |
-| `idPrefix` | string | no | Prefix for auto-generated body IDs when the file contains multiple parts. Like a `bodyId`, it must not be empty, start with a dot or contain `/`. |
+| `idPrefix` | string | no | Prefix for auto-generated body IDs when the file contains multiple parts. On the Swift server, like a `bodyId`, it must not be empty, start with a dot or contain `/`. |
 | `allowInvalid` | boolean | no | Import a topologically invalid / loose-face shape as-is (skip the validity write-gate) so the analysis tools can measure an in-progress reconstruction. Default `false`. |
 
 **Returns**: The scene manifest entries for all bodies added, each with its `bodyId`. Returns an error if the format is unrecognised or import fails.

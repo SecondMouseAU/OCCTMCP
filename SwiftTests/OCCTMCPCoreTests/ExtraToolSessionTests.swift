@@ -22,24 +22,6 @@ private actor Ledger {
     var wasCancelled: Bool { cancelled }
 }
 
-/// A lock-guarded list a handler or notification callback appends to and a test reads.
-private final class Log<Element: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var items: [Element] = []
-
-    func add(_ item: Element) {
-        lock.lock()
-        items.append(item)
-        lock.unlock()
-    }
-
-    var all: [Element] {
-        lock.lock()
-        defer { lock.unlock() }
-        return items
-    }
-}
-
 private func text(_ s: String, isError: Bool = false) -> CallTool.Result {
     .init(content: [.text(text: s, annotations: nil, _meta: nil)], isError: isError)
 }
@@ -137,13 +119,13 @@ struct ExtraToolSessionTests {
     func handlersOverlap() async throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let arrived = Log<Double>()
+        let arrived = EventLog()
         // Each call waits for the other to arrive; a server that ran them one after the other
         // would time the first out before the second began.
         let meet = ExtraTool(
             tool: tool("rendezvous"),
             handler: { _ in
-                arrived.add(1)
+                arrived.add("arrived")
                 for _ in 0..<300 {
                     if arrived.all.count >= 2 { return text("met") }
                     try await Task.sleep(nanoseconds: 10_000_000)
@@ -161,12 +143,12 @@ struct ExtraToolSessionTests {
     func builtInAnswersDuringASlowHandler() async throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let finished = Log<Double>()
+        let finished = EventLog()
         let slow = ExtraTool(
             tool: tool("sleeper"),
             handler: { _ in
                 try await Task.sleep(nanoseconds: 2_000_000_000)
-                finished.add(1)
+                finished.add("finished")
                 return text("slept")
             })
         let client = try await connect(dir, extras: [slow])
@@ -280,10 +262,10 @@ struct ExtraToolSessionTests {
     func addIsObservedAsTheExtraTool() async throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let seen = Log<Double>()
-        let names = Log<String>()
+        let seen = EventLog()
+        let names = EventLog()
         let client = try await connect(dir, extras: sceneTools()) { _, tool in
-            seen.add(1)
+            seen.add("write")
             names.add(tool ?? "<none>")
         }
         _ = try await call(client, "build_box")
@@ -333,11 +315,11 @@ struct ExtraToolSessionTests {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let client = try await connect(dir, extras: [progressTool()])
-        let received = Log<Double>()
-        let messages = Log<String>()
+        let received = EventLog()
+        let messages = EventLog()
         await client.onNotification(ProgressNotification.self) { message in
             guard message.params.progressToken == .string("solve-1") else { return }
-            received.add(message.params.progress)
+            received.add("\(message.params.progress)")
             messages.add(message.params.message ?? "")
         }
 
@@ -347,7 +329,7 @@ struct ExtraToolSessionTests {
         if case .text(let t, _, _) = content.first { #expect(t == "solved") }
 
         #expect(await waitFor { received.all.count == 3 }, "got \(received.all)")
-        #expect(received.all == [1, 2, 3])
+        #expect(received.all == ["1.0", "2.0", "3.0"])
         #expect(messages.all == ["iteration 1", "iteration 2", "iteration 3"])
     }
 
@@ -356,9 +338,9 @@ struct ExtraToolSessionTests {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let client = try await connect(dir, extras: [progressTool()])
-        let received = Log<Double>()
+        let received = EventLog()
         await client.onNotification(ProgressNotification.self) { message in
-            received.add(message.params.progress)
+            received.add("\(message.params.progress)")
         }
         let r = try await call(client, "slow_solve")
         #expect(r.text == "solved" && !r.isError)
@@ -371,6 +353,34 @@ struct ExtraToolSessionTests {
         await OCCTMCPContext.reportProgress(1, total: 2, message: "nobody is listening")
     }
 
+    @Test("a server, and the state its handlers hold, are released once the session ends")
+    func serverIsReleased() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        weak var weakServer: Server?
+        weak var weakLedger: Ledger?
+        do {
+            let ledger = Ledger()
+            weakLedger = ledger
+            let (clientTransport, serverTransport) = await InMemoryTransport.createConnectedPair()
+            let server = await makeOCCTMCPServer(
+                extraTools: ledgerTools(ledger), outputDirectory: dir)
+            weakServer = server
+            try await server.start(transport: serverTransport)
+            let client = Client(name: "test", version: "1")
+            _ = try await client.connect(transport: clientTransport)
+            _ = try await call(client, "ledger_add", ["entry": "x"])
+            // A call carrying a progress token builds the reporter, which refers back to the server.
+            _ = try await client.callTool(
+                name: "ledger_list", meta: Metadata(progressToken: .string("release")))
+            await client.disconnect()
+            await server.stop()
+        }
+        #expect(
+            await waitFor { weakServer == nil && weakLedger == nil },
+            "a server outlived its session")
+    }
+
     // ── cancellation ────────────────────────────────────────────────────
 
     @Test("cancelling a request cancels the handler's task and sends no response")
@@ -378,11 +388,11 @@ struct ExtraToolSessionTests {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let ledger = Ledger()
-        let started = Log<Double>()
+        let started = EventLog()
         let slow = ExtraTool(
             tool: tool("long_solve"),
             handler: { _ in
-                started.add(1)
+                started.add("started")
                 do {
                     for _ in 0..<1000 {
                         try await Task.sleep(nanoseconds: 10_000_000)
@@ -418,6 +428,9 @@ struct ExtraToolSessionTests {
         // initialize reply mentions the tool's result or an error for it.
         try await Task.sleep(nanoseconds: 300_000_000)
         let sent = await recording.sentText
+        #expect(
+            sent.contains { $0.contains("\"serverInfo\"") },
+            "the recording transport captured nothing, so the checks below prove nothing")
         #expect(
             !sent.contains { $0.contains("\"result\"") && $0.contains("\"content\"") },
             "the server answered a cancelled request: \(sent)")
