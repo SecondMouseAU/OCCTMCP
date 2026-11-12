@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-11-12
+
+* **Update**: #265. `execute_script` could hang forever after its child had exited: `runProcess` called `Process.waitUntilExit()` after awaiting the pipe drains, and with no termination handler that waits on the run loop of the launching thread, which the task may have left. `runProcess` now waits on `ProcessExit`, built on `Process.terminationHandler`. Added the rule to `CLAUDE.md` Invariants and `Tools/ProcessExit.swift` to the `swift-server.md` catalogue.
+
 ## 2026-10-15
 
 * **Update**: #250. `ManifestStore.update(willWrite:_:)`: advisory `flock` on `manifest.lock`, a callback that receives the exact bytes under the lock before the atomic rename, and every mutating tool moved onto it (re-applying its change to the manifest read under the lock). `write` takes the same lock. A malformed manifest is `ManifestError.malformed` everywhere, not "No scene loaded", and `read_brep`, `import_file` and `segment_mesh_zones` no longer overwrite it. Source-compatible: `ManifestStore.init(path:)` gained a defaulted `lockTimeout`.
