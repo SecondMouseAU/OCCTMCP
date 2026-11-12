@@ -103,8 +103,11 @@ let server = await makeOCCTMCPServer(outputDirectory: sceneURL)
 
 It wins over the environment variable, and `nil` (the default) keeps the resolution above. Each
 directory gets its own selection, zone, history and scene-snapshot state, so two embedded servers
-with different directories can share one process. Tools run `execute_script` children with that
-directory exported as `OCCTMCP_OUTPUT_DIR`.
+with different directories can share one process. `execute_script` never hands this directory to
+its script: the script writes into a stage directory outside it (`OCCTSWIFT_OUTPUT_DIR`), and a clean
+run's output replaces the scene here. A host that owns its scene store can take that last step over
+with `makeOCCTMCPServer(scriptStagePromoter:)`; see the core reference, "Embedding: promoting a
+script's output".
 
 The scene files written there are:
 

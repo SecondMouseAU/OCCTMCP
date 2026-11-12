@@ -44,13 +44,25 @@ Because both servers write to the same directory, OCCTSwiftViewport's `ScriptWat
 
 ## How `execute_script` works
 
-`execute_script` is the primary geometry-authoring tool. The flow:
+`execute_script` is the primary geometry-authoring tool. The two servers differ.
+
+**Swift server** (`ExecuteScriptTool.swift`, `ExecuteScriptStage.swift`):
+
+1. Writes the LLM's Swift source into the cached SwiftPM workspace (`~/.occtmcp-cache/workspace`, or the directory in `OCCTMCP_SCRIPT_WORKSPACE`) and builds it.
+2. Runs the script as a child whose `OCCTSWIFT_OUTPUT_DIR` is a new stage directory under the system temp directory. The script never sees the scene directory.
+3. Filters OCCT bridge nullability warnings from the build output; compiler diagnostics still reach the caller on failure.
+4. Classifies the run. A non-zero exit, a `run-failed.json` failure marker (`ctx.fail`), a manifest that cannot be read, or one that lists a file the stage lacks fails the call and leaves the scene as it was. A run that wrote no manifest succeeds and changes nothing.
+5. Promotes a clean run: the scene is replaced with the stage's output through `ManifestStore.update` (or an embedding host's `ScriptStagePromoter` does it), the stage is removed, and the new manifest is returned with any build output.
+
+**Node server** (`src/tools.ts`):
 
 1. Writes the LLM's Swift source to a temporary file.
-2. Invokes `occtkit run <tempfile>` (Swift server) or the same via the long-lived `occtkit run --serve` child (Node server). If `occtkit` is not on `$PATH`, both fall back to `swift run -c release occtkit` inside a sibling OCCTSwiftScripts clone.
+2. Invokes `occtkit run <tempfile>`, or the same via the long-lived `occtkit run --serve` child. If `occtkit` is not on `$PATH`, it falls back to `swift run -c release occtkit` inside a sibling OCCTSwiftScripts clone.
 3. Filters OCCT bridge nullability warnings from the build output; compiler diagnostics still reach the caller on failure.
-4. Reads `manifest.json` back and returns it with any build output.
+4. Reads `manifest.json` back from the scene directory and returns it with any build output.
 5. Removes the temp file.
+
+The Node server does not stage: `occtkit` writes into the scene directory itself.
 
 The cold-start cost of the underlying SwiftPM workspace is significant (60 s+) on the first call; subsequent calls amortise it via serve mode where available. The 2-minute per-request timeout applies.
 

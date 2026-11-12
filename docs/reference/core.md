@@ -23,7 +23,8 @@ Compile and run an arbitrary Swift CAD script via a cached SPM workspace. The sc
 private stage directory, never the scene; when it succeeds, its manifest and BREP files replace the
 scene.
 
-**Server:** Swift + Node
+**Server:** Swift + Node. The stage directory, the failure checks and the promotion described here
+are the Swift server's; the Node server runs `occtkit` against the scene directory as before.
 
 **Parameters**
 
@@ -385,7 +386,7 @@ let server = await makeOCCTMCPServer(
   wrote no manifest, and a bad manifest are reported to the agent without calling it, and the
   scene is left as it was.
 - With a promoter nothing is copied into the scene for it: the scene is the host's to change. The
-  prior scene is still pushed onto `SceneHistory` just before the call.
+  prior scene is still pushed onto `SceneHistory`, once the promoter has returned without throwing.
 - The stage is outside the scene directory by construction, so a host can refuse a stage inside its
   own scene. OCCTMCP removes the stage when the promoter returns, whether it returned or threw; a
   host that wants to keep any of it (a quarantined stage to retry, say) moves it first.
