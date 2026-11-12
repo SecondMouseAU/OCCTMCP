@@ -302,15 +302,4 @@ public enum IOTools {
         let stem = (base as NSString).deletingPathExtension
         return stem.isEmpty ? "imported" : stem
     }
-
-    static func uniqueBodyId(prefix: String, manifest: ScriptManifest) -> String {
-        var i = 0
-        while true {
-            let candidate = i == 0 ? prefix : "\(prefix)_\(i)"
-            if !manifest.bodies.contains(where: { $0.id == candidate }) {
-                return candidate
-            }
-            i += 1
-        }
-    }
 }

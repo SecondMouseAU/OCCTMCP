@@ -296,7 +296,8 @@ let id = try await SceneBodies.add(shape: solid, idPrefix: "profile", color: [0.
 ```
 
 - Pass `bodyId` to choose the id. A taken id throws `ManifestError.bodyIdTaken` and leaves the
-  existing body alone. Without it the first free `idPrefix`, `idPrefix_1`, `idPrefix_2` is used.
+  existing body alone. Without it the first free `idPrefix`, `idPrefix_1`, `idPrefix_2` is used,
+  chosen under the manifest lock, so concurrent adds with one prefix each get their own id.
 - An id names the body's file, so it must not be empty, start with a dot or contain `/`; anything
   else throws `SceneBodiesError.invalidBodyId` before anything is written. `read_brep` and
   `import_file` now apply the same rule.
@@ -307,12 +308,15 @@ let id = try await SceneBodies.add(shape: solid, idPrefix: "profile", color: [0.
   manifest entry itself, through `ManifestStore.update`.
 
 **Finding a body again.** `SceneBodies.body(withId:)` returns the manifest entry and
-`SceneBodies.shape(ofBody:)` returns its shape. The shape read is the one a built-in reading tool
-makes: the host's own shape from `bodyShapeProvider` when it supplies one, else the file read by
-the body's `format`. A handler that measures or inspects a pick should read the shape here, because
-a pick's `index` and `uid` index into that shape. Errors are `IntrospectionTools.ToolError` (no
-scene, no such body, file missing) or `BodyLoadError` (unreadable file); a handler that lets one
-escape produces an `isError` result that names it.
+`SceneBodies.shape(ofBody:)` returns its shape, read the way a built-in reading tool reads it: the
+host's own shape from `bodyShapeProvider` when it supplies one, else the body's file read by its
+`format`, parsed afresh on each call. That is right for geometry: measure it, take a volume, tessellate
+it. It is not a way to resolve a `selectionId` or a `GraphUID`. Those resolve through the body's
+retained lineage graph, a node index there is not a position in `Shape.faces()`, and a freshly parsed
+shape is not a node of that graph. A host that holds the shape its picks index into returns it from
+`bodyShapeProvider`, and the shape a handler reads here is then that same one. Errors are
+`IntrospectionTools.ToolError` (no scene, no such body, file missing) or `BodyLoadError` (unreadable
+file); a handler that lets one escape produces an `isError` result that names it.
 
 Both resolve the scene directory from the calling task, so they must run on the tool call's own
 task or a child of it. `Task.detached` drops the directory passed to `outputDirectory:` and falls
@@ -330,15 +334,17 @@ for (i, step) in steps.enumerated() {
 }
 ```
 
-Send values that rise with each call. A notification that cannot be sent is dropped and never fails
+Send values that rise with each call, and only while the handler is running: the spec ends a
+request's progress when it completes. A notification that cannot be sent is dropped and never fails
 the call. The built-in tools do not report progress today; this is for handlers that run for
 seconds, such as a constraint solve.
 
 **Cancellation.** When a client sends `notifications/cancelled`, the SDK cancels the Swift task
 running the handler. A handler that awaits (`Task.sleep`, another actor, a `URLSession` call) is
 interrupted at that await; a long synchronous loop must call `try Task.checkCancellation()` itself.
-Rethrow `CancellationError` rather than turning it into a result. The server does not wait for a
-handler that ignores the request, and the client has already stopped waiting.
+Rethrow `CancellationError` rather than turning it into a result. A handler that ignores the
+cancellation runs to its end, because the server waits for it, but the server then sends no response
+for a request that was cancelled, as the MCP spec asks, whatever the handler returned.
 
 ## Embedding: observing tool calls and manifest writes
 

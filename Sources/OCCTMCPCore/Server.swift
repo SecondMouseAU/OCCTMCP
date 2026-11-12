@@ -135,6 +135,9 @@ func registerTools(
             }
         }
         pump?.emit(params.name, arguments, .finished(isError: result.isError ?? false), id: callID)
+        // The client cancelled this request and is no longer waiting: the MCP spec says a cancelled
+        // request gets no response, and the SDK sends none for a thrown `CancellationError`.
+        try Task.checkCancellation()
         return result
     }
 }

@@ -77,23 +77,23 @@ public enum SceneBodies {
         history: SceneHistory = .shared
     ) async throws -> String {
         let fallbackDescription = description ?? "Added by an embedding host"
-        let seed =
-            try store.requireSceneOrAbsent()
-            ?? ScriptManifest(description: fallbackDescription, bodies: [])
-        if let bodyId, seed.bodies.contains(where: { $0.id == bodyId }) {
-            throw ManifestError.bodyIdTaken(bodyId)
+        // The prefix is the stem of every generated id, so it must be usable as one.
+        let requested = bodyId ?? idPrefix
+        guard !requested.isEmpty, !requested.hasPrefix("."), !requested.contains("/") else {
+            throw SceneBodiesError.invalidBodyId(requested)
         }
-        let id = bodyId ?? IOTools.uniqueBodyId(prefix: idPrefix, manifest: seed)
-        guard !id.isEmpty, !id.hasPrefix("."), !id.contains("/") else {
-            throw SceneBodiesError.invalidBodyId(id)
+        // Fail before anything is written: a malformed manifest, or an id already in the scene.
+        let existing = try store.requireSceneOrAbsent()
+        if let bodyId, existing?.bodies.contains(where: { $0.id == bodyId }) == true {
+            throw ManifestError.bodyIdTaken(bodyId)
         }
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(
             atPath: outputDir, withIntermediateDirectories: true)
-        let file = "\(id).brep"
-        let finalPath = "\(outputDir)/\(file)"
-        let stagedPath = "\(outputDir)/.\(id).\(UUID().uuidString).partial"
+        // The staged file is named for nothing but itself: a generated id is only chosen under
+        // the lock, where it cannot collide with a concurrent add.
+        let stagedPath = "\(outputDir)/.\(UUID().uuidString).partial"
         do {
             try Exporter.writeBREP(
                 shape: shape, to: URL(fileURLWithPath: stagedPath), allowInvalid: allowInvalid)
@@ -102,26 +102,29 @@ public enum SceneBodies {
         }
 
         await history.snapshot(store: store)
-        var published = false
+        var publishedPath: String?
+        var assignedId = ""
         defer { try? FileManager.default.removeItem(atPath: stagedPath) }
-        let body = BodyDescriptor(id: id, file: file, color: color)
         do {
             try store.update { current in
                 let base = current ?? ScriptManifest(description: fallbackDescription, bodies: [])
+                let id = bodyId ?? uniqueId(prefix: idPrefix, in: base)
                 if base.bodies.contains(where: { $0.id == id }) {
                     throw ManifestError.bodyIdTaken(id)
                 }
-                try publishStaged(stagedPath, as: finalPath)
-                published = true
+                let file = "\(id).brep"
+                try publishStaged(stagedPath, as: "\(outputDir)/\(file)")
+                publishedPath = "\(outputDir)/\(file)"
+                assignedId = id
                 return base.replacing(
-                    bodies: base.bodies + [body],
+                    bodies: base.bodies + [BodyDescriptor(id: id, file: file, color: color)],
                     description: base.description ?? fallbackDescription)
             }
         } catch {
-            if published { try? FileManager.default.removeItem(atPath: finalPath) }
+            if let publishedPath { try? FileManager.default.removeItem(atPath: publishedPath) }
             throw error
         }
-        return id
+        return assignedId
     }
 
     /// The manifest entry of the body with this id.
@@ -137,9 +140,11 @@ public enum SceneBodies {
     /// The shape of the body with this id, read the way a built-in reading tool reads it.
     ///
     /// The embedding host's own shape when `bodyShapeProvider` supplies one, else the body's file
-    /// read by the `format` its manifest entry names. This is the shape a `selectionId` on the body
-    /// indexes into, so a handler that measures or inspects a pick should read it here and not
-    /// load the file itself.
+    /// read by the `format` its manifest entry names; each call without a provider parses the file
+    /// afresh. That is right for geometry (measure it, compute from it). It is not how to resolve a
+    /// `selectionId` or a `GraphUID`: those resolve through the retained lineage graph, and a
+    /// freshly parsed shape is not a node of it. A host that holds the shape its picks index into
+    /// returns it from `bodyShapeProvider`, and a handler then reads that same shape here.
     ///
     /// - Throws: `IntrospectionTools.ToolError` as for `body(withId:)`, or `BodyLoadError` when the
     ///   file cannot be read.
@@ -147,6 +152,16 @@ public enum SceneBodies {
         ofBody id: String, store: ManifestStore = ManifestStore()
     ) throws -> Shape {
         try IntrospectionTools.loadShape(bodyId: id, store: store).shape
+    }
+
+    /// The first of `prefix`, `prefix_1`, `prefix_2` and so on that no body in `manifest` has.
+    private static func uniqueId(prefix: String, in manifest: ScriptManifest) -> String {
+        var i = 0
+        while true {
+            let candidate = i == 0 ? prefix : "\(prefix)_\(i)"
+            if !manifest.bodies.contains(where: { $0.id == candidate }) { return candidate }
+            i += 1
+        }
     }
 
     /// Move a staged file to `final`, replacing whatever is there.

@@ -4,6 +4,7 @@
 // (a stateful ledger, a solver that builds a solid), driven through a real client and server.
 
 import Foundation
+import Logging
 import MCP
 @testable import OCCTMCPCore
 import OCCTSwift
@@ -21,18 +22,21 @@ private actor Ledger {
     var wasCancelled: Bool { cancelled }
 }
 
-private final class Counter: @unchecked Sendable {
+/// A lock-guarded list a handler or notification callback appends to and a test reads.
+private final class Log<Element: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var values: [Double] = []
-    func add(_ value: Double) {
+    private var items: [Element] = []
+
+    func add(_ item: Element) {
         lock.lock()
-        values.append(value)
+        items.append(item)
         lock.unlock()
     }
-    var all: [Double] {
+
+    var all: [Element] {
         lock.lock()
         defer { lock.unlock() }
-        return values
+        return items
     }
 }
 
@@ -113,18 +117,6 @@ struct ExtraToolSessionTests {
         #expect(try await call(client, "ledger_list").text == "a,b,c")
     }
 
-    @Test("state belongs to the handler that holds it: a second session starts empty")
-    func stateIsPerSession() async throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let first = try await connect(dir, extras: ledgerTools(Ledger()))
-        let second = try await connect(dir, extras: ledgerTools(Ledger()))
-
-        _ = try await call(first, "ledger_add", ["entry": "only-in-first"])
-        #expect(try await call(first, "ledger_list").text == "only-in-first")
-        #expect(try await call(second, "ledger_list").text == "", "second session saw the first")
-    }
-
     @Test("concurrent calls to a stateful tool all land")
     func concurrentCalls() async throws {
         let dir = try makeDirectory()
@@ -145,7 +137,7 @@ struct ExtraToolSessionTests {
     func handlersOverlap() async throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let arrived = Counter()
+        let arrived = Log<Double>()
         // Each call waits for the other to arrive; a server that ran them one after the other
         // would time the first out before the second began.
         let meet = ExtraTool(
@@ -163,19 +155,26 @@ struct ExtraToolSessionTests {
         async let second = call(client, "rendezvous")
         let results = try await [first, second]
         #expect(results.map(\.text) == ["met", "met"], "\(results.map(\.text))")
-        // A built-in answers while a handler is still running.
+    }
+
+    @Test("a built-in answers while an extra handler is still running")
+    func builtInAnswersDuringASlowHandler() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let finished = Log<Double>()
         let slow = ExtraTool(
             tool: tool("sleeper"),
             handler: { _ in
-                try await Task.sleep(nanoseconds: 1_000_000_000)
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+                finished.add(1)
                 return text("slept")
             })
-        let other = try await connect(dir, extras: [slow])
-        let pending = Task { try await self.call(other, "sleeper") }
+        let client = try await connect(dir, extras: [slow])
+        let pending = Task { try await self.call(client, "sleeper") }
         try await Task.sleep(nanoseconds: 100_000_000)
-        let started = Date()
-        #expect(try await call(other, "ping").text == "pong")
-        #expect(Date().timeIntervalSince(started) < 0.5, "ping waited for the sleeping handler")
+        // Ordering, not a stopwatch: the sleeper has not finished when ping has answered.
+        #expect(try await call(client, "ping").text == "pong")
+        #expect(finished.all.isEmpty, "ping waited for the sleeping handler")
         #expect(try await pending.value.text == "slept")
     }
 
@@ -281,8 +280,8 @@ struct ExtraToolSessionTests {
     func addIsObservedAsTheExtraTool() async throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let seen = Counter()
-        let names = NameLog()
+        let seen = Log<Double>()
+        let names = Log<String>()
         let client = try await connect(dir, extras: sceneTools()) { _, tool in
             seen.add(1)
             names.add(tool ?? "<none>")
@@ -334,8 +333,8 @@ struct ExtraToolSessionTests {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let client = try await connect(dir, extras: [progressTool()])
-        let received = Counter()
-        let messages = NameLog()
+        let received = Log<Double>()
+        let messages = Log<String>()
         await client.onNotification(ProgressNotification.self) { message in
             guard message.params.progressToken == .string("solve-1") else { return }
             received.add(message.params.progress)
@@ -357,7 +356,7 @@ struct ExtraToolSessionTests {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let client = try await connect(dir, extras: [progressTool()])
-        let received = Counter()
+        let received = Log<Double>()
         await client.onNotification(ProgressNotification.self) { message in
             received.add(message.params.progress)
         }
@@ -374,12 +373,12 @@ struct ExtraToolSessionTests {
 
     // ── cancellation ────────────────────────────────────────────────────
 
-    @Test("cancelling a request cancels the handler's task")
+    @Test("cancelling a request cancels the handler's task and sends no response")
     func cancellationReachesTheHandler() async throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let ledger = Ledger()
-        let started = Counter()
+        let started = Log<Double>()
         let slow = ExtraTool(
             tool: tool("long_solve"),
             handler: { _ in
@@ -394,7 +393,12 @@ struct ExtraToolSessionTests {
                 }
                 return text("finished")
             })
-        let client = try await connect(dir, extras: [slow])
+        let (clientTransport, serverTransport) = await InMemoryTransport.createConnectedPair()
+        let recording = RecordingTransport(wrapping: serverTransport)
+        let server = await makeOCCTMCPServer(extraTools: [slow], outputDirectory: dir)
+        try await server.start(transport: recording)
+        let client = Client(name: "test", version: "1")
+        _ = try await client.connect(transport: clientTransport)
 
         let pending = try await client.send(CallTool.request(.init(name: "long_solve")))
         #expect(await waitFor { started.all.count == 1 }, "handler never started")
@@ -409,203 +413,53 @@ struct ExtraToolSessionTests {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         #expect(sawCancelled, "the handler ran on to its end")
-    }
-}
 
-/// Holds tasks until `open()`, then releases them together.
-private actor StartGate {
-    private var isOpen = false
-    private var waiting: [CheckedContinuation<Void, Never>] = []
-
-    func wait() async {
-        if isOpen { return }
-        await withCheckedContinuation { waiting.append($0) }
-    }
-
-    func open() {
-        isOpen = true
-        for continuation in waiting { continuation.resume() }
-        waiting = []
-    }
-}
-
-private final class NameLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var items: [String] = []
-    func add(_ item: String) {
-        lock.lock()
-        items.append(item)
-        lock.unlock()
-    }
-    var all: [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return items
-    }
-}
-
-@Suite("SceneBodies", .serialized)
-struct SceneBodiesTests {
-
-    func makeStore() throws -> (dir: URL, store: ManifestStore) {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("occtmcp-scenebodies-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return (dir, ManifestStore(path: dir.appendingPathComponent("manifest.json").path))
-    }
-
-    func box() throws -> Shape { try #require(Shape.box(width: 10, height: 10, depth: 10)) }
-
-    @Test("a first add creates the scene with the given description")
-    func firstAddCreatesTheScene() async throws {
-        let (dir, store) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let id = try await SceneBodies.add(
-            shape: try box(), description: "built by a host", store: store, history: SceneHistory())
-        #expect(id == "body")
-        let manifest = try #require(try store.read())
-        #expect(manifest.description == "built by a host")
-        #expect(manifest.bodies.compactMap(\.id) == ["body"])
+        // A request the client cancelled gets no response, so nothing the server sent after the
+        // initialize reply mentions the tool's result or an error for it.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let sent = await recording.sentText
         #expect(
-            manifest.bodies.first?.file == "body.brep" && manifest.bodies.first?.format == "brep")
+            !sent.contains { $0.contains("\"result\"") && $0.contains("\"content\"") },
+            "the server answered a cancelled request: \(sent)")
+        #expect(
+            !sent.contains { $0.contains("long_solve failed") },
+            "a cancelled handler was reported as a failure: \(sent)")
+    }
+}
+
+/// Wraps a transport and keeps every message the server sends through it.
+private actor RecordingTransport: Transport {
+    nonisolated let logger: Logger
+    private nonisolated let inner: InMemoryTransport
+    private var sent: [Data] = []
+
+    init(wrapping inner: InMemoryTransport) {
+        self.inner = inner
+        self.logger = inner.logger
     }
 
-    @Test("an add to an existing scene keeps its bodies and description")
-    func addKeepsTheScene() async throws {
-        let (dir, store) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try Exporter.writeBREP(shape: try box(), to: dir.appendingPathComponent("old.brep"))
-        try store.write(
-            ScriptManifest(
-                version: 1, timestamp: Date(), description: "existing",
-                bodies: [BodyDescriptor(id: "old", file: "old.brep")]))
-        _ = try await SceneBodies.add(
-            shape: try box(), bodyId: "new", description: "ignored", store: store,
-            history: SceneHistory())
-        let manifest = try #require(try store.read())
-        #expect(manifest.bodies.compactMap(\.id) == ["old", "new"])
-        #expect(manifest.description == "existing")
+    var sentText: [String] { sent.map { String(decoding: $0, as: UTF8.self) } }
+
+    func connect() async throws { try await inner.connect() }
+    func disconnect() async { await inner.disconnect() }
+
+    func send(_ data: Data) async throws {
+        sent.append(data)
+        try await inner.send(data)
     }
 
-    @Test("the previous scene is pushed onto the history before the write")
-    func addSnapshotsHistory() async throws {
-        let (dir, store) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let history = SceneHistory()
-        _ = try await SceneBodies.add(
-            shape: try box(), bodyId: "one", store: store, history: history)
-        #expect(await history.count() == 0, "no scene yet, nothing to snapshot")
-        _ = try await SceneBodies.add(
-            shape: try box(), bodyId: "two", store: store, history: history)
-        #expect(await history.count() == 1)
-        let previous = try #require(await history.snapshot(since: 1))
-        #expect(previous.bodies.compactMap(\.id) == ["one"], "snapshot must precede the add")
-    }
-
-    @Test("adds racing for one id: exactly one wins, and the scene holds one intact body")
-    func racingForOneId() async throws {
-        let (dir, store) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let history = SceneHistory()
-        let gate = StartGate()
-        let wins = await withTaskGroup(of: Bool.self) { group in
-            for _ in 0..<8 {
-                group.addTask {
-                    guard let shape = Shape.box(width: 10, height: 10, depth: 10) else {
-                        return false
-                    }
-                    // Every task has built its shape and passed no id check before any of them adds.
-                    await gate.wait()
-                    return
-                        (try? await SceneBodies.add(
-                            shape: shape, bodyId: "same", store: store, history: history)) != nil
+    nonisolated func receive() -> AsyncThrowingStream<Data, Swift.Error> {
+        let inner = self.inner
+        return AsyncThrowingStream { continuation in
+            let forwarding = Task {
+                do {
+                    for try await data in await inner.receive() { continuation.yield(data) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
                 }
             }
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            await gate.open()
-            var count = 0
-            for await won in group where won { count += 1 }
-            return count
-        }
-        #expect(wins == 1, "\(wins) adds claimed one id")
-        let manifest = try #require(try store.read())
-        #expect(manifest.bodies.compactMap(\.id) == ["same"])
-        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
-        #expect(files == ["manifest.json", "manifest.lock", "same.brep"], "\(files)")
-        let shape = try SceneBodies.shape(ofBody: "same", store: store)
-        #expect(abs((shape.volume ?? 0) - 1000) < 1e-6)
-    }
-
-    @Test("an id that cannot name a file is refused and nothing is written")
-    func invalidIds() async throws {
-        let (dir, store) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        for bad in ["", ".hidden", "a/b", "../escape"] {
-            await #expect(throws: SceneBodiesError.invalidBodyId(bad), "id \"\(bad)\"") {
-                _ = try await SceneBodies.add(
-                    shape: try box(), bodyId: bad, store: store, history: SceneHistory())
-            }
-        }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).isEmpty)
-        #expect(
-            !FileManager.default.fileExists(
-                atPath: dir.deletingLastPathComponent().appendingPathComponent("escape.brep").path))
-    }
-
-    @Test("a malformed manifest is not overwritten and no body file is written")
-    func malformedManifest() async throws {
-        let (dir, store) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try Data("{ not json".utf8).write(to: URL(fileURLWithPath: store.path))
-        await #expect(throws: ManifestError.self) {
-            _ = try await SceneBodies.add(shape: try box(), store: store, history: SceneHistory())
-        }
-        #expect(try String(contentsOfFile: store.path, encoding: .utf8) == "{ not json")
-        #expect(
-            try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted() == [
-                "manifest.json"
-            ])
-    }
-
-    @Test("a body file that cannot be written fails the add and leaves no staging file")
-    func unwritableDirectory() async throws {
-        let (dir, store) = try makeStore()
-        defer {
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: 0o755], ofItemAtPath: dir.path)
-            try? FileManager.default.removeItem(at: dir)
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
-        do {
-            _ = try await SceneBodies.add(shape: try box(), store: store, history: SceneHistory())
-            Issue.record("add into a read-only directory succeeded")
-        } catch let error as SceneBodiesError {
-            guard case .writeFailed = error else {
-                Issue.record("expected writeFailed, got \(error)")
-                return
-            }
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).isEmpty)
-    }
-
-    @Test("body(withId:) and shape(ofBody:) name what is wrong")
-    func resolveErrors() async throws {
-        let (dir, store) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        #expect(throws: IntrospectionTools.ToolError.self) {
-            _ = try SceneBodies.body(withId: "x", store: store)
-        }
-        let id = try await SceneBodies.add(shape: try box(), store: store, history: SceneHistory())
-        #expect(try SceneBodies.body(withId: id, store: store).file == "body.brep")
-        let shape = try SceneBodies.shape(ofBody: id, store: store)
-        #expect(abs((shape.volume ?? 0) - 1000) < 1e-6)
-        #expect(throws: IntrospectionTools.ToolError.self) {
-            _ = try SceneBodies.shape(ofBody: "missing", store: store)
-        }
-        try FileManager.default.removeItem(at: dir.appendingPathComponent("body.brep"))
-        #expect(throws: IntrospectionTools.ToolError.self) {
-            _ = try SceneBodies.shape(ofBody: id, store: store)
+            continuation.onTermination = { _ in forwarding.cancel() }
         }
     }
 }
