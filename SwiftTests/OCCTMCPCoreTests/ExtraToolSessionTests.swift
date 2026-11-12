@@ -112,7 +112,9 @@ struct ExtraToolSessionTests {
             try await group.waitForAll()
         }
         let listed = try await call(client, "ledger_list").text.split(separator: ",")
-        #expect(Set(listed.map(String.init)) == Set((0..<20).map(String.init)), "got \(listed)")
+        let got: Set<String> = Set(listed.map { String($0) })
+        let expected: Set<String> = Set((0..<20).map { String($0) })
+        #expect(got == expected, "got \(listed)")
     }
 
     @Test("two calls to one tool run at the same time, so a slow handler does not block others")
