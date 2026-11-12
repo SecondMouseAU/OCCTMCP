@@ -1375,7 +1375,7 @@ struct DrawingReadToolsTests {
         for (name, required) in [
             ("read_drawing", ["inputPath"]), ("list_drawing_entities", ["inputPath"]),
             ("list_drawing_dimensions", ["inputPath"]),
-            ("measure_drawing", ["inputPath", "measure"]),
+            ("measure_drawing", ["inputPath", "measure", "a"]),
         ] {
             let tool = byName[name]
             #expect(tool != nil, "\(name) is not registered")

@@ -475,7 +475,7 @@ private func builtinCatalogTools() -> [Tool] {
                         ),
                     ]),
                 ]),
-                "required": .array([.string("inputPath"), .string("measure")]),
+                "required": .array([.string("inputPath"), .string("measure"), .string("a")]),
                 "additionalProperties": .bool(false),
             ])
         ),
