@@ -535,3 +535,8 @@ public enum IntrospectionTools {
         }
     }
 }
+
+extension IntrospectionTools.ToolError: LocalizedError {
+    /// So `error.localizedDescription` carries the message, as it does for `ManifestError`.
+    public var errorDescription: String? { description }
+}

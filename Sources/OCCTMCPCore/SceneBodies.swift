@@ -13,6 +13,10 @@ public enum SceneBodiesError: Error, CustomStringConvertible, Equatable {
     case invalidBodyId(String)
     /// The shape could not be written as BREP.
     case writeFailed(underlying: String)
+    /// The scene directory does not exist and could not be created.
+    case cannotCreateSceneDirectory(path: String, underlying: String)
+    /// Another body already has this file name, so writing it would overwrite that body's file.
+    case fileInUse(file: String, bodyId: String?)
 
     public var description: String {
         switch self {
@@ -22,6 +26,13 @@ public enum SceneBodiesError: Error, CustomStringConvertible, Equatable {
                 + "start with a dot, or contain \"/\"."
         case .writeFailed(let underlying):
             return "Failed to write BREP: \(underlying)"
+        case .cannotCreateSceneDirectory(let path, let underlying):
+            return "Cannot create the scene directory \(path): \(underlying)"
+        case .fileInUse(let file, let bodyId):
+            let owner = bodyId.map { "body \"\($0)\"" } ?? "another body"
+            return
+                "\(file) is already the file of \(owner), so it was not overwritten. "
+                + "Choose a different body id."
         }
     }
 }
@@ -41,8 +52,8 @@ public enum SceneBodies {
     ///
     /// The file is written beside the manifest and moved into place under the manifest lock, so a
     /// concurrent writer that took the id first never has its body file overwritten. The
-    /// manifest write reaches the host's `manifestWriteObserver`, and the previous manifest is
-    /// pushed onto `SceneHistory` first, so `compare_versions` can diff against it.
+    /// manifest write reaches the host's `manifestWriteObserver`, and the manifest it replaced is
+    /// pushed onto `SceneHistory` once the write succeeds, so `compare_versions` can diff against it.
     ///
     /// ```swift
     /// let id = try await SceneBodies.add(shape: solid, idPrefix: "profile", color: [0.8, 0.2, 0.2, 1])
@@ -63,8 +74,11 @@ public enum SceneBodies {
     ///   - store: The manifest to add to. The default is the scene of the current tool call.
     ///   - history: The history to snapshot into. The default is the current scene's.
     /// - Returns: The id the body was given.
-    /// - Throws: `SceneBodiesError`, or a `ManifestError` for a taken id, a malformed manifest or a
-    ///   lock timeout.
+    /// - Throws: `SceneBodiesError` for an unusable id, a file name another body already has
+    ///   (compared without regard to case, since the scene may sit on a case-insensitive volume), an
+    ///   uncreatable scene directory or a failed write; a `ManifestError` for a taken id, a malformed
+    ///   manifest, a lock failure or a lock timeout; and whatever a vetoing `manifestWriteObserver`
+    ///   throws.
     @discardableResult
     public static func add(
         shape: Shape,
@@ -89,11 +103,17 @@ public enum SceneBodies {
         }
 
         let outputDir = (store.path as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(
-            atPath: outputDir, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(
+                atPath: outputDir, withIntermediateDirectories: true)
+        } catch {
+            throw SceneBodiesError.cannotCreateSceneDirectory(
+                path: outputDir, underlying: error.localizedDescription)
+        }
         // The staged file is named for nothing but itself: a generated id is only chosen under
         // the lock, where it cannot collide with a concurrent add.
         let stagedPath = "\(outputDir)/.\(UUID().uuidString).partial"
+        defer { try? FileManager.default.removeItem(atPath: stagedPath) }
         do {
             try Exporter.writeBREP(
                 shape: shape, to: URL(fileURLWithPath: stagedPath), allowInvalid: allowInvalid)
@@ -101,18 +121,21 @@ public enum SceneBodies {
             throw SceneBodiesError.writeFailed(underlying: error.localizedDescription)
         }
 
-        await history.snapshot(store: store)
         var publishedPath: String?
         var assignedId = ""
-        defer { try? FileManager.default.removeItem(atPath: stagedPath) }
+        var replaced: ScriptManifest?
         do {
             try store.update { current in
+                replaced = current
                 let base = current ?? ScriptManifest(description: fallbackDescription, bodies: [])
                 let id = bodyId ?? uniqueId(prefix: idPrefix, in: base)
                 if base.bodies.contains(where: { $0.id == id }) {
                     throw ManifestError.bodyIdTaken(id)
                 }
                 let file = "\(id).brep"
+                if let owner = base.bodies.first(where: { sameFile($0.file, file) }) {
+                    throw SceneBodiesError.fileInUse(file: file, bodyId: owner.id)
+                }
                 try publishStaged(stagedPath, as: "\(outputDir)/\(file)")
                 publishedPath = "\(outputDir)/\(file)"
                 assignedId = id
@@ -124,6 +147,8 @@ public enum SceneBodies {
             if let publishedPath { try? FileManager.default.removeItem(atPath: publishedPath) }
             throw error
         }
+        // Only a write that succeeded is history; a lost race or a vetoed write leaves it alone.
+        if let replaced { await history.record(replaced) }
         return assignedId
     }
 
@@ -154,14 +179,23 @@ public enum SceneBodies {
         try IntrospectionTools.loadShape(bodyId: id, store: store).shape
     }
 
-    /// The first of `prefix`, `prefix_1`, `prefix_2` and so on that no body in `manifest` has.
+    /// The first of `prefix`, `prefix_1`, `prefix_2` and so on that no body in `manifest` has as its
+    /// id or as the stem of its file.
     private static func uniqueId(prefix: String, in manifest: ScriptManifest) -> String {
         var i = 0
         while true {
             let candidate = i == 0 ? prefix : "\(prefix)_\(i)"
-            if !manifest.bodies.contains(where: { $0.id == candidate }) { return candidate }
+            let taken = manifest.bodies.contains {
+                $0.id == candidate || sameFile($0.file, "\(candidate).brep")
+            }
+            if !taken { return candidate }
             i += 1
         }
+    }
+
+    /// Whether two manifest file names are one file, allowing for a case-insensitive volume.
+    private static func sameFile(_ a: String, _ b: String) -> Bool {
+        a.lowercased() == b.lowercased()
     }
 
     /// Move a staged file to `final`, replacing whatever is there.

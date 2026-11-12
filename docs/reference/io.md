@@ -44,7 +44,7 @@ A file that parses but holds nothing with a bounding box (an empty or null shape
 { "bodyId": "part", "name": "part", "path": "/Users/me/output/part.brep" }
 ```
 
-**Notes**: Set `allowInvalid: true` when loading a mesh-reconstructed solid that has open shells or non-manifold edges; the shape is added as-is so you can immediately call `validate_geometry` to inspect its defects or `measure_deviation` to certify it against a reference mesh. The validity gate is re-applied on the next `export_scene` call.
+**Notes**: Set `allowInvalid: true` when loading a mesh-reconstructed solid that has open shells or non-manifold edges; the shape is added as-is so you can immediately call `validate_geometry` to inspect its defects or `measure_deviation` to certify it against a reference mesh. The validity gate is re-applied on the next `export_scene` call. On the Swift server a body whose file name (`<id>.brep`) another body already has, compared without regard to case, is refused instead of overwriting that body's file.
 
 ---
 
@@ -76,7 +76,7 @@ Multi-format CAD import (STEP / IGES / BREP / STL / OBJ). Adds the imported shap
 { "added": [{ "bodyId": "bracket_0", "name": "bracket_0" }] }
 ```
 
-**Notes**: Like `read_brep`, `allowInvalid: true` bypasses the write-gate so you can load a loose-face or open-shell STEP file produced by a reconstruction tool and immediately measure it with `measure_deviation` or `validate_geometry`. STEP assemblies with multiple solids produce one body per solid, each prefixed with `idPrefix`.
+**Notes**: Like `read_brep`, `allowInvalid: true` bypasses the write-gate so you can load a loose-face or open-shell STEP file produced by a reconstruction tool and immediately measure it with `measure_deviation` or `validate_geometry`. STEP assemblies with multiple solids produce one body per solid, each prefixed with `idPrefix`. On the Swift server a body whose file name (`<id>.brep`) another body already has, compared without regard to case, is refused instead of overwriting that body's file.
 
 BREP (`.brep` / `.brp`) is a single shape, so it imports as one body. On the **Swift** server it loads in-process via `Shape.loadBREP`. On the **Node** server it is routed to the occtkit `load-brep` verb (occtkit's `import` verb itself has no BREP loader), so `import_file` is a single entry point for every format on both servers (you don't need to fall back to `read_brep` for BREP).
 

@@ -298,6 +298,10 @@ let id = try await SceneBodies.add(shape: solid, idPrefix: "profile", color: [0.
 - Pass `bodyId` to choose the id. A taken id throws `ManifestError.bodyIdTaken` and leaves the
   existing body alone. Without it the first free `idPrefix`, `idPrefix_1`, `idPrefix_2` is used,
   chosen under the manifest lock, so concurrent adds with one prefix each get their own id.
+- A body's file is `<id>.brep`. An add whose file name another body already has, compared without
+  regard to case because the scene may sit on a case-insensitive volume, throws
+  `SceneBodiesError.fileInUse` and overwrites nothing; a generated id skips such names. `read_brep`
+  and `import_file` apply the same rule.
 - An id names the body's file, so it must not be empty, start with a dot or contain `/`; anything
   else throws `SceneBodiesError.invalidBodyId` before anything is written. `read_brep` and
   `import_file` now apply the same rule.
@@ -340,11 +344,13 @@ the call. The built-in tools do not report progress today; this is for handlers 
 seconds, such as a constraint solve.
 
 **Cancellation.** When a client sends `notifications/cancelled`, the SDK cancels the Swift task
-running the handler. A handler that awaits (`Task.sleep`, another actor, a `URLSession` call) is
-interrupted at that await; a long synchronous loop must call `try Task.checkCancellation()` itself.
-Rethrow `CancellationError` rather than turning it into a result. A handler that ignores the
-cancellation runs to its end, because the server waits for it, but the server then sends no response
-for a request that was cancelled, as the MCP spec asks, whatever the handler returned.
+running the handler. A handler awaiting a cancellable call (`Task.sleep`, a `URLSession` request) is
+interrupted at that await. Awaiting an actor's method is not a cancellation point, and neither is a
+synchronous loop: check `try Task.checkCancellation()` between steps. Rethrow `CancellationError`
+rather than turning it into a result. A handler that ignores the cancellation runs to its end,
+because the server waits for it, but the server then sends no response for a request that was
+cancelled, as the MCP spec asks, whatever the handler returned. The host's `toolCallObserver` still
+sees the call finish.
 
 ## Embedding: observing tool calls and manifest writes
 

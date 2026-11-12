@@ -215,6 +215,21 @@ struct ExtraToolSessionTests {
         #expect(abs(volume - 6000) < 1e-3, "volume \(volume)")
     }
 
+    @Test("a handler's add is history that compare_versions diffs against")
+    func addFeedsCompareVersions() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let client = try await connect(dir, extras: sceneTools())
+        _ = try await call(client, "build_box")
+        _ = try await call(client, "build_box")
+
+        let diff = try await call(client, "compare_versions")
+        try #require(!diff.isError, "\(diff.text)")
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: Data(diff.text.utf8)) as? [String: Any])
+        #expect(json["added"] as? [String] == ["solved_1"], "\(diff.text)")
+    }
+
     @Test("a handler resolves a scene body by id, whatever its format")
     func handlerResolvesByIdAndFormat() async throws {
         let dir = try makeDirectory()

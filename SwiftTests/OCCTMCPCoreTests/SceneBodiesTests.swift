@@ -104,6 +104,9 @@ struct SceneBodiesTests {
     func racingForOneId() async throws {
         let (dir, store) = try makeStore()
         defer { cleanUp(dir) }
+        // A scene already exists, so the winning add has something to push onto the history.
+        _ = try await SceneBodies.add(
+            shape: try box(), bodyId: "base", store: store, history: SceneHistory())
         let history = SceneHistory()
         let gate = StartGate()
         let wins = await withTaskGroup(of: Bool.self) { group in
@@ -130,9 +133,10 @@ struct SceneBodiesTests {
         }
         #expect(wins == 1, "\(wins) adds claimed one id")
         let manifest = try #require(try store.read())
-        #expect(manifest.bodies.compactMap(\.id) == ["same"])
+        #expect(manifest.bodies.compactMap(\.id) == ["base", "same"])
+        #expect(await history.count() == 1, "only the add that won may push a snapshot")
         let files = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
-        #expect(files == ["manifest.json", "manifest.lock", "same.brep"], "\(files)")
+        #expect(files == ["base.brep", "manifest.json", "manifest.lock", "same.brep"], "\(files)")
         let shape = try SceneBodies.shape(ofBody: "same", store: store)
         #expect(abs((shape.volume ?? 0) - 1000) < 1e-6)
     }
@@ -197,7 +201,7 @@ struct SceneBodiesTests {
                     && !imported.text.contains("manifest"),
                 "import_file \(bad): \(imported.text)")
         }
-        // A file named with a leading dot has a default id that is refused, and the error says how out.
+        // A file named with a leading dot has a default id that is refused; passing a `bodyId` gets it in.
         let hidden = dir.appendingPathComponent(".scratch.brep")
         try Exporter.writeBREP(shape: try box(), to: hidden)
         let defaulted = await IOTools.readBrep(
@@ -232,6 +236,67 @@ struct SceneBodiesTests {
         let files = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
         #expect(files == ["kept.brep", "manifest.json", "manifest.lock"], "\(files)")
         #expect(try Data(contentsOf: URL(fileURLWithPath: store.path)) == before)
+    }
+
+    @Test("an add never overwrites the file of another body, whatever the ids say")
+    func fileNamesAreNotShared() async throws {
+        let (dir, store) = try makeStore()
+        defer { cleanUp(dir) }
+        // A scene whose bodies' files are not named for their ids, as a script's output is.
+        let lid = Data("lid contents".utf8)
+        try lid.write(to: dir.appendingPathComponent("body-1.brep"))
+        let part = Data("part contents".utf8)
+        try part.write(to: dir.appendingPathComponent("Part.brep"))
+        try store.write(
+            ScriptManifest(
+                version: 1, timestamp: Date(), description: "script output",
+                bodies: [
+                    BodyDescriptor(id: "lid", file: "body-1.brep"),
+                    BodyDescriptor(id: "Part", file: "Part.brep"),
+                ]))
+
+        await #expect(throws: SceneBodiesError.fileInUse(file: "body-1.brep", bodyId: "lid")) {
+            _ = try await SceneBodies.add(
+                shape: try box(), bodyId: "body-1", store: store, history: SceneHistory())
+        }
+        // `part` and `Part` are one file on a case-insensitive volume.
+        await #expect(throws: SceneBodiesError.fileInUse(file: "part.brep", bodyId: "Part")) {
+            _ = try await SceneBodies.add(
+                shape: try box(), bodyId: "part", store: store, history: SceneHistory())
+        }
+        #expect(try Data(contentsOf: dir.appendingPathComponent("body-1.brep")) == lid)
+        #expect(try Data(contentsOf: dir.appendingPathComponent("Part.brep")) == part)
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
+        #expect(
+            files == ["Part.brep", "body-1.brep", "manifest.json", "manifest.lock"], "\(files)")
+
+        // A generated id steps over a file name that is taken, not just an id.
+        let generated = try await SceneBodies.add(
+            shape: try box(), idPrefix: "body-1", store: store, history: SceneHistory())
+        #expect(generated == "body-1_1")
+        #expect(try Data(contentsOf: dir.appendingPathComponent("body-1.brep")) == lid)
+    }
+
+    @Test("a scene directory that cannot be created is named, not reported as a manifest failure")
+    func uncreatableSceneDirectory() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("occtmcp-scenebodies-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // `scene` is a regular file, so nothing can be created under it.
+        let blocker = root.appendingPathComponent("scene")
+        try Data("not a directory".utf8).write(to: blocker)
+        let store = ManifestStore(path: blocker.appendingPathComponent("manifest.json").path)
+        do {
+            _ = try await SceneBodies.add(shape: try box(), store: store, history: SceneHistory())
+            Issue.record("add succeeded under a regular file")
+        } catch let error as SceneBodiesError {
+            guard case .cannotCreateSceneDirectory(let path, _) = error else {
+                Issue.record("expected cannotCreateSceneDirectory, got \(error)")
+                return
+            }
+            #expect(path == blocker.path)
+        }
     }
 
     @Test("an id that cannot name a file is refused and nothing is written")
@@ -296,8 +361,12 @@ struct SceneBodiesTests {
         #expect(try SceneBodies.body(withId: id, store: store).file == "body.brep")
         let shape = try SceneBodies.shape(ofBody: id, store: store)
         #expect(abs((shape.volume ?? 0) - 1000) < 1e-6)
-        #expect(throws: IntrospectionTools.ToolError.self) {
+        do {
             _ = try SceneBodies.shape(ofBody: "missing", store: store)
+            Issue.record("shape(ofBody:) found a body that is not there")
+        } catch {
+            // What a handler's own `catch` prints, not Foundation's generic text.
+            #expect(error.localizedDescription == "Body not found: missing")
         }
         try FileManager.default.removeItem(at: dir.appendingPathComponent("body.brep"))
         #expect(throws: IntrospectionTools.ToolError.self) {
