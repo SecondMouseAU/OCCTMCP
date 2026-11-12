@@ -1,4 +1,4 @@
-// ProcessExit: the exit status of a child process, awaited without `Process.waitUntilExit()` (#265).
+// ProcessExit: a child's exit status, awaited without `Process.waitUntilExit()` (#265).
 
 import Foundation
 

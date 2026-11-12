@@ -17,6 +17,12 @@ struct ExecuteScriptProcessTests {
         return try await body(url)
     }
 
+    /// What the repeated calls in `returnsAfterEveryChild` produced.
+    private struct Run: Sendable {
+        let statuses: [Int32]
+        let outputs: Set<String>
+    }
+
     @Test(
         "runProcess returns after every child exits, call after call",
         .timeLimit(.minutes(2))
@@ -32,20 +38,24 @@ struct ExecuteScriptProcessTests {
         let outcome = try await withScratch { scratch in
             await finishing(within: 90) {
                 var statuses: [Int32] = []
+                var outputs: Set<String> = []
                 for index in 0..<runs {
                     let result = try await ExecuteScriptTool.runProcess(
                         executable: "/bin/sh",
                         args: ["-c", "echo out; echo err 1>&2; exit \(index % 2)"],
                         currentDirectory: scratch)
                     statuses.append(result.exitCode)
+                    outputs.insert("\(result.stdout)|\(result.stderr)")
                 }
-                return statuses
+                return Run(statuses: statuses, outputs: outputs)
             }
         }
         let finished = try #require(outcome, "runProcess stopped returning within 90 s")
-        let statuses = try finished.get()
+        let run = try finished.get()
         let expected: [Int32] = (0..<runs).map { Int32($0 % 2) }
-        #expect(statuses == expected, "each call reports its own child's exit status")
+        #expect(run.statuses == expected, "each call reports its own child's exit status")
+        let expectedOutputs: Set<String> = ["out\n|err\n"]
+        #expect(run.outputs == expectedOutputs, "each call returns its child's stdout and stderr")
     }
 
     @Test(
