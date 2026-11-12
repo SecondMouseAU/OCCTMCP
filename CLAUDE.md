@@ -21,7 +21,7 @@ file into every session, which is the cost this layout exists to avoid.
 | open an issue | [`okf/policies/issue-tracking.md`](okf/policies/issue-tracking.md) |
 | ship or release a change | [`okf/policies/docs-current.md`](okf/policies/docs-current.md) |
 
-The LLM-facing tool table lives in [`README.md`](README.md) and stays canonical there: 79 tools in
+The LLM-facing tool table lives in [`README.md`](README.md) and stays canonical there: 83 tools in
 Swift, 37 in Node. One copy is what stops the two from drifting.
 
 ---
@@ -80,6 +80,10 @@ does that itself.
   `orderedImports.shouldGroupImports`): lint against a copy with `"shouldGroupImports": false`
   added. Also run `swiftlint lint --strict --config .swiftlint.yml` on the changed files only (it
   otherwise scans `.build`) and `python3 scripts/check-style-manifest.py --base origin/main`.
+- **Never call `Process.waitUntilExit()` after an `await`.** With no termination handler it waits
+  on the run loop of the thread that called `run()`, and the task can resume on another thread, so
+  the call can hang forever after the child has exited (#265). It shows only after several runs.
+  Wait on `ProcessExit` (`Tools/ProcessExit.swift`) instead.
 - **`makeOCCTMCPServer(outputDirectory:)` is a task-local, so `Task.detached` drops it.** Do not use
   `Task.detached` on a tool path; see `Paths.swift` in
   [`okf/components/swift-server.md`](okf/components/swift-server.md).
