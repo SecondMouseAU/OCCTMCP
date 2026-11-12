@@ -22,11 +22,12 @@ struct ExecuteScriptProcessTests {
         .timeLimit(.minutes(2))
     )
     func returnsAfterEveryChild() async throws {
-        // Regression for #265: `waitUntilExit()` after the drains' awaits waits on the run loop of
-        // the thread that launched the child. The task can resume on another thread, and then the
-        // call never returns. In a standalone copy of the old shape the hang showed within 5 to 20
-        // calls every time, so 100 sequential calls are a certain catch, and the deadline turns the
-        // hang into a failure instead of a stopped suite.
+        // Regression for #265: `waitUntilExit()` after the drains' awaits, on a process with no
+        // termination handler, waits on the run loop of the thread that launched the child. The
+        // task can resume on another thread, and then the call never returns. A standalone copy of
+        // the old shape stalled within 32 calls in each of 25 tries on macOS 27.2, so 100 calls
+        // leave a wide margin there; this test has not been run on another OS version. The
+        // deadline turns the hang into a failure instead of a stopped suite.
         let runs = 100
         let outcome = try await withScratch { scratch in
             await finishing(within: 90) {
@@ -53,12 +54,14 @@ struct ExecuteScriptProcessTests {
     )
     func cancellationDoesNotEndTheWait() async throws {
         // The wait is not cancellation-aware on purpose: ending it early would leave the caller
-        // reading the status of a child that is still running.
+        // reading the status of a child that is still running. The child closes both pipes first,
+        // so the drains finish at once and the cancellation lands while it is still alive; a child
+        // that held the pipes until it exited would be over before the wait began.
         let outcome = try await withScratch { scratch in
             await finishing(within: 30) {
                 let task = Task {
                     try await ExecuteScriptTool.runProcess(
-                        executable: "/bin/sh", args: ["-c", "sleep 1; exit 5"],
+                        executable: "/bin/sh", args: ["-c", "exec >&- 2>&-; sleep 1; exit 5"],
                         currentDirectory: scratch)
                 }
                 try await Task.sleep(for: .milliseconds(200))
@@ -78,7 +81,7 @@ struct ExecuteScriptProcessTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "exit 7"]
-        let exited = ExecuteScriptTool.ProcessExit(process)
+        let exited = ProcessExit(process)
         try process.run()
         // Long enough for the child to exit and the handler to run with no waiter yet.
         try await Task.sleep(for: .milliseconds(500))
@@ -92,11 +95,31 @@ struct ExecuteScriptProcessTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "sleep 0.5; exit 3"]
-        let exited = ExecuteScriptTool.ProcessExit(process)
+        let exited = ProcessExit(process)
         try process.run()
         let outcome = await finishing(within: 20) { await exited.status() }
         let finished = try #require(outcome, "a waiter was never resumed")
         #expect(try finished.get() == 3)
+    }
+
+    @Test("ProcessExit can be asked again, and by several waiters at once", .timeLimit(.minutes(1)))
+    func askedMoreThanOnce() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 0.5; exit 4"]
+        let exited = ProcessExit(process)
+        try process.run()
+        let outcome = await finishing(within: 20) {
+            async let first = exited.status()
+            async let second = exited.status()
+            let together = await [first, second]
+            let later = await exited.status()
+            return together + [later]
+        }
+        let finished = try #require(outcome, "a second wait never returned")
+        let statuses: [Int32] = try finished.get()
+        let expected: [Int32] = [4, 4, 4]
+        #expect(statuses == expected)
     }
 }
 

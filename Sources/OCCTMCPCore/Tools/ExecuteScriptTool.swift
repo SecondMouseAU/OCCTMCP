@@ -216,50 +216,6 @@ public enum ExecuteScriptTool {
         )
     }
 
-    /// The exit status of a child process, delivered by `Process.terminationHandler`.
-    ///
-    /// The handler runs on a libdispatch queue whichever thread the waiting task is on, and it is
-    /// installed before the child is launched, so no exit goes unobserved. (A handler installed
-    /// after the child had exited also fired on macOS 27.2, when tried; nothing here relies on
-    /// that.) Whichever of the handler and `status()` comes second completes the exchange.
-    ///
-    /// Unlike iterating an `AsyncStream`, the wait does not end early when the awaiting task is
-    /// cancelled, which would leave the caller reading the status of a child that is still
-    /// running.
-    final class ProcessExit: @unchecked Sendable {
-        private let lock = NSLock()
-        private var code: Int32?
-        private var waiter: CheckedContinuation<Int32, Never>?
-
-        init(_ process: Process) {
-            process.terminationHandler = { [self] finished in
-                deliver(finished.terminationStatus)
-            }
-        }
-
-        private func deliver(_ status: Int32) {
-            lock.lock()
-            let pending = waiter
-            waiter = nil
-            if pending == nil { code = status }
-            lock.unlock()
-            pending?.resume(returning: status)
-        }
-
-        func status() async -> Int32 {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if let code {
-                    lock.unlock()
-                    continuation.resume(returning: code)
-                } else {
-                    waiter = continuation
-                    lock.unlock()
-                }
-            }
-        }
-    }
-
     /// Reference-type accumulator for `drain(_:)`.
     ///
     /// The dispatch source behind
