@@ -5,6 +5,7 @@
 // does, so none of these tests compiles anything or touches the script workspace.
 
 import Foundation
+import MCP
 @testable import OCCTMCPCore
 import OCCTSwift
 import ScriptHarness
@@ -434,15 +435,48 @@ struct ExecuteScriptStageTests {
         #expect(!FileManager.default.fileExists(atPath: stage.path))
     }
 
-    @Test("the promoter reaches execute_script through makeOCCTMCPServer")
-    func promoterThroughTheServer() {
-        let promoter: ScriptStagePromoter = { _, _ in }
-        // The factory takes it and installs it for each call; the task-local is how the tool reads it.
-        #expect(OCCTMCPContext.scriptStagePromoter == nil)
-        OCCTMCPContext.$scriptStagePromoter.withValue(promoter) {
-            #expect(OCCTMCPContext.scriptStagePromoter != nil)
+    /// Calls a host tool that runs the promoter its call can see, on a server built with `promoter`.
+    ///
+    /// A host tool runs inside the scope `makeOCCTMCPServer` opens for `execute_script`, so it sees
+    /// what `execute_script` would use, without compiling a script. Returns the tool's reply.
+    private func probePromoter(through promoter: ScriptStagePromoter?) async throws -> String {
+        let probe = ExtraTool(
+            tool: Tool(
+                name: "probe_promoter", description: "runs the promoter this call can see",
+                inputSchema: .object(["type": .string("object")])),
+            handler: { _ in
+                var reply = "none"
+                if let seen = OCCTMCPContext.scriptStagePromoter {
+                    try await seen(URL(fileURLWithPath: "/probe-stage"), "/probe-scene")
+                    reply = "ran"
+                }
+                return .init(content: [.text(text: reply, annotations: nil, _meta: nil)])
+            })
+        let (clientTransport, serverTransport) = await InMemoryTransport.createConnectedPair()
+        let server = await makeOCCTMCPServer(extraTools: [probe], scriptStagePromoter: promoter)
+        try await server.start(transport: serverTransport)
+        let client = Client(name: "test", version: "1")
+        _ = try await client.connect(transport: clientTransport)
+        let (content, isError) = try await client.callTool(name: "probe_promoter", arguments: [:])
+        #expect(isError != true)
+        guard case .text(let text, _, _) = content.first else { return "no text" }
+        return text
+    }
+
+    @Test("the promoter given to makeOCCTMCPServer is the one a call sees, and none means none")
+    func promoterThroughTheServer() async throws {
+        let log = StageLog()
+        let promoter: ScriptStagePromoter = { stage, sceneDirectory in
+            log.record(stage, sceneDirectory: sceneDirectory)
         }
-        #expect(OCCTMCPContext.scriptStagePromoter == nil)
+        let withOne = try await probePromoter(through: promoter)
+        #expect(withOne == "ran")
+        #expect(log.count == 1, "the promoter handed to the factory is the one that ran")
+        #expect(log.stage?.path == "/probe-stage")
+        #expect(log.sceneDirectory == "/probe-scene")
+        let without = try await probePromoter(through: nil)
+        #expect(without == "none", "a server built without one installs none")
+        #expect(log.count == 1)
     }
 }
 
