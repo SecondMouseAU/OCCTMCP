@@ -21,7 +21,7 @@ file into every session, which is the cost this layout exists to avoid.
 | open an issue | [`okf/policies/issue-tracking.md`](okf/policies/issue-tracking.md) |
 | ship or release a change | [`okf/policies/docs-current.md`](okf/policies/docs-current.md) |
 
-The LLM-facing tool table lives in [`README.md`](README.md) and stays canonical there: 79 tools in
+The LLM-facing tool table lives in [`README.md`](README.md) and stays canonical there: 83 tools in
 Swift, 37 in Node. One copy is what stops the two from drifting.
 
 ---

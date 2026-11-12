@@ -3,7 +3,7 @@ type: component
 title: Products and the tool catalogue
 resource: https://github.com/SecondMouseAU/OCCTMCP/blob/main/Package.swift
 tags: [component, products, spm, mcp-tools]
-description: "The two Swift products (OCCTMCPCore library, occtmcp-server executable), the Node implementation beside them, and where the 79-tool catalogue lives."
+description: "The two Swift products (OCCTMCPCore library, occtmcp-server executable), the Node implementation beside them, and where the 83-tool catalogue lives."
 generated: { by: human:gsdali, at: 2026-10-02 }
 ---
 
@@ -24,7 +24,7 @@ A second, original **Node / TypeScript** implementation (`src/`, `package.json`)
 same repo (37 tools, shells out to the `occtkit` CLI) but is not a Swift product. See
 [the Node server](node-server.md).
 
-## MCP tool catalogue (79 typed tools)
+## MCP tool catalogue (83 typed tools)
 
 The categorized table lives in the repo's own `README.md`, not duplicated here: keeping one
 copy is what stops the two from drifting apart as tools are added (the same duplication-drift

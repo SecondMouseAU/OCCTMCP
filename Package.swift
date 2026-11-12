@@ -164,6 +164,9 @@ let package = Package(
                 .product(name: "OCCTSwiftTools", package: "OCCTSwiftInteraction"),
                 .product(name: "OCCTSwiftViewport", package: "OCCTSwiftViewport"),
                 .product(name: "OCCTSwiftAIS", package: "OCCTSwiftInteraction"),
+                // The drawing read tools (#260) read DXF through OCCTSwiftIO, which re-exports
+                // SwiftDXF's entity model. Already in the graph through Scripts and Interaction.
+                .product(name: "OCCTSwiftIO", package: "OCCTSwiftIO"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

@@ -12,7 +12,7 @@ with an example response, the underlying OCCTSwift / occtkit it drives, and gotc
 
 OCCTMCP is an **MCP server**, not a library: clients call these tools over stdio MCP, each with a
 single JSON-object argument, and get JSON text back. The **Swift** server (`occtmcp-server`) is the
-canonical 79-tool surface documented here; the **Node** server exposes a 37-tool subset, and each tool
+canonical 83-tool surface documented here; the **Node** server exposes a 37-tool subset, and each tool
 notes its Node availability.
 
 This complements the other docs:
@@ -99,6 +99,7 @@ nav_order: <n>
 | [Annotations & overlays](annotations.md) | add_dimension, add_scene_primitive, auto_dimension, show_bounding_box, diff_overlay, remove_scene_annotation, list_annotations |
 | [I/O](io.md) | read_brep, import_file, export_scene, set_assembly_metadata |
 | [Mesh & visualization](mesh-visualization.md) | generate_mesh, simplify_mesh, render_preview, pick_surface_point, generate_drawing |
+| [Drawing read](drawing-read.md) | read_drawing, list_drawing_entities, list_drawing_dimensions, measure_drawing |
 | [Mesh analysis (zones)](mesh-analysis.md) | segment_mesh_zones, zone_continuity_sweep, list_zones, clear_zones, mesh_diagnose, mesh_thickness, detect_symmetry, align_bodies, mesh_curvature, fit_primitives, detect_mesh_features |
 | [Topology graph](topology-graph.md) | graph_validate, graph_compact, graph_dedup, graph_ml, graph_select, feature_recognize |
 | [Reconstruction graph](reconstruction.md) | reconstruct_get_graph, reconstruct_set_decision, reconstruct_force_fit, reconstruct_confirm_instances, reconstruct_export_session, reconstruct_import_session |

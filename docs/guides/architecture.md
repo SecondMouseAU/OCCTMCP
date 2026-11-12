@@ -14,7 +14,7 @@ OCCTMCP is an MCP server that lets an LLM author, inspect, and iterate on 3D CAD
 | | Swift (`occtmcp-server`) | Node (`dist/index.js`) |
 |---|---|---|
 | **Runtime** | macOS 15+, Swift in-process | Node 18+, any OS |
-| **Tools** | 79 | 37 |
+| **Tools** | 83 | 37 |
 | **OCCTSwift access** | Direct, no subprocess per call | Via `occtkit` CLI (shells out) |
 | **Build** | `swift build -c release` | `npm run build` |
 

@@ -325,6 +325,147 @@ private func builtinCatalogTools() -> [Tool] {
             ])
         ),
         Tool(
+            name: "read_drawing",
+            description:
+                "Read a 2D engineering drawing (ASCII DXF) as a drawing, not a picture, and summarise it: entity counts by type and by layer, the drawing's units (the DXF $INSUNITS code, its name and millimetres per unit), its extents (declared in the header and computed from the entities), the source record (file name, byte count, SHA-256, DXF version, reader) and what the reader skipped (entity records it does not model, such as block inserts, hatches and splines, by type and layer) with warnings. Start here: the SHA-256 identifies the bytes every entity id (e<index>) refers to. Read-only; touches no scene body. Returns numbers and names, never an image. DWG and JWW are not read yet and return an error saying so.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "inputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Absolute path of the drawing file (a leading ~ is expanded). Only ASCII DXF is read today."
+                        ),
+                    ])
+                ]),
+                "required": .array([.string("inputPath")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "list_drawing_entities",
+            description:
+                "List the entities of a 2D drawing (ASCII DXF) with identity, geometry and layer, filtered by type, layer or a rectangle on the sheet. Each entity has an id (e<index>, stable for the same file bytes; see read_drawing's sha256), type, layer, colour, bounds and its geometry as numbers in drawing units: line start/end/length; circle center/radius; arc center/radius/angles/start/end/length; ellipse center/majorAxis/ratio/params; polyline vertices/bulges/closed/length; text at/height/text; point at; dimension (the same record list_drawing_dimensions returns). `rect` is [xmin, ymin, xmax, ymax] in drawing units; rectMode `intersects` (default) keeps entities whose bounds overlap it, `within` keeps those wholly inside. Arc and bulge bounds are tight; an elliptical arc takes its whole ellipse's bounds; text is its insertion point. Paged: `limit` (default 200, max 5000) and `offset`; `total` counts matches before paging. Read-only.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "inputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Absolute path of the drawing file (a leading ~ is expanded). Only ASCII DXF is read today."
+                        ),
+                    ]),
+                    "types": .object([
+                        "type": .string("array"),
+                        "items": .object([
+                            "type": .string("string"),
+                            "enum": .array(
+                                [
+                                    "line", "circle", "arc", "ellipse", "point", "text", "polyline",
+                                    "dimension",
+                                ]
+                                .map { .string($0) }),
+                        ]),
+                    ]),
+                    "layers": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                    ]),
+                    "rect": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("number")]),
+                        "minItems": .int(4),
+                        "maxItems": .int(4),
+                        "description": .string(
+                            "[xmin, ymin, xmax, ymax] on the sheet, in drawing units."),
+                    ]),
+                    "rectMode": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("intersects"), .string("within")]),
+                    ]),
+                    "limit": .object([
+                        "type": .string("integer"), "minimum": .int(1), "maximum": .int(5000),
+                    ]),
+                    "offset": .object(["type": .string("integer"), "minimum": .int(0)]),
+                ]),
+                "required": .array([.string("inputPath")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "list_drawing_dimensions",
+            description:
+                "List every DIMENSION in a 2D drawing (ASCII DXF): id (e<index>, as in list_drawing_entities), kind (linear, aligned, angular, diameter, radius, angular3Point, ordinate), the stored value in drawing units and in millimetres when the drawing declares its units, the user's text override (null when the dimension shows its own value), the text position, the definition points (each with its DXF group code, and its role where documented: a linear or aligned dimension's dimension-line point and two extension-line origins, a radius or diameter's two ends), layer and colour. Angular values are returned as stored: DXF does not declare their unit. Filter by `layers` or `kinds`; paged by `limit` (default 500) and `offset`. Read-only; returns numbers, not a rendering.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "inputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Absolute path of the drawing file (a leading ~ is expanded). Only ASCII DXF is read today."
+                        ),
+                    ]),
+                    "layers": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                    ]),
+                    "kinds": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                    ]),
+                    "limit": .object([
+                        "type": .string("integer"), "minimum": .int(1), "maximum": .int(5000),
+                    ]),
+                    "offset": .object(["type": .string("integer"), "minimum": .int(0)]),
+                ]),
+                "required": .array([.string("inputPath")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
+            name: "measure_drawing",
+            description:
+                "Measure on a 2D drawing (ASCII DXF) between named entities or points, in drawing units and in millimetres. `measure: distance` takes `a` and `b`, each an entity id (e<index> from list_drawing_entities) or a point [x, y(, z)], and returns the exact minimum distance with the nearest point on each end (OCCT extrema over edges built from the entities, so a slot width is the true gap between two lines or arcs; text and dimension entities have no geometry, use their point). `measure: angle` takes two line entities `a` and `b`, or a `vertex` point with points `a` and `b`, and returns degrees (0 to 180, between the drawn directions) and the acute angle between the lines. `measure: radius` takes a circle or arc entity `a` and returns the radius and diameter. Millimetres come from the drawing's declared units; a unitless drawing gives none unless `mmPerUnit` is passed. Read-only.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "inputPath": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Absolute path of the drawing file (a leading ~ is expanded). Only ASCII DXF is read today."
+                        ),
+                    ]),
+                    "measure": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("distance"), .string("angle"), .string("radius")]),
+                    ]),
+                    "a": .object([
+                        "description": .string(
+                            "An entity id such as \"e12\", or a point [x, y] or [x, y, z].")
+                    ]),
+                    "b": .object([
+                        "description": .string(
+                            "An entity id such as \"e12\", or a point [x, y] or [x, y, z].")
+                    ]),
+                    "vertex": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("number")]),
+                        "description": .string(
+                            "For `angle` between points: the apex, as [x, y] or [x, y, z]."),
+                    ]),
+                    "mmPerUnit": .object([
+                        "type": .string("number"),
+                        "exclusiveMinimum": .int(0),
+                        "description": .string(
+                            "Millimetres per drawing unit, overriding the drawing's declared units."
+                        ),
+                    ]),
+                ]),
+                "required": .array([.string("inputPath"), .string("measure")]),
+                "additionalProperties": .bool(false),
+            ])
+        ),
+        Tool(
             name: "get_api_reference",
             description:
                 "Returns a catalog of every MCP tool this server exposes (category=mcp_tools), or a pointer to OCCTSwift docs for the OCCT API categories. Use mcp_tools for LLM auto-discovery.",
@@ -2672,6 +2813,58 @@ func dispatch(
         }
         return await DrawingTools.generateDrawing(
             bodyIds: bodyIds, outputPath: outputPath, spec: spec
+        ).asCallToolResult()
+
+    case "read_drawing":
+        guard let inputPath = arguments["inputPath"]?.stringValue else {
+            return ToolText("read_drawing requires `inputPath`.", isError: true).asCallToolResult()
+        }
+        return await DrawingReadTools.readDrawing(inputPath: inputPath).asCallToolResult()
+
+    case "list_drawing_entities":
+        guard let inputPath = arguments["inputPath"]?.stringValue else {
+            return ToolText("list_drawing_entities requires `inputPath`.", isError: true)
+                .asCallToolResult()
+        }
+        var rect: [Double]?
+        if let raw = arguments["rect"] {
+            guard let array = raw.arrayValue else {
+                return ToolText("`rect` must be [xmin, ymin, xmax, ymax].", isError: true)
+                    .asCallToolResult()
+            }
+            let numbers = array.compactMap { $0.numberValue }
+            rect = numbers.count == array.count ? numbers : []
+        }
+        return await DrawingReadTools.listDrawingEntities(
+            inputPath: inputPath,
+            types: arguments["types"]?.arrayValue?.compactMap { $0.stringValue },
+            layers: arguments["layers"]?.arrayValue?.compactMap { $0.stringValue },
+            rect: rect, rectMode: arguments["rectMode"]?.stringValue,
+            limit: arguments["limit"]?.intValue, offset: arguments["offset"]?.intValue
+        ).asCallToolResult()
+
+    case "list_drawing_dimensions":
+        guard let inputPath = arguments["inputPath"]?.stringValue else {
+            return ToolText("list_drawing_dimensions requires `inputPath`.", isError: true)
+                .asCallToolResult()
+        }
+        return await DrawingReadTools.listDrawingDimensions(
+            inputPath: inputPath,
+            layers: arguments["layers"]?.arrayValue?.compactMap { $0.stringValue },
+            kinds: arguments["kinds"]?.arrayValue?.compactMap { $0.stringValue },
+            limit: arguments["limit"]?.intValue, offset: arguments["offset"]?.intValue
+        ).asCallToolResult()
+
+    case "measure_drawing":
+        guard let inputPath = arguments["inputPath"]?.stringValue,
+            let measure = arguments["measure"]?.stringValue
+        else {
+            return ToolText("measure_drawing requires `inputPath` and `measure`.", isError: true)
+                .asCallToolResult()
+        }
+        return await DrawingReadTools.measureDrawing(
+            inputPath: inputPath, measure: measure, a: arguments["a"], b: arguments["b"],
+            vertex: arguments["vertex"], mmPerUnit: arguments["mmPerUnit"]?.numberValue
         ).asCallToolResult()
 
     case "get_api_reference":
