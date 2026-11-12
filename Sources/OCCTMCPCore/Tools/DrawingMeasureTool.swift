@@ -175,7 +175,8 @@ extension DrawingReadTools {
                 "A text entity has no measurable geometry; pass its `at` point as a point instead.")
         case .dimension:
             throw MeasureError(
-                "A dimension entity has no measurable geometry; measure the entities it dimensions."
+                "A dimension entity has no measurable geometry; measure the entities it dimensions, "
+                    + "or pass its definition points from list_drawing_dimensions as points."
             )
         }
         return (shapes, approximate)

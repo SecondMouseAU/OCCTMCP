@@ -20,12 +20,18 @@ agent reads, not a scene body: none of these tools touches the scene or `manifes
 
 Every tool takes `inputPath`, the absolute path of an **ASCII DXF** file (a leading `~` is
 expanded). Parsed drawings are cached by path, size and modification time, so a run of calls on one
-file parses it once and an edited file is read again.
+file parses it once and an edited file is read again. An edit that keeps the size and lands within
+the filesystem's timestamp resolution of the previous read would be served from the cache; the
+`sha256` in every result says which bytes were read.
+
+Filter arguments (`types`, `layers`, `kinds`, `rect`) must be arrays of the right type; a wrong
+shape is an error, not an ignored filter. JSON `null` means the argument is absent.
 
 ## What is read, and what is not
 
 - **DXF** (ASCII) is read: `LINE`, `CIRCLE`, `ARC`, `ELLIPSE`, `POINT`, `TEXT` / `MTEXT`,
-  `LWPOLYLINE` / `POLYLINE` and `DIMENSION` in model space. Binary DXF is refused with a message.
+  `LWPOLYLINE` / `POLYLINE` and `DIMENSION` from the `ENTITIES` section. The reader does not tell
+  model space from paper space, so entities from both appear. Binary DXF is refused with a message.
 - **DWG and JWW are not read yet.** `DWGLoader` is merged in OCCTSwiftIO (#53) but is not in a tagged
   release at this server's pin, and JWW has no entity model there yet (#54). Both return an error
   that says so. Convert the file to ASCII DXF meanwhile.
@@ -125,7 +131,8 @@ Index; 256 is by-layer), `bounds` and its geometry:
 | `point` | `at` |
 | `dimension` | `dimension`, the record `list_drawing_dimensions` returns |
 
-Bounds are tight for arcs and for the arcs of a bulged polyline. An elliptical arc takes the bounds
+Bounds are tight for arcs (an arc of under half a turn does not contain its centre) and for the
+arcs of a bulged polyline. An elliptical arc takes the bounds
 of its whole ellipse, and text is its insertion point, because the reader keeps no text extent.
 
 **Example**: the two walls of a slot.
@@ -163,8 +170,9 @@ Every `DIMENSION` in the drawing, with its value and the points that define it.
 
 **Returns**: `total`, `offset`, `returned`, `truncated`, `units` and `dimensions`. Each dimension
 has `id` (the same `e<index>` as in `list_drawing_entities`), `kind`, `valueKind` (`length` or
-`angle`), `value` (the stored measurement, DXF group 42, null when the file omits it), `valueUnit`,
-`valueMm`, `text` (the user's text override, absent when the dimension shows its own value),
+`angle`), `value` (the stored measurement, DXF group 42, absent when the file omits it, which ezdxf notes is
+common), `valueUnit`, `valueMm`, `valueFromPoints` and `valueFromPointsMm` (see below), `text` (the
+user's text override, absent when the dimension shows its own value),
 `textPosition`, `definitionPoints`, `layer` and `color`.
 
 - Each definition point carries its DXF `group` (10, 13, 14, 15 or 16) and, where SwiftDXF
@@ -173,6 +181,11 @@ has `id` (the same `e<index>` as in `list_drawing_entities`), `kind`, `valueKind
   `measuredTo`. Other kinds return the groups with no role.
 - `valueMm` is the value times millimetres per unit, for the length kinds only. An **angular**
   value is returned as stored: DXF does not declare its unit, so it has no `valueMm`.
+- `valueFromPoints` is the length between the dimension's own definition points: the two extension
+  line origins of an `aligned` dimension, the two ends of a `radius` or `diameter`. It is the value
+  when the file stores none, and a check when it does: a stale or overridden dimension disagrees with
+  its geometry (a stored 7 over extension lines 8 apart). It is absent for the other kinds. A
+  `linear` dimension's measured direction is not modelled by the reader, so it has none.
 
 **Example**
 
@@ -187,6 +200,7 @@ has `id` (the same `e<index>` as in `list_drawing_entities`), `kind`, `valueKind
   "dimensions": [
     {
       "id": "e3", "kind": "aligned", "valueKind": "length", "value": 8, "valueUnit": "drawing units", "valueMm": 8,
+      "valueFromPoints": 8, "valueFromPointsMm": 8,
       "textPosition": [4, -4, 0], "layer": "DIMS", "color": 256,
       "definitionPoints": [
         { "group": 10, "role": "dimensionLine", "point": [0, -4, 0] },
@@ -218,8 +232,9 @@ Distance, angle or radius between named entities or points.
   the entities, so the width of a slot is the true gap between its two walls, whether they are lines
   or arcs, and a circle, an arc and a polyline (curved segments included) are measured along their
   curves. An ellipse is cut into 48 chords, because OCCT's ellipse edge takes no major-axis
-  direction, and the result says so in `notes`. A `text` or `dimension` entity has no geometry to
-  measure: pass its `at` point.
+  direction, and the result says so in `notes`. A `text` entity has no geometry to measure: pass its
+  `at` point. A `dimension` has none either: measure the entities it dimensions, or pass its
+  definition points from `list_drawing_dimensions` as points.
 - **`angle`**: two `line` entities, or `vertex` with two points `a` and `b`. `value` is in degrees
   between 0 and 180 and runs between the lines' drawn directions (start to end); `acuteAngleDeg` is
   the angle between the lines as undirected lines, 0 to 90.

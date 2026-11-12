@@ -4,6 +4,7 @@
 // body. `measure_drawing` is in DrawingMeasureTool.swift.
 
 import Foundation
+import MCP
 import OCCTSwiftIO
 
 public enum DrawingReadTools {
@@ -47,6 +48,13 @@ public enum DrawingReadTools {
         /// An angle's unit is not declared in the file.
         let valueUnit: String
         let valueMm: Double?
+        /// The length between the dimension's own definition points, for an aligned, radius or
+        /// diameter dimension; nil for the other kinds.
+        ///
+        /// It is a check on `value` (a stale or overridden dimension disagrees with its geometry)
+        /// and the only value when the file omits group 42, which ezdxf says is common.
+        let valueFromPoints: Double?
+        let valueFromPointsMm: Double?
         /// The user's text override; nil when the dimension shows its own value.
         let text: String?
         let textPosition: [Double]
@@ -124,10 +132,23 @@ public enum DrawingReadTools {
             points.append(
                 .init(group: 16, role: "dimensionArcLocation", point: DrawingEntities.xyz(p)))
         }
+        var fromPoints: Double?
+        switch d.kind {
+        case .aligned:
+            if let a = d.defPoint2, let b = d.defPoint3 {
+                fromPoints = DrawingEntities.distance(a, b)
+            }
+        case .radius, .diameter:
+            if let b = d.defPoint4 { fromPoints = DrawingEntities.distance(d.defPoint, b) }
+        default:
+            break
+        }
         return DimensionRecord(
             id: id, kind: kind, valueKind: isAngle ? "angle" : "length", value: d.measurement,
             valueUnit: isAngle ? "as stored, not declared by DXF" : "drawing units",
             valueMm: isAngle ? nil : d.measurement.flatMap { v in mmPerUnit.map { v * $0 } },
+            valueFromPoints: fromPoints,
+            valueFromPointsMm: fromPoints.flatMap { v in mmPerUnit.map { v * $0 } },
             text: d.textOverride, textPosition: DrawingEntities.xyz(d.textPosition),
             definitionPoints: points, layer: d.layer, color: d.color)
     }
@@ -185,6 +206,54 @@ public enum DrawingReadTools {
     }
 
     // ── shared argument handling ────────────────────────────────────────
+
+    /// A bad argument, named.
+    struct ArgumentError: Error, CustomStringConvertible {
+        let description: String
+    }
+
+    /// The argument, or nil when it is absent or JSON `null`.
+    ///
+    /// `Value` is `ExpressibleByNilLiteral`, so a bare `nil` in a ternary would be `.null`, not none.
+    static func present(_ value: Value?) -> Value? {
+        guard let value, value != .null else { return nil }
+        return value
+    }
+
+    /// An optional array of strings; absent and JSON `null` are nil, anything else is an error.
+    static func stringList(_ value: Value?, name: String) throws -> [String]? {
+        guard let value, value != .null else { return nil }
+        guard let array = value.arrayValue else {
+            throw ArgumentError(description: "`\(name)` must be an array of strings.")
+        }
+        let strings = array.compactMap { $0.stringValue }
+        guard strings.count == array.count else {
+            throw ArgumentError(description: "`\(name)` must be an array of strings.")
+        }
+        return strings
+    }
+
+    /// An optional array of numbers; absent and JSON `null` are nil, anything else is an error.
+    static func numberList(_ value: Value?, name: String) throws -> [Double]? {
+        guard let value, value != .null else { return nil }
+        guard let array = value.arrayValue else {
+            throw ArgumentError(
+                description: "`\(name)` must be [xmin, ymin, xmax, ymax], an array of four numbers."
+            )
+        }
+        let numbers = array.compactMap { $0.numberValue }
+        guard numbers.count == array.count else {
+            throw ArgumentError(
+                description: "`\(name)` must be [xmin, ymin, xmax, ymax], an array of four numbers."
+            )
+        }
+        return numbers
+    }
+
+    /// The dimension kinds `list_drawing_dimensions` filters on.
+    static let dimensionKinds = [
+        "linear", "aligned", "angular", "diameter", "radius", "angular3Point", "ordinate",
+    ]
 
     /// The file reference every drawing tool carries, so a result says which file it read.
     struct SourceRef: Encodable {
@@ -408,6 +477,15 @@ public enum DrawingReadTools {
     public static func listDrawingDimensions(
         inputPath: String, layers: [String]?, kinds: [String]?, limit: Int?, offset: Int?
     ) async -> ToolText {
+        if let unknown = kinds?.filter({ !dimensionKinds.contains($0) && !$0.hasPrefix("unknown(") }
+        ),
+            !unknown.isEmpty
+        {
+            return .init(
+                "Unknown dimension kind(s) \(unknown.joined(separator: ", ")). "
+                    + "Kinds: \(dimensionKinds.joined(separator: ", ")).",
+                isError: true)
+        }
         let loaded: LoadedDrawing
         switch await load(inputPath) {
         case .loaded(let value): loaded = value

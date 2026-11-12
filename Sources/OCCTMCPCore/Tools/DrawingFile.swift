@@ -181,15 +181,25 @@ enum DrawingFile {
     /// SwiftDXF reports only what it modelled, so a block insert or a hatch leaves no trace in
     /// `DXF.Drawing`. This reads the raw group-code stream of the `ENTITIES` section for the rest.
     static func scanSkipped(_ data: Data) -> LoadedDrawing.Skipped {
-        let text = String(data: data, encoding: .utf8) ?? DXF.decodeCP932([UInt8](data))
+        // SwiftDXF's reader splits on any newline (LF, CRLF or a lone CR), so this does too.
+        let text = (String(data: data, encoding: .utf8) ?? DXF.decodeCP932([UInt8](data)))
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         var skipped = LoadedDrawing.Skipped()
         var inEntities = false
         var pendingSection = false
         var currentType: String?
         var currentLayer = "0"
+        // The last record that is not a child of another: an INSERT's ATTRIB records follow it.
+        var lastParent: String?
 
         func finishEntity() {
-            guard let type = currentType, !modelledTypes.contains(type) else { return }
+            guard let type = currentType else { return }
+            defer {
+                if type != "ATTRIB" && type != "VERTEX" && type != "SEQEND" { lastParent = type }
+            }
+            if type == "ATTRIB" && lastParent == "INSERT" { return }
+            guard !modelledTypes.contains(type) else { return }
             skipped.total += 1
             skipped.byType[type, default: 0] += 1
             skipped.byLayer[currentLayer, default: [:]][type, default: 0] += 1

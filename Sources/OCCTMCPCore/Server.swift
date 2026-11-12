@@ -327,7 +327,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "read_drawing",
             description:
-                "Read a 2D engineering drawing (ASCII DXF) as a drawing, not a picture, and summarise it: entity counts by type and by layer, the drawing's units (the DXF $INSUNITS code, its name and millimetres per unit), its extents (declared in the header and computed from the entities), the source record (file name, byte count, SHA-256, DXF version, reader) and what the reader skipped (entity records it does not model, such as block inserts, hatches and splines, by type and layer) with warnings. Start here: the SHA-256 identifies the bytes every entity id (e<index>) refers to. Read-only; touches no scene body. Returns numbers and names, never an image. DWG and JWW are not read yet and return an error saying so.",
+                "Read a 2D engineering drawing (ASCII DXF) as a drawing, not a picture, and summarise it: entity counts by type and by layer, the drawing's units (the DXF $INSUNITS code, its name and millimetres per unit), its extents (declared in the header and computed from the entities), the source record (file name, byte count, SHA-256, DXF version, reader) and what the reader skipped (entity records it does not model, such as block inserts, hatches and splines, by type and layer; the reader does not separate model space from paper space) with warnings. Start here: the SHA-256 identifies the bytes every entity id (e<index>) refers to. Read-only; touches no scene body. Returns numbers and names, never an image. DWG and JWW are not read yet and return an error saying so.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -395,7 +395,7 @@ private func builtinCatalogTools() -> [Tool] {
         Tool(
             name: "list_drawing_dimensions",
             description:
-                "List every DIMENSION in a 2D drawing (ASCII DXF): id (e<index>, as in list_drawing_entities), kind (linear, aligned, angular, diameter, radius, angular3Point, ordinate), the stored value in drawing units and in millimetres when the drawing declares its units, the user's text override (null when the dimension shows its own value), the text position, the definition points (each with its DXF group code, and its role where documented: a linear or aligned dimension's dimension-line point and two extension-line origins, a radius or diameter's two ends), layer and colour. Angular values are returned as stored: DXF does not declare their unit. Filter by `layers` or `kinds`; paged by `limit` (default 500) and `offset`. Read-only; returns numbers, not a rendering.",
+                "List every DIMENSION in a 2D drawing (ASCII DXF): id (e<index>, as in list_drawing_entities), kind (linear, aligned, angular, diameter, radius, angular3Point, ordinate), the stored value in drawing units and in millimetres when the drawing declares its units (null when the file omits it), `valueFromPoints` (the length between the dimension's own definition points, for aligned, radius and diameter dimensions: a check on the stored value, and the value when the file has none), the user's text override (null when the dimension shows its own value), the text position, the definition points (each with its DXF group code, and its role where documented: a linear or aligned dimension's dimension-line point and two extension-line origins, a radius or diameter's two ends), layer and colour. Angular values are returned as stored: DXF does not declare their unit. Filter by `layers` or `kinds`; paged by `limit` (default 500) and `offset`. Read-only; returns numbers, not a rendering.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
@@ -2826,34 +2826,34 @@ func dispatch(
             return ToolText("list_drawing_entities requires `inputPath`.", isError: true)
                 .asCallToolResult()
         }
-        var rect: [Double]?
-        if let raw = arguments["rect"] {
-            guard let array = raw.arrayValue else {
-                return ToolText("`rect` must be [xmin, ymin, xmax, ymax].", isError: true)
-                    .asCallToolResult()
-            }
-            let numbers = array.compactMap { $0.numberValue }
-            rect = numbers.count == array.count ? numbers : []
+        do {
+            return await DrawingReadTools.listDrawingEntities(
+                inputPath: inputPath,
+                types: try DrawingReadTools.stringList(arguments["types"], name: "types"),
+                layers: try DrawingReadTools.stringList(arguments["layers"], name: "layers"),
+                rect: try DrawingReadTools.numberList(arguments["rect"], name: "rect"),
+                rectMode: arguments["rectMode"]?.stringValue,
+                limit: arguments["limit"]?.intValue, offset: arguments["offset"]?.intValue
+            ).asCallToolResult()
+        } catch {
+            return ToolText("\(error)", isError: true).asCallToolResult()
         }
-        return await DrawingReadTools.listDrawingEntities(
-            inputPath: inputPath,
-            types: arguments["types"]?.arrayValue?.compactMap { $0.stringValue },
-            layers: arguments["layers"]?.arrayValue?.compactMap { $0.stringValue },
-            rect: rect, rectMode: arguments["rectMode"]?.stringValue,
-            limit: arguments["limit"]?.intValue, offset: arguments["offset"]?.intValue
-        ).asCallToolResult()
 
     case "list_drawing_dimensions":
         guard let inputPath = arguments["inputPath"]?.stringValue else {
             return ToolText("list_drawing_dimensions requires `inputPath`.", isError: true)
                 .asCallToolResult()
         }
-        return await DrawingReadTools.listDrawingDimensions(
-            inputPath: inputPath,
-            layers: arguments["layers"]?.arrayValue?.compactMap { $0.stringValue },
-            kinds: arguments["kinds"]?.arrayValue?.compactMap { $0.stringValue },
-            limit: arguments["limit"]?.intValue, offset: arguments["offset"]?.intValue
-        ).asCallToolResult()
+        do {
+            return await DrawingReadTools.listDrawingDimensions(
+                inputPath: inputPath,
+                layers: try DrawingReadTools.stringList(arguments["layers"], name: "layers"),
+                kinds: try DrawingReadTools.stringList(arguments["kinds"], name: "kinds"),
+                limit: arguments["limit"]?.intValue, offset: arguments["offset"]?.intValue
+            ).asCallToolResult()
+        } catch {
+            return ToolText("\(error)", isError: true).asCallToolResult()
+        }
 
     case "measure_drawing":
         guard let inputPath = arguments["inputPath"]?.stringValue,
@@ -2864,7 +2864,8 @@ func dispatch(
         }
         return await DrawingReadTools.measureDrawing(
             inputPath: inputPath, measure: measure, a: arguments["a"], b: arguments["b"],
-            vertex: arguments["vertex"], mmPerUnit: arguments["mmPerUnit"]?.numberValue
+            vertex: DrawingReadTools.present(arguments["vertex"]),
+            mmPerUnit: arguments["mmPerUnit"]?.numberValue
         ).asCallToolResult()
 
     case "get_api_reference":

@@ -184,7 +184,8 @@ enum DrawingEntities {
         case .arc(let c, let r, let startDeg, let endDeg, _, _):
             let start = startDeg * .pi / 180
             let end = start + sweepDeg(startDeg: startDeg, endDeg: endDeg) * .pi / 180
-            var box = Bounds(c)
+            // Not seeded with the centre: an arc under half a turn does not contain it.
+            var box = Bounds(DXF.Point(c.x + r * cos(start), c.y + r * sin(start), c.z))
             include(arc: c, radius: r, start: start, end: end, into: &box)
             return box
         case .ellipse(let c, let m, let ratio, _, _, _, _):

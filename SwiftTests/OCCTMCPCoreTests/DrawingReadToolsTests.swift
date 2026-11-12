@@ -17,7 +17,8 @@ private struct DrawingFixture {
 
     mutating func add(_ name: String?, _ type: String, layer: String, _ groups: [(Int, String)]) {
         let modelled = [
-            "LINE", "CIRCLE", "ARC", "ELLIPSE", "POINT", "TEXT", "MTEXT", "LWPOLYLINE", "DIMENSION",
+            "LINE", "CIRCLE", "ARC", "ELLIPSE", "POINT", "TEXT", "MTEXT", "LWPOLYLINE", "POLYLINE",
+            "DIMENSION",
         ].contains(type)
         records.append((name, modelled, [(0, type), (8, layer)] + groups))
     }
@@ -78,7 +79,7 @@ private struct DrawingFixture {
             [(10, "20"), (20, "25"), (30, "0"), (40, "5")])
         f.add(
             "arc", "ARC", layer: "HOLES",
-            [(10, "80"), (20, "25"), (30, "0"), (40, "6"), (50, "0"), (51, "90")])
+            [(10, "80"), (20, "25"), (30, "0"), (40, "6"), (50, "20"), (51, "70")])
         f.add(
             "polyline", "LWPOLYLINE", layer: "OUTLINE",
             [
@@ -413,15 +414,21 @@ struct DrawingReadToolsTests {
         let hole = try entity("hole")
         #expect(near(numbers(hole["center"]), [20, 25, 0]) && hole["radius"] as? Double == 5)
 
+        // 20 to 70 degrees on r = 6 about (80, 25). The centre is outside this arc's box, so a
+        // box seeded from the centre would be wrong.
         let arc = try entity("arc")
-        #expect(abs((arc["sweepDeg"] as? Double ?? 0) - 90) < 1e-9)
-        #expect(abs((arc["length"] as? Double ?? 0) - 6 * Double.pi / 2) < 1e-9)
-        #expect(near(numbers(arc["start"]), [86, 25, 0], tol: 1e-9))
-        #expect(near(numbers(arc["end"]), [80, 31, 0], tol: 1e-9))
-        // A quarter arc's bounds are its own quadrant, not the circle's box.
+        let rad = Double.pi / 180
+        let arcStart = [80 + 6 * cos(20 * rad), 25 + 6 * sin(20 * rad), 0]
+        let arcEnd = [80 + 6 * cos(70 * rad), 25 + 6 * sin(70 * rad), 0]
+        #expect(abs((arc["sweepDeg"] as? Double ?? 0) - 50) < 1e-9)
+        #expect(abs((arc["length"] as? Double ?? 0) - 6 * 50 * rad) < 1e-9)
+        #expect(near(numbers(arc["start"]), arcStart, tol: 1e-9))
+        #expect(near(numbers(arc["end"]), arcEnd, tol: 1e-9))
         let arcBounds = try #require(arc["bounds"] as? [String: Any])
-        #expect(near(numbers(arcBounds["min"]), [80, 25, 0], tol: 1e-9), "\(arcBounds)")
-        #expect(near(numbers(arcBounds["max"]), [86, 31, 0], tol: 1e-9), "\(arcBounds)")
+        #expect(
+            near(numbers(arcBounds["min"]), [arcEnd[0], arcStart[1], 0], tol: 1e-9), "\(arcBounds)")
+        #expect(
+            near(numbers(arcBounds["max"]), [arcStart[0], arcEnd[1], 0], tol: 1e-9), "\(arcBounds)")
 
         // 270 to 90 degrees is a half turn through 0: sweep 180, and it reaches x = 63 at 0 degrees.
         let wrap = try entity("wrapArc")
@@ -501,6 +508,9 @@ struct DrawingReadToolsTests {
             list.compactMap { $0["valueMm"] as? Double } == [100, 50, 8, 5, 12, 12.5],
             "angular has no mm")
         #expect(list.allSatisfy { $0["layer"] as? String == "DIMS" })
+        // Aligned, radius and diameter dimensions also report the length between their own points.
+        #expect(list.compactMap { $0["valueFromPoints"] as? Double } == [8, 5, 12])
+        #expect(list.compactMap { $0["valueFromPointsMm"] as? Double } == [8, 5, 12])
 
         let slot = try #require(list.first { $0["id"] as? String == fixture.id("dimSlot") })
         #expect(slot["text"] as? String == "8 H7")
@@ -613,7 +623,7 @@ struct DrawingReadToolsTests {
         }
         // Point to point.
         #expect(abs(try value(await measure(path, "distance", a: [0, 0], b: [3, 4])) - 5) < 1e-9)
-        // Point to a line: the datum (50, 25) is 4 from each slot wall's line... the wall ends at y = 20.
+        // Point to a line: (50, 10) is 4 from the left slot wall, which runs x = 46, y = 0 to 20.
         let toWall = try value(
             await measure(path, "distance", a: [50, 10], b: .string(fixture.id("slotLeft"))))
         #expect(abs(toWall - 4) < 1e-9)
@@ -634,6 +644,34 @@ struct DrawingReadToolsTests {
                 path, "distance", a: .string(fixture.id("bottom")), b: .string(fixture.id("right")))
         )
         #expect(abs(crossing) < 1e-9)
+        // The wrapped arc (270 to 90 through 0, centre (60, 25), r = 3) covers the right half of its
+        // circle. (70, 25) is 7 from the point at 0 degrees; (50, 25) is on the uncovered side, so
+        // the nearest arc points are its ends, (60, 22) and (60, 28), not the circle's (57, 25).
+        let wrapRight = try value(
+            await measure(path, "distance", a: [70, 25], b: .string(fixture.id("wrapArc"))))
+        #expect(abs(wrapRight - 7) < 1e-9, "\(wrapRight)")
+        let wrapLeft = try value(
+            await measure(path, "distance", a: [50, 25], b: .string(fixture.id("wrapArc"))))
+        #expect(abs(wrapLeft - (100.0 + 9.0).squareRoot()) < 1e-9, "\(wrapLeft)")
+        // The 20 to 70 degree arc about (80, 25): a point on its bisector is 4 from it, and one
+        // outside its sweep is nearest an end.
+        let rad = Double.pi / 180
+        let onBisector = [80 + 10 * cos(45 * rad), 25 + 10 * sin(45 * rad)]
+        let toBisector = try value(
+            await measure(
+                path, "distance", a: .array(onBisector.map { .double($0) }),
+                b: .string(fixture.id("arc"))))
+        #expect(abs(toBisector - 4) < 1e-9, "\(toBisector)")
+        let outside = [80 + 10 * cos(135 * rad), 25 + 10 * sin(135 * rad)]
+        let end70 = [80 + 6 * cos(70 * rad), 25 + 6 * sin(70 * rad)]
+        let toOutside = try value(
+            await measure(
+                path, "distance", a: .array(outside.map { .double($0) }),
+                b: .string(fixture.id("arc"))))
+        let expectedOutside =
+            ((outside[0] - end70[0]) * (outside[0] - end70[0])
+            + (outside[1] - end70[1]) * (outside[1] - end70[1])).squareRoot()
+        #expect(abs(toOutside - expectedOutside) < 1e-9, "\(toOutside) vs \(expectedOutside)")
         // A 3-component point works too.
         #expect(
             abs(try value(await measure(path, "distance", a: [0, 0, 0], b: [0, 0, 2])) - 2) < 1e-9)
@@ -652,6 +690,34 @@ struct DrawingReadToolsTests {
         #expect(abs(value - 22.5) < 0.02, "\(value)")
         let notes = try #require(r["notes"] as? [String])
         #expect(notes.contains { $0.contains("48 chords") }, "\(notes)")
+    }
+
+    @Test("a tilted ellipse is measured along its tilt, and a partial one only over its sweep")
+    func tiltedEllipses() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // Major axis (4, 3), so 5 long and tilted; minor 2.5, along (-1.5, 2).
+        let common: [(Int, String)] = [
+            (10, "0"), (20, "0"), (30, "0"), (11, "4"), (21, "3"), (31, "0"), (40, "0.5"),
+        ]
+        f.add("full", "ELLIPSE", layer: "0", common + [(41, "0"), (42, "6.283185307179586")])
+        f.add("upper", "ELLIPSE", layer: "0", common + [(41, "0"), (42, "3.141592653589793")])
+        let path = try f.write(to: dir)
+        func distance(_ name: String, to point: [Double]) async throws -> Double {
+            let r = try json(
+                await measure(
+                    path, "distance", a: .string(f.id(name)), b: .array(point.map { .double($0) })))
+            return try #require(r["value"] as? Double)
+        }
+        // On the major axis, 10 from the centre: the vertex (4, 3) is 5 away, whichever way it is tilted.
+        #expect(abs(try await distance("full", to: [8, 6]) - 5) < 1e-9)
+        #expect(abs(try await distance("upper", to: [8, 6]) - 5) < 1e-9)
+        // On the minor axis' far side, 10 from the centre: the full ellipse's vertex (1.5, -2) is 7.5
+        // away. The upper half (t = 0 to pi) does not reach that side, so its nearest points are its
+        // ends (4, 3) and (-4, -3), both sqrt(125) from (6, -8).
+        #expect(abs(try await distance("full", to: [6, -8]) - 7.5) < 1e-9)
+        #expect(abs(try await distance("upper", to: [6, -8]) - 125.0.squareRoot()) < 1e-9)
     }
 
     @Test("millimetres follow the drawing's units; a unitless drawing needs mmPerUnit")
@@ -759,6 +825,143 @@ struct DrawingReadToolsTests {
         }
         let missing = await call("measure_drawing", ["inputPath": .string(path)])
         #expect(missing.isError && missing.text.contains("requires"), "\(missing.text)")
+    }
+
+    @Test("dimensions without a stored value are measured from their definition points")
+    func dimensionsWithoutAStoredValue() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        func dim(_ name: String, type: Int, value: String?, _ points: [(Int, String)]) {
+            var g: [(Int, String)] = [(70, "\(type)"), (11, "0"), (21, "0"), (31, "0")]
+            if let value { g.append((42, value)) }
+            f.add(name, "DIMENSION", layer: "DIMS", g + points)
+        }
+        // A 3-4-5 triangle between the extension origins: 50 apart.
+        dim(
+            "aligned", type: 1, value: nil,
+            [
+                (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "30"),
+                (24, "40"), (34, "0"),
+            ])
+        dim(
+            "radius", type: 4, value: nil,
+            [(10, "0"), (20, "0"), (30, "0"), (15, "3"), (25, "4"), (35, "0")])
+        dim(
+            "diameter", type: 3, value: nil,
+            [(10, "-3"), (20, "-4"), (30, "0"), (15, "3"), (25, "4"), (35, "0")])
+        // The angle of a linear dimension is not modelled, so its length cannot be derived.
+        dim(
+            "linear", type: 0, value: nil,
+            [
+                (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "30"),
+                (24, "40"), (34, "0"),
+            ])
+        // Stored 7, but the extension origins are 8 apart: the disagreement is visible.
+        dim(
+            "stale", type: 1, value: "7",
+            [
+                (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "8"),
+                (24, "0"), (34, "0"),
+            ])
+        let path = try f.write(to: dir)
+        let r = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
+        let list = try #require(r["dimensions"] as? [[String: Any]])
+        func record(_ name: String) throws -> [String: Any] {
+            try #require(list.first { $0["id"] as? String == f.id(name) }, "no \(name)")
+        }
+        for name in ["aligned", "radius", "diameter", "linear"] {
+            #expect(try record(name)["value"] == nil, "\(name) has no stored value")
+        }
+        #expect(try record("aligned")["valueFromPoints"] as? Double == 50)
+        #expect(try record("radius")["valueFromPoints"] as? Double == 5)
+        #expect(try record("diameter")["valueFromPoints"] as? Double == 10)
+        #expect(try record("linear")["valueFromPoints"] == nil)
+        // Millimetres follow the drawing's units; this drawing declares millimetres.
+        #expect(try record("aligned")["valueFromPointsMm"] as? Double == 50)
+        let stale = try record("stale")
+        #expect(stale["value"] as? Double == 7 && stale["valueFromPoints"] as? Double == 8)
+    }
+
+    @Test(
+        "an old-style POLYLINE and an INSERT with attributes are counted once, not by their children"
+    )
+    func childRecordsAreNotEntities() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.add("old", "POLYLINE", layer: "0", [(66, "1"), (70, "1")])
+        for (x, y) in [(0, 0), (10, 0), (10, 10)] {
+            f.add(nil, "VERTEX", layer: "0", [(10, "\(x)"), (20, "\(y)"), (30, "0")])
+        }
+        f.add(nil, "SEQEND", layer: "0", [])
+        f.add(nil, "INSERT", layer: "BLOCKS", [(2, "TITLE"), (66, "1"), (10, "0"), (20, "0")])
+        f.add(nil, "ATTRIB", layer: "BLOCKS", [(2, "REV"), (1, "A")])
+        f.add(nil, "ATTRIB", layer: "BLOCKS", [(2, "DATE"), (1, "today")])
+        f.add(nil, "SEQEND", layer: "BLOCKS", [])
+        let path = try f.write(to: dir)
+        let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
+        #expect(r["entityCount"] as? Int == 1)
+        let skipped = try #require(r["skipped"] as? [String: Any])
+        #expect(skipped["total"] as? Int == 1, "\(skipped)")
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 1], "\(skipped)")
+        let entity = try #require(
+            try await entities([:], path).all.first)
+        #expect((entity["vertices"] as? [Any])?.count == 3 && entity["closed"] as? Bool == true)
+    }
+
+    @Test("a file with lone CR line endings reads the same as an LF one")
+    func carriageReturnOnly() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var fixture = DrawingFixture.tSlot()
+        fixture.lineEnding = "\r"
+        let r = try json(
+            await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
+        #expect(r["entityCount"] as? Int == 20)
+        let skipped = try #require(r["skipped"] as? [String: Any])
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1, "SPLINE": 1])
+    }
+
+    @Test("filter arguments that are the wrong shape are refused, not ignored")
+    func argumentShapes() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = Value.string(try DrawingFixture.tSlot().write(to: dir))
+        let bad: [(String, [String: Value], String)] = [
+            ("list_drawing_entities", ["types": [1]], "`types` must be an array of strings"),
+            ("list_drawing_entities", ["layers": "SLOT"], "`layers` must be an array of strings"),
+            ("list_drawing_dimensions", ["layers": [true]], "`layers` must be an array of strings"),
+            ("list_drawing_dimensions", ["kinds": "radius"], "`kinds` must be an array of strings"),
+            ("list_drawing_dimensions", ["kinds": ["radiuss"]], "Unknown dimension kind"),
+        ]
+        for (name, extra, needle) in bad {
+            var args: [String: Value] = ["inputPath": path]
+            args.merge(extra) { $1 }
+            let r = await call(name, args)
+            #expect(r.isError && r.text.contains(needle), "\(name) \(extra): \(r.text)")
+        }
+        // JSON null means absent, for every optional argument.
+        let nulls = try json(
+            await call(
+                "list_drawing_entities",
+                [
+                    "inputPath": path, "types": .null, "layers": .null, "rect": .null,
+                    "rectMode": .null,
+                ]))
+        #expect(nulls["total"] as? Int == 20)
+        let kinds = try json(
+            await call("list_drawing_dimensions", ["inputPath": path, "kinds": .null]))
+        #expect(kinds["total"] as? Int == 7)
+        let fixture = DrawingFixture.tSlot()
+        let lines = try json(
+            await call(
+                "measure_drawing",
+                [
+                    "inputPath": path, "measure": "angle", "vertex": .null,
+                    "a": .string(fixture.id("bottom")), "b": .string(fixture.id("right")),
+                ]))
+        #expect(abs((lines["value"] as? Double ?? 0) - 90) < 1e-9)
     }
 
     // ── registration ────────────────────────────────────────────────────

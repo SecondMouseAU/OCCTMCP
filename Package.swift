@@ -140,8 +140,10 @@ let package = Package(
         // resolvable, but this repo has no reason to keep depending on the archived line once the
         // one blocker is gone.
         occtDep("OCCTSwiftInteraction", from: "3.0.0-beta.6"),  // >=3.0.0-beta.4 (#209): the optional `label` on a highlight_requests payload (OCCTSwiftInteraction#35/#36), shown beside the agent attention marker
-        // OCCTSwiftIO is a transitive dependency of OCCTSwiftScripts / OCCTSwiftTools,
-        // declared open-endedly (`from: 1.0.x`-ish) in their manifests. Was capped to
+        // OCCTSwiftIO is also a direct product of OCCTMCPCore since #260: the drawing read tools
+        // call its DXF import and use the SwiftDXF entity model it re-exports. It is the same
+        // package SwiftPM already resolved through OCCTSwiftScripts / OCCTSwiftTools, declared
+        // open-endedly (`from: 1.0.x`-ish) in their manifests. Was capped to
         // the 1.0.x line here to dodge a heavy mesh-IO stack (SwiftPMX / SwiftGLTF /
         // ThreeMF / SwiftJWW / SwiftX / Nodal) that OCCTSwiftIO >=1.1.0 pulls in and
         // OCCTMCP doesn't need (BREP/STEP core only). That cap is no longer optional:
