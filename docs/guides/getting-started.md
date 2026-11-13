@@ -95,6 +95,10 @@ Every tool resolves the output directory in this order:
 2. iCloud Drive: `~/Library/Mobile Documents/com~apple~CloudDocs/OCCTSwiftScripts/output/`
 3. Local fallback: `~/.occtswift-scripts/output/`
 
+The Swift server's `execute_script` keeps its cached SwiftPM workspace in
+`~/.occtmcp-cache/workspace`. Set `OCCTMCP_SCRIPT_WORKSPACE` to keep it elsewhere (a host or a CI job
+that must not write under the home directory); it is read once, when the process starts.
+
 When embedding `OCCTMCPCore`, pass the directory when you build the server:
 
 ```swift
@@ -103,8 +107,11 @@ let server = await makeOCCTMCPServer(outputDirectory: sceneURL)
 
 It wins over the environment variable, and `nil` (the default) keeps the resolution above. Each
 directory gets its own selection, zone, history and scene-snapshot state, so two embedded servers
-with different directories can share one process. Tools run `execute_script` children with that
-directory exported as `OCCTMCP_OUTPUT_DIR`.
+with different directories can share one process. `execute_script` never hands this directory to
+its script: the script writes into a stage directory outside it (`OCCTSWIFT_OUTPUT_DIR`), and a clean
+run's output replaces the scene here. A host that owns its scene store can take that last step over
+with `makeOCCTMCPServer(scriptStagePromoter:)`; see the core reference, "Embedding: promoting a
+script's output".
 
 The scene files written there are:
 

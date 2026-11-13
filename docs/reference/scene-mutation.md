@@ -169,5 +169,8 @@ of body ids, plus the snapshot age. Returns an error if fewer than `since` snaps
 ```
 
 **Notes** — The ring buffer is in-memory: it resets when the server restarts. Use `keepHistory: true`
-on `clear_scene` to retain snapshots across a scene reset. Snapshots are taken by `execute_script`
-before each run, so pure manifest mutations (rename, set_appearance, etc.) do not advance the counter.
+on `clear_scene` to retain snapshots across a scene reset. `execute_script` adds a snapshot each time
+a run's output replaces an existing scene (a failed run, a run that wrote no manifest, and a first run
+into an empty scene add none), so pure manifest mutations (rename, set_appearance, etc.) do not
+advance the counter. A run writes its body files under new names, so the bodies it emits again are
+reported under `fileChanged` even when their geometry is the same.
