@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-11-13
+
+* **Update**: Release v1.37.1-beta.6. `serverVersion` still read `1.37.1-beta.3`: beta.4 and beta.5 were tagged without bumping it, so a client's `initialize` reply named an older release than the one it ran. It now matches the tag. Ships #258 (bodies read by their manifest format, `bodyShapeProvider`), #260 (four drawing read tools), #261 (`ExtraTool` scene access and progress), #265 (the `execute_script` hang) and #257 (`execute_script` runs against a stage directory; OCCTSwiftScripts 1.7.1-beta.4). The pins table in `references/external-dependencies.md` is current as of this release.
+
 ## 2026-11-12
 
 * **Update**: #261. An `ExtraTool` handler can now add a body to the scene and find one again by id through the code the built-in tools use: `SceneBodies.add(shape:)` (the staged write, manifest lock, history snapshot and write observer that `read_brep` and `import_file` now share, with body ids checked to be usable as file names), `SceneBodies.body(withId:)` and `SceneBodies.shape(ofBody:)` (format dispatch and the host's shape provider). `OCCTMCPContext.reportProgress` sends MCP progress for a handler when the client asked for it. `ExtraToolSessionTests` pins the rest of the contract through a real client and server: state held by a handler survives between calls, calls run concurrently, the scene directory and a client's cancellation reach the handler's task (moving dispatch onto `Task.detached` fails these), and a server is released with its handlers' state once its session ends. A request the client cancelled now gets no response, as the MCP spec asks (`registerTools` rethrows the cancellation). An add refuses a file name another body already has (case-insensitively) rather than overwriting that body's file, which `read_brep` and `import_file` now also do, and pushes the scene it replaced onto the history only once its write has succeeded.
