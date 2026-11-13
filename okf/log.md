@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-11-13
+
+* **Update**: Release v1.37.1-beta.6. `serverVersion` still read `1.37.1-beta.3`: beta.4 and beta.5 were tagged without bumping it, so a client's `initialize` reply named an older release than the one it ran. It now matches the tag. Ships #258 (bodies read by their manifest format, `bodyShapeProvider`), #260 (four drawing read tools), #261 (`ExtraTool` scene access and progress), #265 (the `execute_script` hang) and #257 (`execute_script` runs against a stage directory; OCCTSwiftScripts 1.7.1-beta.4). The pins table in `references/external-dependencies.md` is current as of this release.
+
 ## 2026-11-12
 
 * **Update**: #257. `execute_script` writes into a stage directory, not the scene. The child gets `OCCTSWIFT_OUTPUT_DIR` pointing at a new directory under the system temp directory (the variable OCCTSwiftScripts 1.7.1-beta.4 reads; `OCCTMCP_OUTPUT_DIR` is no longer exported, and the harness never read it, so a host's `outputDirectory:` never reached the child before). The run is classified by exit code, the `run-failed.json` marker and the stage's manifest; only a clean run is promoted, and a failed one leaves the scene as it was. The default promotion replaces the scene (a script's manifest has always meant the scene as that script built it) under `ManifestStore.update`, copying listed files in under run-unique names first and removing the previous manifest's files after; `makeOCCTMCPServer(scriptStagePromoter:)` lets a host promote instead. `scriptsPin`, which was 1.4.2 and so resolved the stable 1.7.0 without any of this, is 1.7.1-beta.4 and a test holds it equal to `Package.swift`'s. Open question for the owner: whether `execute_script` should merge into a populated scene as `occtkit import` does; it replaces, as it always has.
