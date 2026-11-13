@@ -141,11 +141,59 @@ struct HostObserverTests {
 
     @Test("a slow call observer does not delay the tool result")
     func slowObserverOffCriticalPath() async throws {
+        // No stopwatch: a bound on how fast `ping` returns depends on how busy the machine is
+        // (#268). The observer is held shut instead, so the question is whether the result can
+        // arrive while it is stuck. If the call waited for the observer it would wait for ever,
+        // and the deadline, which only has to be longer than any slow runner, turns that into a
+        // failure.
         let dir = try makeScene()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let client = try await connect(dir, call: { _ in Thread.sleep(forTimeInterval: 1.5) })
-        let start = Date()
-        _ = try await client.callTool(name: "ping", arguments: [:])
-        #expect(Date().timeIntervalSince(start) < 1.0)
+        let latch = Latch()
+        let seen = Recorder()
+        let client = try await connect(
+            dir,
+            call: { event in
+                latch.wait()
+                seen.add("\(event.name) \(event.phase)")
+            })
+        defer { latch.open() }
+
+        let outcome = await finishing(within: 30) {
+            try await client.callTool(name: "ping", arguments: [:])
+        }
+        let finished = try #require(outcome, "the result waited for the observer")
+        _ = try finished.get()
+        #expect(seen.all.isEmpty, "the observer ran before the result, so it was not held shut")
+
+        // Once let go, the observer still gets both events, in order.
+        latch.open()
+        let delivered = await finishing(within: 30) {
+            while seen.all.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+            return seen.all
+        }
+        let events = try #require(delivered, "the observer was never handed the call's events")
+        #expect(
+            try events.get() == [
+                "ping started", "ping finished(isError: false)",
+            ])
+    }
+}
+
+/// Holds threads until it is opened, and stays open.
+private final class Latch: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var isOpen = false
+
+    func wait() {
+        condition.lock()
+        while !isOpen { condition.wait() }
+        condition.unlock()
+    }
+
+    func open() {
+        condition.lock()
+        isOpen = true
+        condition.broadcast()
+        condition.unlock()
     }
 }
