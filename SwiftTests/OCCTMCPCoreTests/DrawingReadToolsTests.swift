@@ -278,6 +278,26 @@ struct DrawingReadToolsTests {
         let source = try #require(r["source"] as? [String: Any])
         #expect(source["readerVersion"] as? String == DrawingFile.readerVersion)
 
+        // The tools that take and return ids carry it too, since it is what tells a caller the ids
+        // may no longer mean what they did.
+        let fixture = DrawingFixture.tSlot()
+        let path = try fixture.write(to: dir)
+        let input: [String: Value] = ["inputPath": .string(path)]
+        let entities = try json(await call("list_drawing_entities", input))
+        let dimensions = try json(await call("list_drawing_dimensions", input))
+        let measured = try json(
+            await measure(
+                path, "distance", a: .string(fixture.id("slotLeft")),
+                b: .string(fixture.id("slotRight"))))
+        let results: [(String, [String: Any])] = [
+            ("list_drawing_entities", entities), ("list_drawing_dimensions", dimensions),
+            ("measure_drawing", measured),
+        ]
+        for (tool, result) in results {
+            let carried = result["source"] as? [String: Any]
+            #expect(carried?["readerVersion"] as? String == DrawingFile.readerVersion, "\(tool)")
+        }
+
         // The constant cannot drift from what Package.resolved pins: a bump that forgets it fails.
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

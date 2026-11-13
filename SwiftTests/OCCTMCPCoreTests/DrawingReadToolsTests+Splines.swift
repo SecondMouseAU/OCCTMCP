@@ -106,19 +106,21 @@ extension DrawingReadToolsTests {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         var f = DrawingFixture()
+        // Uniform Catmull-Rom through four fit points: between (10, 10) and (20, 10) it rises to
+        // (-P0 + 9 P1 + 9 P2 - P3) / 16 = (15, 11.25) at the middle, where the fit polygon stays at 10.
         f.add(
             "fit", "SPLINE", layer: "0",
-            DrawingFixture.splineGroups(degree: 3, fit: [(0, 0), (10, 5), (20, 0)]))
+            DrawingFixture.splineGroups(degree: 3, fit: [(0, 0), (10, 10), (20, 10), (30, 0)]))
         // Three control points and no knots: SwiftDXF repairs it to a clamped uniform curve.
         f.add(
             "noKnots", "SPLINE", layer: "0",
             DrawingFixture.splineGroups(degree: 2, control: [(10, 35), (20, 45), (30, 35)]))
         let path = try f.write(to: dir)
 
-        let fit = try json(await measure(path, "distance", a: .string(f.id("fit")), b: [10, 50]))
-        // The curve runs through (10, 5), so the point is about 45 above it.
+        let fit = try json(await measure(path, "distance", a: .string(f.id("fit")), b: [15, 15]))
+        // 15 - 11.25 above the curve, not the 5 above the fit polygon.
         let fitValue = try #require(fit["value"] as? Double)
-        #expect(abs(fitValue - 45) < 1.5, "\(fitValue)")
+        #expect(abs(fitValue - 3.75) < 0.01, "\(fitValue)")
         let fitNotes = try #require(fit["notes"] as? [String])
         #expect(
             fitNotes.contains { $0.contains("spline") && $0.contains("approximated") },
@@ -172,6 +174,61 @@ extension DrawingReadToolsTests {
         #expect(abs(value - 60) < 0.01, "\(value)")
         let notes = try #require(r["notes"] as? [String])
         #expect(notes.contains { $0.contains("spline") && $0.contains("approximated") }, "\(notes)")
+    }
+
+    @Test("a closed spline is closed by a chord when its curve's ends differ, not its poles'")
+    func closedByTheCurveNotThePoles() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // Closed, not periodic, uniform (unclamped) knots, and the first and last control points are
+        // the same: but an unclamped curve does not end at its poles. It runs over knots 3 to 4, from
+        // (P0 + 4 P1 + P2) / 6 = (10, 8.33) to (P1 + 4 P2 + P3) / 6 = (15, 8.33), so SwiftDXF closes
+        // it with the chord between them. The point (12.5, 0) is 8.33 from that chord and 8.70 from
+        // either end of the open curve.
+        f.add(
+            "loop", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(
+                degree: 3, flags: 9, knots: (0...7).map(Double.init),
+                control: [(0, 0), (10, 10), (20, 10), (0, 0)]))
+        let r = try json(
+            await measure(try f.write(to: dir), "distance", a: .string(f.id("loop")), b: [12.5, 0]))
+        let value = try #require(r["value"] as? Double)
+        #expect(abs(value - 25.0 / 3) < 1e-3, "\(value)")
+        let notes = try #require(r["notes"] as? [String])
+        #expect(notes.contains { $0.contains("spline") && $0.contains("approximated") }, "\(notes)")
+    }
+
+    @Test("one note per kind of approximation, even when both ends are approximated alike")
+    func approximationNotesAreDeduplicated() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.add(
+            "fitA", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(degree: 3, fit: [(0, 0), (10, 5), (20, 0)]))
+        f.add(
+            "fitB", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(degree: 3, fit: [(0, 30), (10, 35), (20, 30)]))
+        f.add(
+            "ellipse", "ELLIPSE", layer: "0",
+            [
+                (10, "50"), (20, "0"), (30, "0"), (11, "5"), (21, "0"), (31, "0"), (40, "0.5"),
+                (41, "0"), (42, "6.283185307179586"),
+            ])
+        let path = try f.write(to: dir)
+
+        let alike = try json(
+            await measure(path, "distance", a: .string(f.id("fitA")), b: .string(f.id("fitB"))))
+        let alikeNotes = try #require(alike["notes"] as? [String])
+        #expect(alikeNotes.count == 1, "both ends are splines, so one note: \(alikeNotes)")
+
+        let mixed = try json(
+            await measure(path, "distance", a: .string(f.id("fitA")), b: .string(f.id("ellipse"))))
+        let mixedNotes = try #require(mixed["notes"] as? [String])
+        #expect(mixedNotes.count == 2, "\(mixedNotes)")
+        #expect(mixedNotes.contains { $0.contains("spline") }, "\(mixedNotes)")
+        #expect(mixedNotes.contains { $0.contains("ellipse") }, "\(mixedNotes)")
     }
 
     @Test("weights that are not one positive number per control point are ignored")

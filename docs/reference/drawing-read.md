@@ -63,9 +63,9 @@ result.
 - **Entity ids.** An entity's id is `e` and its position in the drawing's entity list (`e0`,
   `e1`, ...). SwiftDXF keeps no DXF handles, so the id is the index. It is stable for the same file
   bytes and this reader: `read_drawing` returns the file's SHA-256, and every result carries the file
-  name and hash so a caller can tell when ids no longer mean what they did. `source.readerVersion`
-  names the SwiftDXF release line that read it (`0.3`, major and minor: the part that decides which
-  entity types are modelled). A newer SwiftDXF that models more entity types shifts
+  name, hash and SwiftDXF release line so a caller can tell when ids no longer mean what they did.
+  `source.readerVersion` is that line (`0.3`, major and minor: the part that decides which entity
+  types are modelled). A newer SwiftDXF that models more entity types shifts
   the ids after them: when SwiftDXF 0.3.0 began to model `SPLINE`, a spline took an index, so the ids
   after one in the same file are one higher than they were under 0.2. Skipped records take no
   index.
@@ -171,7 +171,7 @@ insertion point, because the reader keeps no text extent.
 ```json
 {
   "total": 2, "offset": 0, "returned": 2, "truncated": false, "unit": "drawing units",
-  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c..." },
+  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.3" },
   "entities": [
     { "id": "e0", "type": "line", "layer": "SLOT", "color": 256, "start": [0, 0, 0], "end": [0, 20, 0], "length": 20,
       "bounds": { "min": [0, 0, 0], "max": [0, 20, 0] } },
@@ -263,7 +263,8 @@ Distance, angle or radius between named entities or points.
   curves. A spline whose control data defines a curve is an exact NURBS edge, over its valid
   parameter domain (clamped or unclamped knots, rational or not). One that does not (fit points
   only, a knot vector of the wrong length or order, an empty domain, or a closed spline whose ends
-  do not meet, which SwiftDXF closes with a chord) is cut into chords within a tolerance of
+  do not meet, which SwiftDXF closes with a chord, as measured on the curve and not on the control
+  points) is cut into chords within a tolerance of
   one ten-thousandth of the size of its control data, and the result says so in `notes`. An ellipse
   is cut into 48 chords, because OCCT's ellipse edge takes no major-axis direction, and the result
   says so in `notes` too. A `text` entity has no geometry to measure: pass its
@@ -292,7 +293,7 @@ unknown), `mmPerUnit`, and `notes`.
   "value": 8, "unit": "drawing units", "valueMm": 8, "mmPerUnit": 1,
   "pointOnA": [0, 0, 0], "pointOnB": [8, 0, 0],
   "notes": [],
-  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c..." }
+  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.3" }
 }
 ```
 

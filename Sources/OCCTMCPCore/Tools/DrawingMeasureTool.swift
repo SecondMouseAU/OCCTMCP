@@ -216,20 +216,29 @@ extension DrawingReadTools {
     /// DXF stores one flat knot vector; OCCT takes each distinct knot with its multiplicity, and
     /// runs the edge over the curve's valid domain, which for an unclamped vector is narrower than
     /// the knot vector. The file is untrusted, so what OCCTSwift would trap on or read as a C buffer
-    /// is checked here: the degree must be in range (OCCTSwift narrows it to 32 bits, which traps
-    /// for a degree below -2147483648 or above 2147483647), knots must be finite,
-    /// and weights must be one positive number per control point (SwiftDXF ignores any others too,
-    /// and so does this: the curve is then non-rational). A knot vector of the wrong length, out of
-    /// order or spanning nothing is left to OCCT, which refuses it with nil. Fit-point splines,
-    /// anything OCCT refuses, and a closed spline whose ends do not meet (SwiftDXF closes it with a
-    /// chord) fall back to chords.
+    /// is checked here: the degree must be at least 1 and below the number of control points
+    /// (OCCTSwift narrows it to 32 bits, which traps for a degree outside that range), knots must
+    /// be finite, and weights must be one positive number per control point (SwiftDXF ignores any
+    /// others too, and so does this: the curve is then non-rational). A knot vector of the wrong
+    /// length, out of order or spanning nothing is left to OCCT, which refuses it with nil.
+    /// Fit-point splines, anything OCCT refuses, and a closed spline whose curve's ends do not meet
+    /// (SwiftDXF closes it with a chord) fall back to chords.
     private static func exactEdge(for spline: DXF.Spline) -> Shape? {
         let poles = spline.controlPoints
         let degree = spline.degree
         guard degree >= 1, poles.count > degree,
             spline.knots.allSatisfy(\.isFinite)
         else { return nil }
-        if spline.isClosed, !spline.isPeriodic, poles.first != poles.last { return nil }
+        // SwiftDXF closes a closed spline with a chord when the curve's own ends differ, so the exact
+        // edge is only right when they meet. They are the curve's ends, not its first and last
+        // control points: an unclamped curve does not reach its poles.
+        if spline.isClosed, let domain = spline.parameterDomain,
+            let start = spline.point(at: domain.lowerBound),
+            let end = spline.point(at: domain.upperBound),
+            DrawingEntities.distance(start, end) > 1e-9
+        {
+            return nil
+        }
 
         var knots: [Double] = []
         var multiplicities: [Int32] = []
