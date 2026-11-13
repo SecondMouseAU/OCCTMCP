@@ -930,6 +930,54 @@ struct DrawingReadToolsTests {
         #expect(notes.contains { $0.contains("spline") && $0.contains("approximated") }, "\(notes)")
     }
 
+    @Test("weights that are not one positive number per control point are ignored")
+    func unusableSplineWeights() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        let control = [(10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+        // Two weights for three control points, and a weight of zero: either way the spline is the
+        // plain quadratic through (10, 0), (10, 10), (0, 10), not the rational quarter circle.
+        f.add(
+            "twoWeights", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(
+                degree: 2, flags: 12, knots: [0, 0, 0, 1, 1, 1], weights: [1, 0.7],
+                control: control))
+        f.add(
+            "zeroWeight", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(
+                degree: 2, flags: 12, knots: [0, 0, 0, 1, 1, 1], weights: [1, 0, 1],
+                control: control))
+        let path = try f.write(to: dir)
+        for name in ["twoWeights", "zeroWeight"] {
+            let r = try json(await measure(path, "distance", a: .string(f.id(name)), b: [20, 20]))
+            // That quadratic is x = 10 (1 - t^2), y = 20 t - 10 t^2: its nearest point to (20, 20) is
+            // at t = 0.5, (7.5, 7.5), which is 12.5 sqrt 2 away; the circle would be 18.28.
+            let value = try #require(r["value"] as? Double)
+            #expect(abs(value - 12.5 * 2.0.squareRoot()) < 1e-6, "\(name): \(value)")
+            let notes = try #require(r["notes"] as? [String])
+            #expect(!notes.contains { $0.contains("approximated") }, "\(name): \(notes)")
+        }
+    }
+
+    @Test("a knot vector shorter than the control data needs is approximated, not indexed past")
+    func shortKnotVector() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.add(
+            "short", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(
+                degree: 2, knots: [0, 0, 1], control: [(10, 35), (20, 45), (30, 35)]))
+        let r = try json(
+            await measure(
+                try f.write(to: dir), "distance", a: .string(f.id("short")), b: [20, 100]))
+        let value = try #require(r["value"] as? Double)
+        #expect(abs(value - 60) < 0.01, "\(value)")
+        let notes = try #require(r["notes"] as? [String])
+        #expect(notes.contains { $0.contains("spline") && $0.contains("approximated") }, "\(notes)")
+    }
+
     @Test("a closed spline whose ends do not meet is measured as drawn: closed by a chord")
     func closedSplineIsClosed() async throws {
         let dir = try makeDirectory()

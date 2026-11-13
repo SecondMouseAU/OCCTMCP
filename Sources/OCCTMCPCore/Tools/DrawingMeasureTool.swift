@@ -215,19 +215,19 @@ extension DrawingReadTools {
     ///
     /// DXF stores one flat knot vector; OCCT takes each distinct knot with its multiplicity, and
     /// runs the edge over the curve's valid domain, which for an unclamped vector is narrower than
-    /// the knot vector. Fit-point splines, a knot vector of the wrong length or order, an empty
-    /// domain, weights that are not one positive number per control point (SwiftDXF ignores those
-    /// too), and a closed spline whose ends do not meet (SwiftDXF closes it with a chord) all fall
-    /// back to chords.
+    /// the knot vector. The file is untrusted, so what would reach OCCT as a C buffer or an index is
+    /// checked here: the knot vector must be the length the control data needs, and weights must be
+    /// one positive number per control point (SwiftDXF ignores any others too, and so does this: the
+    /// curve is then non-rational). Knots that are out of order, or span nothing, are left to OCCT,
+    /// which refuses them with nil. Fit-point splines, anything OCCT refuses, and a closed spline
+    /// whose ends do not meet (SwiftDXF closes it with a chord) fall back to chords.
     private static func exactEdge(for spline: DXF.Spline) -> Shape? {
         let poles = spline.controlPoints
         let degree = spline.degree
         guard degree >= 1, poles.count > degree,
             spline.knots.count == poles.count + degree + 1,
-            spline.knots.allSatisfy(\.isFinite),
-            zip(spline.knots, spline.knots.dropFirst()).allSatisfy({ $0 <= $1 })
+            spline.knots.allSatisfy(\.isFinite)
         else { return nil }
-        guard spline.knots[degree] < spline.knots[poles.count] else { return nil }
         if spline.isClosed, !spline.isPeriodic, poles.first != poles.last { return nil }
 
         var knots: [Double] = []
