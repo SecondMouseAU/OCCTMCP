@@ -216,7 +216,8 @@ extension DrawingReadTools {
     /// DXF stores one flat knot vector; OCCT takes each distinct knot with its multiplicity, and
     /// runs the edge over the curve's valid domain, which for an unclamped vector is narrower than
     /// the knot vector. The file is untrusted, so what OCCTSwift would trap on or read as a C buffer
-    /// is checked here: the degree must fit (OCCTSwift narrows it to 32 bits), knots must be finite,
+    /// is checked here: the degree must fit (OCCTSwift narrows it to 32 bits; a degree below 1 is
+    /// left to OCCT, which refuses it), knots must be finite,
     /// and weights must be one positive number per control point (SwiftDXF ignores any others too,
     /// and so does this: the curve is then non-rational). A knot vector of the wrong length, out of
     /// order or spanning nothing is left to OCCT, which refuses it with nil. Fit-point splines,
@@ -225,7 +226,7 @@ extension DrawingReadTools {
     private static func exactEdge(for spline: DXF.Spline) -> Shape? {
         let poles = spline.controlPoints
         let degree = spline.degree
-        guard degree >= 1, poles.count > degree,
+        guard poles.count > degree,
             spline.knots.allSatisfy(\.isFinite)
         else { return nil }
         if spline.isClosed, !spline.isPeriodic, poles.first != poles.last { return nil }
