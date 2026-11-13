@@ -1,5 +1,5 @@
 {
-  "originHash" : "1526aa2e5a818f76871ab5ca8109ca67c66fffef1a730c83d4d69ff672afa3a2",
+  "originHash" : "c3d985e6635a3dd1ea3014befb4a7fb7fde32f8be96b4bf4925900279f623e75",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftIO.git",
       "state" : {
-        "revision" : "6218b13f67456d579459819715fc07015d5a00a3",
-        "version" : "2.0.0-beta.4"
+        "revision" : "06957764bab81309c708c3a2dc4226c0afb95f11",
+        "version" : "2.0.0-beta.5"
       }
     },
     {
@@ -132,8 +132,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/SwiftDXF.git",
       "state" : {
-        "revision" : "8419e9aade961cc973bd642e0312e5cd173a87ae",
-        "version" : "0.2.1"
+        "revision" : "5c25de7567f8cd05d0caa510c0d39f1622e1c257",
+        "version" : "0.3.0"
       }
     },
     {
