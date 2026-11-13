@@ -221,10 +221,20 @@ extension ExecuteScriptTool {
             + (previous?.graphs ?? []).flatMap { graph in
                 [graph.file, ((graph.file as NSString).deletingPathExtension) + ".sqlite"]
             }
-        for file in Set(previousFiles) where isPlainFileName(file) {
-            try? fm.removeItem(atPath: "\(sceneDirectory)/\(file)")
-        }
         var warnings: [String] = []
+        for file in Set(previousFiles).sorted() where isPlainFileName(file) {
+            let path = "\(sceneDirectory)/\(file)"
+            do {
+                try fm.removeItem(atPath: path)
+            } catch {
+                // A file that is already gone is what was wanted; one that stays is worth saying.
+                if fm.fileExists(atPath: path) {
+                    warnings.append(
+                        "Could not remove \(file), a file of the previous scene: "
+                            + error.localizedDescription)
+                }
+            }
+        }
         let contents = (try? fm.contentsOfDirectory(atPath: stage.path)) ?? []
         for name in contents where isPlainFileName(name) && renamed[name] == nil {
             if sceneSidecars.contains(name.lowercased()) {

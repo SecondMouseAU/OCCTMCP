@@ -444,6 +444,25 @@ struct ExecuteScriptStageTests {
         #expect(try String(contentsOf: kept, encoding: .utf8) == "ISO-10303-21;")
     }
 
+    @Test("a previous file that cannot be removed is reported, and the new scene still stands")
+    func unremovablePreviousFile() async throws {
+        let scene = try makeScene(bodies: ["old"])
+        let stuck = scene.dir.appendingPathComponent("body-0.brep")
+        // An immutable file cannot be deleted, so the swap succeeds and the housekeeping does not.
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: stuck.path)
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: stuck.path)
+            cleanUp(scene)
+        }
+        let result = await run(scene) { stage in
+            try emit(["new"], to: stage)
+            return 0
+        }
+        #expect(!result.isError, "\(result.text)")
+        #expect(result.text.contains("Could not remove body-0.brep"), "\(result.text)")
+        #expect(try manifest(scene).bodies.map(\.id) == ["new"])
+    }
+
     @Test("an existing manifest that cannot be parsed is not overwritten, and the run says so")
     func unparseableSceneManifest() async throws {
         let scene = try makeScene(bodies: ["old"])
