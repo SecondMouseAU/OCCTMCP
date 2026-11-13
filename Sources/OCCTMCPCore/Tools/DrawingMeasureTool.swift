@@ -213,12 +213,12 @@ extension DrawingReadTools {
 
     /// The exact NURBS edge of a spline whose control data defines a curve, nil when it does not.
     ///
-    /// DXF stores one flat knot vector; OCCT takes each distinct knot with its multiplicity. The
-    /// edge runs over the curve's valid domain, `knots[degree]...knots[count]`, which is what
-    /// SwiftDXF's own evaluation uses for clamped and unclamped vectors alike. Fit-point splines,
-    /// a knot vector of the wrong length or order, an empty domain, weights that are not one
-    /// positive number per control point (SwiftDXF ignores those too), and a closed spline whose
-    /// ends do not meet (SwiftDXF closes it with a chord) all fall back to chords.
+    /// DXF stores one flat knot vector; OCCT takes each distinct knot with its multiplicity, and
+    /// runs the edge over the curve's valid domain, which for an unclamped vector is narrower than
+    /// the knot vector. Fit-point splines, a knot vector of the wrong length or order, an empty
+    /// domain, weights that are not one positive number per control point (SwiftDXF ignores those
+    /// too), and a closed spline whose ends do not meet (SwiftDXF closes it with a chord) all fall
+    /// back to chords.
     private static func exactEdge(for spline: DXF.Spline) -> Shape? {
         let poles = spline.controlPoints
         let degree = spline.degree
@@ -227,9 +227,7 @@ extension DrawingReadTools {
             spline.knots.allSatisfy(\.isFinite),
             zip(spline.knots, spline.knots.dropFirst()).allSatisfy({ $0 <= $1 })
         else { return nil }
-        let low = spline.knots[degree]
-        let high = spline.knots[poles.count]
-        guard low < high else { return nil }
+        guard spline.knots[degree] < spline.knots[poles.count] else { return nil }
         if spline.isClosed, !spline.isPeriodic, poles.first != poles.last { return nil }
 
         var knots: [Double] = []
@@ -250,7 +248,7 @@ extension DrawingReadTools {
                 poles: poles.map(simd), weights: weights, knots: knots,
                 multiplicities: multiplicities, degree: degree)
         else { return nil }
-        return Shape.edgeFromCurve(curve, u1: low, u2: high)
+        return Shape.edgeFromCurve(curve)
     }
 
     private static func shape(for end: MeasureEnd, role: String) throws -> (Shape, String?) {

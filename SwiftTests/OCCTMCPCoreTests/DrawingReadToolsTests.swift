@@ -840,12 +840,17 @@ struct DrawingReadToolsTests {
             DrawingFixture.splineGroups(
                 degree: 2, flags: 12, knots: [0, 0, 0, 1, 1, 1], weights: [1, w, 1],
                 control: [(10, 0), (10, 10), (0, 10)]))
+        // The arc is the circle of radius 10 about the origin, so the point (20, 20) is 20 sqrt 2 - 10
+        // from it, along the diagonal. Without the weights the control polygon makes a parabola
+        // whose nearest point is 17.68 away, and chords would fall short of the arc.
         let r = try json(
-            await measure(try f.write(to: dir), "distance", a: .string(f.id("quarter")), b: [0, 0]))
-        // Every point of the arc is 10 from the origin, so a chord approximation would fall short.
-        #expect(abs((r["value"] as? Double ?? 0) - 10) < 1e-6, "\(String(describing: r["value"]))")
+            await measure(
+                try f.write(to: dir), "distance", a: .string(f.id("quarter")), b: [20, 20]))
+        let value = try #require(r["value"] as? Double)
+        #expect(abs(value - (20 * 2.0.squareRoot() - 10)) < 1e-6, "\(value)")
         let onArc = try #require(numbers(r["pointOnA"]))
         #expect(abs((onArc[0] * onArc[0] + onArc[1] * onArc[1]).squareRoot() - 10) < 1e-6)
+        #expect(abs(onArc[0] - onArc[1]) < 1e-6, "the nearest point is on the diagonal: \(onArc)")
         let end = try #require(r["a"] as? [String: Any])
         #expect(end["type"] as? String == "spline")
         let notes = try #require(r["notes"] as? [String])
@@ -905,6 +910,24 @@ struct DrawingReadToolsTests {
         #expect(abs(value - (30 - 460.0 / 48)) < 1e-6, "\(value)")
         let notes = try #require(r["notes"] as? [String])
         #expect(!notes.contains { $0.contains("approximated") }, "\(notes)")
+    }
+
+    @Test("a spline whose knots span nothing is approximated, not handed to OCCT")
+    func emptyKnotDomain() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.add(
+            "flat", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(
+                degree: 2, knots: [0, 0, 0, 0, 0, 0], control: [(10, 35), (20, 45), (30, 35)]))
+        let r = try json(
+            await measure(try f.write(to: dir), "distance", a: .string(f.id("flat")), b: [20, 100]))
+        // SwiftDXF repairs the knot vector to a clamped uniform one: the quadratic peaking at (20, 40).
+        let value = try #require(r["value"] as? Double)
+        #expect(abs(value - 60) < 0.01, "\(value)")
+        let notes = try #require(r["notes"] as? [String])
+        #expect(notes.contains { $0.contains("spline") && $0.contains("approximated") }, "\(notes)")
     }
 
     @Test("a closed spline whose ends do not meet is measured as drawn: closed by a chord")
