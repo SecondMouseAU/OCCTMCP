@@ -11,10 +11,11 @@
 // (#257; see ExecuteScriptStage.swift). `ScriptContext.emit()` writes the stage's manifest.json, and
 // only a run that finished cleanly is promoted: the scene is replaced with the stage's output,
 // through `ManifestStore.update`, which is what the viewport's ScriptWatcher sees and reloads.
-// An embedding host can supply the promotion instead (`ScriptStagePromoter`). SceneHistory
-// snapshots the prior scene just before a promotion, so compare_versions sees the change.
+// An embedding host can supply the promotion instead (`ScriptStagePromoter`). SceneHistory records
+// the scene a promotion replaced once it has succeeded, so compare_versions sees the change.
 
 import Foundation
+import ScriptHarness
 
 public enum ExecuteScriptTool {
 
@@ -139,15 +140,18 @@ public enum ExecuteScriptTool {
                     + "ctx.emit()), so the scene is unchanged.")
 
         case .staged(let manifest):
-            await sceneHistory.snapshot(store: store)
             var warnings: [String] = []
+            var replaced: ScriptManifest?
             do {
                 if let promoter {
                     let sceneDirectory = (store.path as NSString).deletingLastPathComponent
+                    replaced = try? store.read()
                     try await promoter(stage, sceneDirectory)
                 } else {
-                    warnings = try await promoteReplacing(
+                    let promotion = try await promoteReplacing(
                         stage: stage, manifest: manifest, store: store)
+                    warnings = promotion.warnings
+                    replaced = promotion.previous
                 }
             } catch {
                 let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
@@ -156,6 +160,10 @@ public enum ExecuteScriptTool {
                         + output,
                     isError: true)
             }
+
+            // Only a promotion that went through is a version of the scene: a vetoed write or a
+            // promoter that threw leaves the history as it was.
+            if let replaced { await sceneHistory.record(replaced) }
 
             var manifestSection = ""
             if let manifest = try? store.read() {
@@ -230,26 +238,32 @@ public enum ExecuteScriptTool {
         let exitCode: Int32
     }
 
-    static func runWorkspace(stage: URL) async throws -> RunResult {
+    /// Builds the workspace, then runs its script as a child that writes into `stage`.
+    ///
+    /// `swift` and `workspace` are the toolchain and the package to build; tests give them a fake
+    /// toolchain and a scratch directory.
+    static func runWorkspace(
+        stage: URL, swift: String = "/usr/bin/swift", workspace: URL = cacheDir
+    ) async throws -> RunResult {
         // First build (catch compile errors cleanly), then run with
-        // --skip-build so script stdout isn't drowned in build noise. The script child, and only
-        // it, is told to write into the stage.
-        let environment = scriptEnvironment(stage: stage)
+        // --skip-build so script stdout isn't drowned in build noise. Only the run is told to
+        // write into the stage: the build executes none of the script.
         let build = try await runProcess(
-            executable: "/usr/bin/swift",
-            args: ["build", "-c", "release", "--package-path", cacheDir.path],
-            environment: environment
+            executable: swift,
+            args: ["build", "-c", "release", "--package-path", workspace.path],
+            currentDirectory: workspace
         )
         if build.exitCode != 0 {
             return build
         }
         return try await runProcess(
-            executable: "/usr/bin/swift",
+            executable: swift,
             args: [
                 "run", "-c", "release", "--skip-build",
-                "--package-path", cacheDir.path, "Script",
+                "--package-path", workspace.path, "Script",
             ],
-            environment: environment
+            environment: scriptEnvironment(stage: stage),
+            currentDirectory: workspace
         )
     }
 

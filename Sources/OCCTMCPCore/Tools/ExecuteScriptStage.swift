@@ -18,6 +18,14 @@ extension ExecuteScriptTool {
         case staged(ScriptManifest)
     }
 
+    /// What `promoteReplacing` did.
+    struct Promotion {
+        /// The scene's manifest as the swap saw it under the lock; nil when the scene had none.
+        let previous: ScriptManifest?
+        /// The housekeeping that failed without failing the run.
+        let warnings: [String]
+    }
+
     /// A new stage directory under the system temp directory, outside any scene.
     ///
     /// It is outside the scene so that nothing a script writes there can be mistaken for the
@@ -130,10 +138,10 @@ extension ExecuteScriptTool {
     /// the scene as it was. Unlisted artefacts of the run (`output.step`, a graph's `.sqlite`)
     /// replace their namesakes. Other files in the scene, sidecars included, are not touched.
     ///
-    /// - Returns: warnings for the parts that are best effort.
+    /// - Returns: the manifest the swap replaced, and warnings for the parts that are best effort.
     static func promoteReplacing(
         stage: URL, manifest staged: ScriptManifest, store: ManifestStore
-    ) async throws -> [String] {
+    ) async throws -> Promotion {
         let fm = FileManager.default
         let sceneDirectory = (store.path as NSString).deletingLastPathComponent
         try fm.createDirectory(atPath: sceneDirectory, withIntermediateDirectories: true)
@@ -228,6 +236,6 @@ extension ExecuteScriptTool {
         } catch {
             warnings.append("Failed to clear provenance.json: \(error.localizedDescription)")
         }
-        return warnings
+        return Promotion(previous: previous, warnings: warnings)
     }
 }

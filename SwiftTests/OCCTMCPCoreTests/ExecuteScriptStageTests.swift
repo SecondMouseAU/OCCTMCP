@@ -128,6 +128,32 @@ struct ExecuteScriptStageTests {
         #expect(inherited["OCCTSWIFT_OUTPUT_DIR"] == stage.path)
     }
 
+    @Test("the run child is told the stage, and the build that precedes it is not")
+    func runWorkspaceHandsTheStageToTheRunOnly() async throws {
+        // A stand-in `swift`: a build that is handed a stage fails, a run reports the stage it got.
+        let scene = try makeScene()
+        defer { cleanUp(scene) }
+        let fake = scene.root.appendingPathComponent("fake-swift")
+        let body = """
+            #!/bin/sh
+            if [ "$1" = build ]; then
+                [ -z "$OCCTSWIFT_OUTPUT_DIR" ] || { echo "the build was told the stage" >&2; exit 3; }
+                exit 0
+            fi
+            echo "stage=$OCCTSWIFT_OUTPUT_DIR"
+            """
+        try body.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        let stage = scene.root.appendingPathComponent("a-stage")
+
+        let result = try await ExecuteScriptTool.runWorkspace(
+            stage: stage, swift: fake.path, workspace: scene.root)
+
+        #expect(result.exitCode == 0, "\(result.stderr)")
+        #expect(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "stage=\(stage.path)")
+    }
+
     @Test("the workspace's Scripts floor is the root package's, which carries the stage directory")
     func scriptsPinTracksPackageSwift() throws {
         let root = URL(fileURLWithPath: #filePath)
@@ -141,9 +167,19 @@ struct ExecuteScriptStageTests {
         #expect(ExecuteScriptTool.scriptsPin == pinned)
         // The first release with OCCTSWIFT_OUTPUT_DIR and run-failed.json (OCCTSwiftScripts#145).
         #expect(
-            ExecuteScriptTool.scriptsPin.compare("1.7.1-beta.4", options: .numeric)
-                != .orderedAscending,
+            atLeast(ExecuteScriptTool.scriptsPin, "1.7.1-beta.4"),
             "\(ExecuteScriptTool.scriptsPin) predates the stage directory")
+    }
+
+    @Test("a version is compared as semver: a release is above its betas, betas by number")
+    func versionOrder() {
+        #expect(atLeast("1.7.1", "1.7.1-beta.4"), "String.compare(.numeric) gets this one wrong")
+        #expect(atLeast("1.7.1-beta.4", "1.7.1-beta.4"))
+        #expect(atLeast("1.7.1-beta.10", "1.7.1-beta.4"))
+        #expect(atLeast("1.8.0-beta.1", "1.7.1-beta.4"))
+        #expect(!atLeast("1.7.1-beta.3", "1.7.1-beta.4"))
+        #expect(!atLeast("1.7.0", "1.7.1-beta.4"))
+        #expect(!atLeast("1.4.2", "1.7.1-beta.4"))
     }
 
     @Test(
@@ -284,6 +320,59 @@ struct ExecuteScriptStageTests {
         #expect(await history.count() == 0, "a run that changed nothing pushed history")
     }
 
+    @Test("every field of a body, a graph and the manifest survives promotion")
+    func promotionKeepsEveryField() async throws {
+        let scene = try makeScene()
+        defer { cleanUp(scene) }
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let metadata = ManifestMetadata(
+            name: "part", revision: "B", source: "cad", tags: ["a", "b"], notes: "n")
+        let result = await run(scene) { stage in
+            try Data("ISO-10303-21;".utf8).write(to: stage.appendingPathComponent("b.step"))
+            try Data("{}".utf8).write(to: stage.appendingPathComponent("g.json"))
+            let body = BodyDescriptor(
+                id: "b", file: "b.step", format: "step", name: "Named",
+                color: [0.1, 0.2, 0.3, 0.4], roughness: 0.25, metallic: 0.75)
+            let stats = GraphStats(faces: 6, edges: 12, vertices: 8, shells: 1, solids: 1)
+            let graph = GraphDescriptor(id: "g", file: "g.json", sourceBodyId: "b", stats: stats)
+            try ManifestIO.write(
+                ScriptManifest(
+                    version: 1, timestamp: stamp, description: "kept", bodies: [body],
+                    graphs: [graph], metadata: metadata),
+                to: stage.appendingPathComponent(ManifestIO.manifestFilename))
+            return 0
+        }
+        #expect(!result.isError, "\(result.text)")
+
+        let promoted = try manifest(scene)
+        #expect(promoted.description == "kept")
+        #expect(promoted.timestamp > stamp, "the store stamps every write, so the viewport sees it")
+        let body = try #require(promoted.bodies.first)
+        #expect(promoted.bodies.count == 1)
+        #expect(body.id == "b")
+        #expect(body.format == "step")
+        #expect(body.name == "Named")
+        #expect(body.color == [0.1, 0.2, 0.3, 0.4])
+        #expect(body.roughness == 0.25)
+        #expect(body.metallic == 0.75)
+        #expect(body.file != "b.step", "promoted under a run-unique name")
+        #expect(body.file.hasSuffix(".step"))
+        let graph = try #require(promoted.graphs?.first)
+        #expect(graph.id == "g")
+        #expect(graph.sourceBodyId == "b")
+        #expect(graph.stats?.faces == 6)
+        #expect(graph.stats?.edges == 12)
+        #expect(graph.stats?.vertices == 8)
+        #expect(graph.stats?.shells == 1)
+        #expect(graph.stats?.solids == 1)
+        let kept = try #require(promoted.metadata)
+        #expect(kept.name == "part")
+        #expect(kept.revision == "B")
+        #expect(kept.source == "cad")
+        #expect(kept.tags == ["a", "b"])
+        #expect(kept.notes == "n")
+    }
+
     @Test("a script that exits non-zero fails and leaves the scene as it was")
     func nonZeroExit() async throws {
         try await requireSceneUntouched(expecting: "The scene was left as it was.", isError: true) {
@@ -356,14 +445,16 @@ struct ExecuteScriptStageTests {
         let scene = try makeScene(bodies: ["old"])
         defer { cleanUp(scene) }
         let before = (files: scene.files, manifest: scene.manifestBytes)
+        let history = SceneHistory()
         let veto: ManifestWriteObserver = { _, _ in throw Veto() }
         let result = await OCCTMCPContext.$manifestWriteObserver.withValue(veto) {
-            await run(scene) { stage in
+            await run(scene, sceneHistory: history) { stage in
                 try emit(["new"], to: stage, step: false)
                 return 0
             }
         }
         #expect(result.isError, "\(result.text)")
+        #expect(await history.count() == 0, "a vetoed write is not a version of the scene")
         #expect(scene.files == before.files, "a promoted copy was left behind: \(scene.files)")
         #expect(scene.manifestBytes == before.manifest)
     }
@@ -376,6 +467,7 @@ struct ExecuteScriptStageTests {
         let scene = try makeScene(bodies: ["old"])
         defer { cleanUp(scene) }
         let calls = StageLog()
+        let history = SceneHistory()
         let before = (files: scene.files, manifest: scene.manifestBytes)
         let promoter: ScriptStagePromoter = { stage, sceneDirectory in
             // The stage is still there, with what the script wrote.
@@ -383,11 +475,14 @@ struct ExecuteScriptStageTests {
                 contentsOf: stage.appendingPathComponent("manifest.json"), encoding: .utf8)
             calls.record(stage, sceneDirectory: sceneDirectory, manifest: listed)
         }
-        let result = await run(scene, promoter: promoter) { stage in
+        let result = await run(scene, promoter: promoter, sceneHistory: history) { stage in
             try emit(["from-the-script"], to: stage)
             return 0
         }
         #expect(!result.isError, "\(result.text)")
+        #expect(await history.count() == 1, "the scene the host replaced is recorded")
+        let replaced = try #require(await history.snapshot(since: 1))
+        #expect(replaced.bodies.map(\.id) == ["old"])
         #expect(calls.count == 1)
         #expect(calls.sceneDirectory == scene.dir.path)
         #expect(calls.manifest?.contains("from-the-script") == true)
@@ -421,13 +516,15 @@ struct ExecuteScriptStageTests {
         let scene = try makeScene(bodies: ["old"])
         defer { cleanUp(scene) }
         let seen = StageLog()
+        let history = SceneHistory()
         let promoter: ScriptStagePromoter = { _, _ in throw Refused() }
-        let result = await run(scene, promoter: promoter) { stage in
+        let result = await run(scene, promoter: promoter, sceneHistory: history) { stage in
             seen.record(stage)
             try emit(["x"], to: stage)
             return 0
         }
         #expect(result.isError)
+        #expect(await history.count() == 0, "a promotion that threw is not a version of the scene")
         #expect(
             result.text.contains("promoting its output into the scene failed: inbox is full"),
             "\(result.text)")
@@ -477,6 +574,31 @@ struct ExecuteScriptStageTests {
         let without = try await probePromoter(through: nil)
         #expect(without == "none", "a server built without one installs none")
         #expect(log.count == 1)
+    }
+}
+
+/// Whether `version` is at least `floor`, by semver.
+///
+/// "1.7.1" is above "1.7.1-beta.4", which is above "1.7.1-beta.3"; `String.compare(.numeric)`
+/// orders a release below its own betas.
+private func atLeast(_ version: String, _ floor: String) -> Bool {
+    func parts(_ text: String) -> (core: [Int], pre: [String]?) {
+        let halves = text.split(separator: "-", maxSplits: 1).map(String.init)
+        let core = halves[0].split(separator: ".").map { Int($0) ?? 0 }
+        return (core, halves.count > 1 ? halves[1].split(separator: ".").map(String.init) : nil)
+    }
+    let have = parts(version)
+    let want = parts(floor)
+    if have.core != want.core { return !have.core.lexicographicallyPrecedes(want.core) }
+    switch (have.pre, want.pre) {
+    case (nil, _): return true
+    case (_?, nil): return false
+    case (let lhs?, let rhs?):
+        for (left, right) in zip(lhs, rhs) where left != right {
+            if let m = Int(left), let n = Int(right) { return m > n }
+            return left > right
+        }
+        return lhs.count >= rhs.count
     }
 }
 
