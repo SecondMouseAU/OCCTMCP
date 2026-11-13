@@ -37,7 +37,7 @@ public enum ExecuteScriptTool {
             .appendingPathComponent(".occtmcp-cache/workspace")
     }
 
-    public static let workspaceEnvironmentKey = "OCCTMCP_SCRIPT_WORKSPACE"
+    static let workspaceEnvironmentKey = "OCCTMCP_SCRIPT_WORKSPACE"
 
     public static let buildTimeoutSeconds: TimeInterval = 300
 

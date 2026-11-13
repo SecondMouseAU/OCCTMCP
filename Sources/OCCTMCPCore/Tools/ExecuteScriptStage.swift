@@ -112,12 +112,14 @@ extension ExecuteScriptTool {
         return nil
     }
 
-    /// The files OCCTMCP keeps in the scene directory besides the manifest.
+    /// The files OCCTMCP and an embedding host keep in the scene directory, in lower case.
     ///
     /// A stage never replaces them: a script that writes one of these names into its output
-    /// directory is not heard.
+    /// directory is not heard. The match ignores case because the scene may sit on a volume that
+    /// does, where `Annotations.json` is `annotations.json`.
     static let sceneSidecars: Set<String> = [
-        "annotations.json", "zones.json", "provenance.json", "manifest.lock",
+        "annotations.json", "zones.json", "provenance.json", "selection.json",
+        "host.lock", "host.json", "manifest.json", "manifest.lock",
     ]
 
     /// A name with no directory part, not hidden, and not one of the stage's own bookkeeping files.
@@ -211,11 +213,21 @@ extension ExecuteScriptTool {
             throw error
         }
 
-        // The scene is replaced. What remains is housekeeping, and none of it fails the run.
+        // The scene is replaced. What remains is housekeeping, and none of it fails the run. The
+        // previous files go first, so an artefact the stage carries under one of their names (a
+        // `output.step` the old manifest listed) is copied after, not deleted with them.
+        let previousFiles =
+            (previous?.bodies.map(\.file) ?? [])
+            + (previous?.graphs ?? []).flatMap { graph in
+                [graph.file, ((graph.file as NSString).deletingPathExtension) + ".sqlite"]
+            }
+        for file in Set(previousFiles) where isPlainFileName(file) {
+            try? fm.removeItem(atPath: "\(sceneDirectory)/\(file)")
+        }
         var warnings: [String] = []
         let contents = (try? fm.contentsOfDirectory(atPath: stage.path)) ?? []
         for name in contents where isPlainFileName(name) && renamed[name] == nil {
-            if sceneSidecars.contains(name) {
+            if sceneSidecars.contains(name.lowercased()) {
                 warnings.append(
                     "The script wrote \(name) into its output directory; the scene keeps its own.")
                 continue
@@ -235,14 +247,6 @@ extension ExecuteScriptTool {
                 warnings.append(
                     "Could not copy \(name) into the scene: \(error.localizedDescription)")
             }
-        }
-        let previousFiles =
-            (previous?.bodies.map(\.file) ?? [])
-            + (previous?.graphs ?? []).flatMap { graph in
-                [graph.file, ((graph.file as NSString).deletingPathExtension) + ".sqlite"]
-            }
-        for file in Set(previousFiles) where isPlainFileName(file) {
-            try? fm.removeItem(atPath: "\(sceneDirectory)/\(file)")
         }
         do {
             try await ProvenanceStore.shared.clear(outputDir: sceneDirectory)

@@ -382,17 +382,66 @@ struct ExecuteScriptStageTests {
         let kept = try Data(contentsOf: annotations)
         let result = await run(scene) { stage in
             try emit(["new"], to: stage)
-            try Data("overwritten".utf8).write(to: stage.appendingPathComponent("annotations.json"))
+            // Mixed case on purpose: on a volume that ignores case this is the scene's own file.
+            try Data("overwritten".utf8).write(to: stage.appendingPathComponent("Annotations.json"))
             try Data("overwritten".utf8).write(to: stage.appendingPathComponent("zones.json"))
+            try Data("overwritten".utf8).write(to: stage.appendingPathComponent("host.lock"))
             return 0
         }
         #expect(!result.isError, "\(result.text)")
         #expect(try Data(contentsOf: annotations) == kept, "the scene's annotations were replaced")
-        let zones = scene.dir.appendingPathComponent("zones.json")
-        #expect(
-            !FileManager.default.fileExists(atPath: zones.path),
-            "a zones.json the scene never had was created from the stage")
-        #expect(result.text.contains("annotations.json"), "the script is told it was not heard")
+        for name in ["zones.json", "host.lock"] {
+            let path = scene.dir.appendingPathComponent(name).path
+            #expect(
+                !FileManager.default.fileExists(atPath: path),
+                "a \(name) the scene never had was created from the stage")
+        }
+        #expect(result.text.contains("Annotations.json"), "the script is told it was not heard")
+        #expect(result.text.contains("host.lock"), "the script is told it was not heard")
+    }
+
+    @Test("a clean run clears the scene's provenance, and a failed run leaves it alone")
+    func provenanceFollowsThePromotion() async throws {
+        let scene = try makeScene(bodies: ["old"])
+        defer { cleanUp(scene) }
+        let record = ProvenanceRecord(
+            sourceBodyId: "old", transform: .translate(offset: SIMD3(1, 0, 0)))
+        try await ProvenanceStore.shared.upsert(
+            bodyId: "copy", record: record, outputDir: scene.dir.path)
+
+        let failed = await run(scene) { stage in
+            try emit(["new"], to: stage)
+            return 1
+        }
+        #expect(failed.isError)
+        let afterFailure = await ProvenanceStore.shared.read(outputDir: scene.dir.path)
+        #expect(afterFailure.keys.contains("copy"), "a failed run cleared the provenance")
+
+        let clean = await run(scene) { stage in
+            try emit(["new"], to: stage)
+            return 0
+        }
+        #expect(!clean.isError, "\(clean.text)")
+        let afterPromotion = await ProvenanceStore.shared.read(outputDir: scene.dir.path)
+        #expect(afterPromotion.isEmpty, "the replaced scene kept the old scene's provenance")
+    }
+
+    @Test("an artefact the stage carries under a name the old manifest listed is kept")
+    func artefactWithAPreviousFilesName() async throws {
+        let scene = try makeScene()
+        defer { cleanUp(scene) }
+        try Data("previous".utf8).write(to: scene.dir.appendingPathComponent("output.step"))
+        try scene.store.write(
+            ScriptManifest(
+                description: "before",
+                bodies: [BodyDescriptor(id: "old", file: "output.step", format: "step")]))
+        let result = await run(scene) { stage in
+            try emit(["new"], to: stage)  // writes an unlisted output.step as well
+            return 0
+        }
+        #expect(!result.isError, "\(result.text)")
+        let kept = scene.dir.appendingPathComponent("output.step")
+        #expect(try String(contentsOf: kept, encoding: .utf8) == "ISO-10303-21;")
     }
 
     @Test("an existing manifest that cannot be parsed is not overwritten, and the run says so")
