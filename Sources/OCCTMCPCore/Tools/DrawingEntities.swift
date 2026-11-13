@@ -201,6 +201,12 @@ enum DrawingEntities {
         return distance(box.min, box.max)
     }
 
+    /// The tolerance a spline is flattened to, for its bounds and for measuring it as chords: a
+    /// ten-thousandth of its size.
+    static func splineTolerance(_ spline: DXF.Spline) -> Double {
+        max(splineSize(spline) * 1e-4, 1e-9)
+    }
+
     /// Bounds of a spline that follow the curve: it flattened to within a ten-thousandth of its size.
     ///
     /// The control polygon would be a safe box but not a tight one, and a window that clears the
@@ -209,7 +215,7 @@ enum DrawingEntities {
     /// finer tolerance costs time on every entity of every call: a millionth was about fifteen times
     /// slower, which over a few thousand splines approaches the request timeout.
     private static func splineBounds(_ spline: DXF.Spline) -> Bounds? {
-        let points = spline.flattened(tolerance: max(splineSize(spline) * 1e-4, 1e-9))
+        let points = spline.flattened(tolerance: splineTolerance(spline))
         guard let first = points.first else { return nil }
         var box = Bounds(first)
         for point in points { box.include(point) }

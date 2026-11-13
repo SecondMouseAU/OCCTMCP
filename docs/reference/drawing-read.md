@@ -262,7 +262,8 @@ Distance, angle or radius between named entities or points.
   or arcs, and a circle, an arc and a polyline (curved segments included) are measured along their
   curves. A spline whose control data defines a curve is an exact NURBS edge, over its valid
   parameter domain (clamped or unclamped knots, rational or not). One that does not (fit points
-  only, a knot vector of the wrong length or order, an empty domain, or a closed spline whose ends
+  only, a knot vector of the wrong length or order, an empty domain, a degree above the 25 OCCT's
+  B-spline curves go to, or a closed spline whose ends
   do not meet, which SwiftDXF closes with a chord, as measured on the curve and not on the control
   points) is cut into chords within a tolerance of
   one ten-thousandth of the size of its control data, and the result says so in `notes`. An ellipse

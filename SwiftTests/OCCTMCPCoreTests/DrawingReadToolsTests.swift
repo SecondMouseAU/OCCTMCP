@@ -55,12 +55,13 @@ struct DrawingFixture {
     /// The group codes of a `SPLINE` record: flags, degree, counts, knots, weights, points.
     static func splineGroups(
         degree: Int, flags: Int = 8, knots: [Double] = [], weights: [Double] = [],
-        control: [(Double, Double)] = [], fit: [(Double, Double)] = []
+        control: [(Double, Double)] = [], fit: [(Double, Double)] = [], color: Int? = nil
     ) -> [(Int, String)] {
         var g: [(Int, String)] = [
             (70, "\(flags)"), (71, "\(degree)"), (72, "\(knots.count)"),
             (73, "\(control.count)"), (74, "\(fit.count)"),
         ]
+        if let color { g.append((62, "\(color)")) }
         g += knots.map { (40, "\($0)") }
         g += weights.map { (41, "\($0)") }
         for p in control { g += [(10, "\(p.0)"), (20, "\(p.1)"), (30, "0")] }
@@ -151,7 +152,8 @@ struct DrawingFixture {
         f.add(
             "curve", "SPLINE", layer: "CURVES",
             splineGroups(
-                degree: 2, knots: [0, 0, 0, 1, 1, 1], control: [(10, 35), (20, 45), (30, 35)]))
+                degree: 2, knots: [0, 0, 0, 1, 1, 1], control: [(10, 35), (20, 45), (30, 35)],
+                color: 5))
         f.add(nil, "INSERT", layer: "BLOCKS", [(2, "FASTENER"), (10, "70"), (20, "10")])
         return f
     }
@@ -261,6 +263,7 @@ struct DrawingReadToolsTests {
                 "read_drawing", ["inputPath": .string(try DrawingFixture.tSlot().write(to: dir))]))
         let skipped = try #require(r["skipped"] as? [String: Any])
         let byType = try #require(skipped["byType"] as? [String: Int])
+        #expect(byType == ["INSERT": 2, "HATCH": 1], "\(byType)")
         #expect(byType["SPLINE"] == nil, "a modelled SPLINE was counted as skipped too: \(byType)")
         let byLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
         #expect(byLayer["CURVES"] == nil, "\(byLayer)")

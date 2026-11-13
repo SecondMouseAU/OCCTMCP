@@ -21,6 +21,7 @@ extension DrawingReadToolsTests {
         #expect(curves.ids == [fixture.id("curve")], "\(curves.ids)")
         let record = try #require(curves.all.first)
         #expect(record["type"] as? String == "spline" && record["layer"] as? String == "CURVES")
+        #expect(record["color"] as? Int == 5, "the AutoCAD Color Index of the SPLINE record")
         #expect(record["degree"] as? Int == 2)
         #expect(near(numbers(record["knots"]), [0, 0, 0, 1, 1, 1]))
         let control = (record["controlPoints"] as? [Any])?.map { numbers($0) }
@@ -229,6 +230,26 @@ extension DrawingReadToolsTests {
         #expect(mixedNotes.count == 2, "\(mixedNotes)")
         #expect(mixedNotes.contains { $0.contains("spline") }, "\(mixedNotes)")
         #expect(mixedNotes.contains { $0.contains("ellipse") }, "\(mixedNotes)")
+    }
+
+    @Test("a spline beyond OCCT's own limits is approximated, and says so")
+    func splineBeyondOCCTLimits() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // OCCT's B-spline curves go to degree 25. This is degree 26 on 27 control points that lie on
+        // the x axis, so the curve is the segment from (0, 0) to (26, 0), 5 below the point (13, 5).
+        let control = (0...26).map { (Double($0), 0.0) }
+        let knots = [Double](repeating: 0, count: 27) + [Double](repeating: 1, count: 27)
+        f.add(
+            "high", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(degree: 26, knots: knots, control: control))
+        let r = try json(
+            await measure(try f.write(to: dir), "distance", a: .string(f.id("high")), b: [13, 5]))
+        let value = try #require(r["value"] as? Double)
+        #expect(abs(value - 5) < 0.01, "\(value)")
+        let notes = try #require(r["notes"] as? [String])
+        #expect(notes.contains { $0.contains("spline") && $0.contains("approximated") }, "\(notes)")
     }
 
     @Test("weights that are not one positive number per control point are ignored")

@@ -182,7 +182,7 @@ extension DrawingReadTools {
             if let edge = exactEdge(for: spline) {
                 add(edge)
             } else {
-                let tolerance = max(DrawingEntities.splineSize(spline) * 1e-4, 1e-9)
+                let tolerance = DrawingEntities.splineTolerance(spline)
                 let points = spline.flattened(tolerance: tolerance)
                 if points.count == 1 { add(Shape.vertex(at: simd(points[0]))) }
                 for (a, b) in zip(points, points.dropFirst()) where a != b {
@@ -190,9 +190,9 @@ extension DrawingReadTools {
                 }
                 approximation =
                     "A spline end is approximated by chords within "
-                    + "\(String(format: "%.3g", tolerance)) drawing units, because its control data "
-                    + "does not define an exact curve, so the distance to it is accurate to that "
-                    + "error, not exact."
+                    + "\(String(format: "%.3g", tolerance)) drawing units, because an exact curve could "
+                    + "not be built from its control data, so the distance to it is accurate to "
+                    + "that error, not exact."
             }
         case .point(let p, _, _):
             add(Shape.vertex(at: simd(p)))
