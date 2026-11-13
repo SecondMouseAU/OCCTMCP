@@ -27,6 +27,14 @@ struct TestDeadlineTests {
         #expect(try stopped?.get() == true, "the work was left running after the deadline")
     }
 
+    @Test("work that throws before the deadline reports the error, not a timeout")
+    func throwingWorkReportsItsError() async throws {
+        struct Refused: Error, Equatable {}
+        let outcome = await finishing(within: 10) { () async throws -> Int in throw Refused() }
+        let finished = try #require(outcome, "a throw was reported as running out of time")
+        #expect(throws: Refused.self) { try finished.get() }
+    }
+
     @Test("work that finishes in time returns its result")
     func finishedWorkReturnsItsResult() async throws {
         let outcome = await finishing(within: 10) { 42 }
