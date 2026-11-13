@@ -172,9 +172,10 @@ want to diff the rebuilt scene against a state from before the wipe.
 ## 6. Diff against an earlier run
 
 [`compare_versions`](../../reference/scene-mutation.md#compare_versions) diffs the current scene against
-a snapshot taken before one of the last 10 `execute_script` runs. Pure manifest mutations
-(`set_appearance`, `rename_body`, etc.) do not advance the snapshot counter — only `execute_script`
-does.
+the scene as it was before one of the last 10 `execute_script` runs that replaced a scene. Each such
+run writes its body files under new names, so a body it emits again is listed under `fileChanged`.
+Pure manifest mutations (`set_appearance`, `rename_body`, etc.) do not advance the snapshot counter,
+only `execute_script` does.
 
 ```json
 // tool: compare_versions — arguments

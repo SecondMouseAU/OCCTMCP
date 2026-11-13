@@ -7,53 +7,125 @@
 // First call is slow (SPM builds OCCTSwift transitive). Subsequent calls
 // are incremental builds (~1-2s on a hot system).
 //
-// Side effect: ScriptContext.emit() in the user script writes a fresh
-// manifest.json into the resolved output directory. SceneHistory snapshots
-// the prior state so compare_versions sees the change.
+// The script writes into a stage directory of its own, outside the scene, never into the scene
+// (#257; see ExecuteScriptStage.swift). `ScriptContext.emit()` writes the stage's manifest.json, and
+// only a run that finished cleanly is promoted: the scene is replaced with the stage's output,
+// through `ManifestStore.update`, which is what the viewport's ScriptWatcher sees and reloads.
+// An embedding host can supply the promotion instead (`ScriptStagePromoter`). SceneHistory records
+// the scene a promotion replaced once it has succeeded, so compare_versions sees the change.
 
 import Foundation
+import ScriptHarness
 
 public enum ExecuteScriptTool {
 
-    public static let cacheDir: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".occtmcp-cache/workspace")
+    /// Where the cached SwiftPM workspace for scripts lives.
+    ///
+    /// `OCCTMCP_SCRIPT_WORKSPACE` overrides the default, so a host or a CI job that must not write
+    /// under the home directory can keep it elsewhere. Read once, when the process starts.
+    public static let cacheDir: URL = workspaceDirectory()
+
+    /// The workspace directory for `environment`: the override when set and non-empty, else
+    /// `~/.occtmcp-cache/workspace`.
+    static func workspaceDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let override = environment[workspaceEnvironmentKey], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".occtmcp-cache/workspace")
+    }
+
+    static let workspaceEnvironmentKey = "OCCTMCP_SCRIPT_WORKSPACE"
 
     public static let buildTimeoutSeconds: TimeInterval = 300
 
     /// Pin floor for OCCTSwiftScripts (provides ScriptHarness).
     ///
-    /// MUST track
-    /// `Package.swift`'s OCCTSwiftScripts pin: they share the OCCTSwift
-    /// cohort transitively, so divergence makes execute_script compile
-    /// against a different (older) kernel than the server's own tools.
-    /// A `from: "0.x"` floor caps below 1.0.0 (SPM "up to next major"),
-    /// which stranded scripts on pre-GA OCCTSwift 0.171.0 (#42).
-    /// Floored at 1.4.2: 1.4.0/1.4.1 leave OCCTSwiftIO uncapped, which now
-    /// floats to the heavy 1.5.0 and makes the script workspace fail to
-    /// resolve (SecondMouseAU/OCCTSwiftScripts#69, ecosystem#14). 1.4.2 caps
-    /// it to the lean 1.0.x line.
-    static let scriptsPin = "1.4.2"
+    /// MUST track `Package.swift`'s OCCTSwiftScripts pin (a test holds them equal): they share the
+    /// OCCTSwift cohort transitively, so divergence makes execute_script compile against a
+    /// different kernel than the server's own tools. A `from:` floor that is a stable version never
+    /// selects a prerelease, so this floor was 1.4.2 and resolved to v1.7.0, which empties its
+    /// output directory, ignores `OCCTSWIFT_OUTPUT_DIR` and leaves no failure marker (#257).
+    /// 1.7.1-beta.4 is the first release with the stage directory and the marker
+    /// (OCCTSwiftScripts#143, #145). The prerelease floor admits later 1.x releases.
+    static let scriptsPin = "1.7.1-beta.4"
 
+    /// Runs the script in a stage directory and promotes a clean run's output into the scene.
+    ///
+    /// A failed run, or one that wrote no manifest, leaves the scene as it was.
+    ///
+    /// `promoter` takes over the promotion: it gets the stage and the scene directory instead of
+    /// OCCTMCP replacing the scene. It defaults to the one the embedding host gave
+    /// `makeOCCTMCPServer(scriptStagePromoter:)`.
     public static func execute(
         code: String,
         description: String? = nil,
         history: ScriptHistoryStore = .shared,
         store: ManifestStore = ManifestStore(),
-        sceneHistory: SceneHistory = .shared
+        sceneHistory: SceneHistory = .shared,
+        promoter: ScriptStagePromoter? = OCCTMCPContext.scriptStagePromoter
     ) async -> ToolText {
-        await sceneHistory.snapshot(store: store)
+        await executeStaged(
+            code: code, description: description, history: history, store: store,
+            sceneHistory: sceneHistory, promoter: promoter, runner: workspaceRunner())
+    }
+
+    /// The runner `execute` uses: prepare `workspace` for the script, then run it into the stage.
+    ///
+    /// `swift` and `workspace` are the toolchain and the package directory; tests give it a stand-in
+    /// toolchain and a scratch directory, so the whole path from the stage to the promoted scene
+    /// can be exercised without compiling anything.
+    static func workspaceRunner(
+        swift: String = "/usr/bin/swift", workspace: URL = cacheDir
+    ) -> Runner {
+        { code, stage in
+            do {
+                try ensureWorkspace(at: workspace)
+                try writeUserScript(code: code, at: workspace)
+            } catch {
+                throw WorkspaceSetupError(underlying: error)
+            }
+            return try await runWorkspace(stage: stage, swift: swift, workspace: workspace)
+        }
+    }
+
+    /// Prepares the workspace for `code` and runs it as a child that writes into `stage`.
+    ///
+    /// The seam a test replaces with a fake script, so no test needs the SwiftPM workspace.
+    typealias Runner = @Sendable (_ code: String, _ stage: URL) async throws -> RunResult
+
+    /// The workspace could not be prepared, as opposed to the script failing.
+    struct WorkspaceSetupError: Error {
+        let underlying: Error
+    }
+
+    static func executeStaged(
+        code: String,
+        description: String?,
+        history: ScriptHistoryStore,
+        store: ManifestStore,
+        sceneHistory: SceneHistory,
+        promoter: ScriptStagePromoter?,
+        runner: Runner
+    ) async -> ToolText {
         await history.set(code)
 
+        let stage: URL
         do {
-            try ensureWorkspace()
-            try writeUserScript(code: code)
+            stage = try makeStageDirectory()
         } catch {
-            return .init("Workspace setup failed: \(error.localizedDescription)", isError: true)
+            return .init("Stage setup failed: \(error.localizedDescription)", isError: true)
         }
+        defer { try? FileManager.default.removeItem(at: stage) }
 
         let runResult: RunResult
         do {
-            runResult = try await runWorkspace()
+            runResult = try await runner(code, stage)
+        } catch let error as WorkspaceSetupError {
+            return .init(
+                "Workspace setup failed: \(error.underlying.localizedDescription)", isError: true)
         } catch {
             return .init("Build / run failed: \(error.localizedDescription)", isError: true)
         }
@@ -61,37 +133,74 @@ public enum ExecuteScriptTool {
         let filtered = filterBuildOutput(
             [runResult.stdout, runResult.stderr].filter { !$0.isEmpty }.joined(separator: "\n")
         )
-        var manifestSection = ""
-        if let manifest = try? store.read() {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let data = try? encoder.encode(manifest),
-                let str = String(data: data, encoding: .utf8)
-            {
-                manifestSection = "\n\nManifest:\n\(str)"
+        let prefix = "Script executed successfully." + (description.map { " (\($0))" } ?? "")
+        let output = "Output:\n\(filtered.isEmpty ? "(no output)" : filtered)"
+
+        switch classify(runResult, stage: stage) {
+        case .failed(let reason):
+            var text = "Script failed.\n\n\(filtered)"
+            if let reason {
+                text += (filtered.isEmpty ? "" : "\n\n") + "Reason: \(reason)"
             }
-        }
-        if runResult.exitCode == 0 {
-            let prefix =
-                "Script executed successfully."
-                + (description.map { " (\($0))" } ?? "")
+            return .init(text + "\n\nThe scene was left as it was.", isError: true)
+
+        case .noManifest:
             return .init(
-                "\(prefix)\n\nOutput:\n\(filtered.isEmpty ? "(no output)" : filtered)\(manifestSection)"
-            )
+                "\(prefix)\n\n\(output)\n\nThe script wrote no manifest (it never called "
+                    + "ctx.emit()), so the scene is unchanged.")
+
+        case .staged(let manifest):
+            var warnings: [String] = []
+            var replaced: ScriptManifest?
+            do {
+                if let promoter {
+                    let sceneDirectory = (store.path as NSString).deletingLastPathComponent
+                    replaced = try? store.read()
+                    try await promoter(stage, sceneDirectory)
+                } else {
+                    let promotion = try await promoteReplacing(
+                        stage: stage, manifest: manifest, store: store)
+                    warnings = promotion.warnings
+                    replaced = promotion.previous
+                }
+            } catch {
+                let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                return .init(
+                    "Script ran, but promoting its output into the scene failed: \(reason)\n\n"
+                        + output,
+                    isError: true)
+            }
+
+            // Only a promotion that went through is a version of the scene: a vetoed write or a
+            // promoter that threw leaves the history as it was.
+            if let replaced { await sceneHistory.record(replaced) }
+
+            var manifestSection = ""
+            if let manifest = try? store.read() {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                if let data = try? encoder.encode(manifest),
+                    let str = String(data: data, encoding: .utf8)
+                {
+                    manifestSection = "\n\nManifest:\n\(str)"
+                }
+            }
+            let warningSection =
+                warnings.isEmpty ? "" : "\n\nWarnings:\n" + warnings.joined(separator: "\n")
+            return .init("\(prefix)\n\n\(output)\(warningSection)\(manifestSection)")
         }
-        return .init("Script failed.\n\n\(filtered)", isError: true)
     }
 
     // MARK: - Workspace management
 
-    static func ensureWorkspace() throws {
+    static func ensureWorkspace(at workspace: URL = cacheDir) throws {
         let fm = FileManager.default
         try fm.createDirectory(
-            at: cacheDir.appendingPathComponent("Sources/Script"),
+            at: workspace.appendingPathComponent("Sources/Script"),
             withIntermediateDirectories: true
         )
-        let packageURL = cacheDir.appendingPathComponent("Package.swift")
+        let packageURL = workspace.appendingPathComponent("Package.swift")
         let packageContent = """
             // swift-tools-version: 6.0
             import PackageDescription
@@ -122,8 +231,8 @@ public enum ExecuteScriptTool {
         }
     }
 
-    static func writeUserScript(code: String) throws {
-        let mainURL = cacheDir.appendingPathComponent("Sources/Script/main.swift")
+    static func writeUserScript(code: String, at workspace: URL = cacheDir) throws {
+        let mainURL = workspace.appendingPathComponent("Sources/Script/main.swift")
         try FileManager.default.createDirectory(
             at: mainURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -139,39 +248,44 @@ public enum ExecuteScriptTool {
         let exitCode: Int32
     }
 
-    static func runWorkspace() async throws -> RunResult {
+    /// Builds the workspace, then runs its script as a child that writes into `stage`.
+    ///
+    /// `swift` and `workspace` are the toolchain and the package to build; tests give them a fake
+    /// toolchain and a scratch directory.
+    static func runWorkspace(
+        stage: URL, swift: String = "/usr/bin/swift", workspace: URL = cacheDir
+    ) async throws -> RunResult {
         // First build (catch compile errors cleanly), then run with
-        // --skip-build so script stdout isn't drowned in build noise.
+        // --skip-build so script stdout isn't drowned in build noise. Only the run is told to
+        // write into the stage: the build executes none of the script.
         let build = try await runProcess(
-            executable: "/usr/bin/swift",
-            args: ["build", "-c", "release", "--package-path", cacheDir.path]
+            executable: swift,
+            args: ["build", "-c", "release", "--package-path", workspace.path],
+            currentDirectory: workspace
         )
         if build.exitCode != 0 {
             return build
         }
         return try await runProcess(
-            executable: "/usr/bin/swift",
+            executable: swift,
             args: [
                 "run", "-c", "release", "--skip-build",
-                "--package-path", cacheDir.path, "Script",
-            ]
+                "--package-path", workspace.path, "Script",
+            ],
+            environment: scriptEnvironment(stage: stage),
+            currentDirectory: workspace
         )
     }
 
     static func runProcess(
-        executable: String, args: [String], currentDirectory: URL = cacheDir
+        executable: String, args: [String], environment: [String: String]? = nil,
+        currentDirectory: URL = cacheDir
     ) async throws -> RunResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args
         process.currentDirectoryURL = currentDirectory
-        // The script's `ScriptContext` resolves its output directory from the
-        // environment, so a host-supplied directory has to reach the child that way.
-        if let hostDirectory = OCCTMCPPaths.outputDirectoryOverride {
-            var childEnvironment = ProcessInfo.processInfo.environment
-            childEnvironment[OCCTMCPPaths.envOverrideKey] = hostDirectory
-            process.environment = childEnvironment
-        }
+        if let environment { process.environment = environment }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
