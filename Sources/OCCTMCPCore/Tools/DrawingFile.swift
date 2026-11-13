@@ -36,9 +36,14 @@ struct LoadedDrawing: Sendable {
         let dxfVersion: String?
         /// What turned the bytes into entities.
         let reader: String
+        /// The SwiftDXF release line that did it, such as `0.3`.
+        ///
+        /// Entity ids (`e<index>`) shift when a newer reader models more types, so it is recorded
+        /// beside the SHA-256 that names the bytes.
+        let readerVersion: String
     }
 
-    /// Entities the reader does not model, counted from the raw file.
+    /// Entities the reader does not model, as SwiftDXF reports them (`Drawing.skipped`).
     struct Skipped: Encodable, Sendable {
         var total = 0
         var byType: [String: Int] = [:]
@@ -99,6 +104,15 @@ enum DrawingUnits {
 enum DrawingFile {
     /// The formats this build reads, and why the others are not read.
     static let supportedFormats = ["dxf"]
+
+    /// The SwiftDXF release line this build reads with: major and minor, the part that decides which
+    /// entity types are modelled and so which ids an entity gets.
+    ///
+    /// SwiftPM has no runtime query for a dependency's version, so it is written here, and a test
+    /// holds it equal to the `swiftdxf` pin in `Package.resolved`: a bump that forgets it fails.
+    /// `Package.swift` holds SwiftDXF to `.upToNextMinor(from: "0.3.0")`, so a patch release can
+    /// resolve without this changing, which is why it is the line and not a patch version.
+    static let readerVersion = "0.3"
 
     /// Read `path` as a drawing, answering from a small cache when the file has not changed.
     static func load(path: String) async throws -> LoadedDrawing {
@@ -166,77 +180,23 @@ enum DrawingFile {
                 path: path, fileName: (path as NSString).lastPathComponent, bytes: data.count,
                 sha256: digest, format: "dxf",
                 dxfVersion: drawing.version.isEmpty ? nil : drawing.version,
-                reader: "SwiftDXF (DXF.read), as OCCTSwiftIO DXFLoader.readEntities calls it"),
-            skipped: scanSkipped(data))
+                reader: "SwiftDXF (DXF.read), as OCCTSwiftIO DXFLoader.readEntities calls it",
+                readerVersion: readerVersion),
+            skipped: skipped(from: drawing))
     }
 
-    /// Entity types SwiftDXF turns into entities, plus the records that belong to a polyline.
-    private static let modelledTypes: Set<String> = [
-        "LINE", "CIRCLE", "ARC", "ELLIPSE", "POINT", "TEXT", "MTEXT", "LWPOLYLINE", "POLYLINE",
-        "VERTEX", "SEQEND", "DIMENSION",
-    ]
-
-    /// Count the entity records SwiftDXF skips, by type and by layer.
+    /// What the reader left out, in the shape the tools report.
     ///
-    /// SwiftDXF 0.3.0 reports this itself (`Drawing.skipped`) and models `SPLINE`; this pin has
-    /// neither, so the count is made here. When the pin moves, take SwiftDXF's and drop this.
-    ///
-    /// SwiftDXF reports only what it modelled, so a block insert or a hatch leaves no trace in
-    /// `DXF.Drawing`. This reads the raw group-code stream of the `ENTITIES` section for the rest.
-    static func scanSkipped(_ data: Data) -> LoadedDrawing.Skipped {
-        // SwiftDXF's reader splits on any newline (LF, CRLF or a lone CR), so this does too.
-        let text = (String(data: data, encoding: .utf8) ?? DXF.decodeCP932([UInt8](data)))
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+    /// SwiftDXF counts the entity records it does not model by type, and by type then layer; the
+    /// tools report by type and by layer then type. It counts an `INSERT`'s `ATTRIB` records as
+    /// entities of their own, so a block insert with attributes shows the attributes too.
+    static func skipped(from drawing: DXF.Drawing) -> LoadedDrawing.Skipped {
         var skipped = LoadedDrawing.Skipped()
-        var inEntities = false
-        var pendingSection = false
-        var currentType: String?
-        var currentLayer = "0"
-        // The last record that is not a child of another: an INSERT's ATTRIB records follow it.
-        var lastParent: String?
-
-        func finishEntity() {
-            guard let type = currentType else { return }
-            defer {
-                if type != "ATTRIB" && type != "VERTEX" && type != "SEQEND" { lastParent = type }
-            }
-            if type == "ATTRIB" && lastParent == "INSERT" { return }
-            guard !modelledTypes.contains(type) else { return }
-            skipped.total += 1
-            skipped.byType[type, default: 0] += 1
-            skipped.byLayer[currentLayer, default: [:]][type, default: 0] += 1
-        }
-
-        let lines = text.utf8.split(separator: 10, omittingEmptySubsequences: false)
-        var i = 0
-        while i + 1 < lines.count {
-            let codeField = String(Substring(lines[i])).trimmingCharacters(
-                in: .whitespacesAndNewlines)
-            guard let code = Int(codeField) else {
-                i += 1
-                continue
-            }
-            let value = String(Substring(lines[i + 1])).trimmingCharacters(
-                in: .whitespacesAndNewlines)
-            i += 2
-            if code == 0 {
-                if inEntities { finishEntity() }
-                currentType = nil
-                currentLayer = "0"
-                switch value {
-                case "SECTION":
-                    pendingSection = true
-                case "ENDSEC":
-                    inEntities = false
-                default:
-                    if inEntities { currentType = value }
-                }
-            } else if code == 2, pendingSection {
-                inEntities = value == "ENTITIES"
-                pendingSection = false
-            } else if code == 8, inEntities, currentType != nil {
-                currentLayer = value
+        skipped.byType = drawing.skipped
+        skipped.total = drawing.skipped.values.reduce(0, +)
+        for (type, layers) in drawing.skippedByLayer {
+            for (layer, count) in layers {
+                skipped.byLayer[layer, default: [:]][type, default: 0] += count
             }
         }
         return skipped

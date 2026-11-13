@@ -1,7 +1,7 @@
 // The drawing read tools (#260): read_drawing, list_drawing_entities, list_drawing_dimensions and
 // measure_drawing, against a synthetic DXF shaped like the Drawings Toolbox's T-slot example: an
 // outline, a slot between two named lines, holes, a bulged polyline, an ellipse, text, seven
-// dimensions of six kinds, and records the reader skips (block inserts, a hatch, a spline).
+// dimensions of six kinds, a spline, and records the reader skips (block inserts, a hatch).
 
 import CryptoKit
 import Foundation
@@ -10,7 +10,7 @@ import MCP
 import Testing
 
 /// Builds an ASCII DXF and remembers the id each named modelled entity will have.
-private struct DrawingFixture {
+struct DrawingFixture {
     var insUnits: Int? = 4
     var lineEnding = "\n"
     private var records: [(name: String?, modelled: Bool, groups: [(Int, String)])] = []
@@ -18,7 +18,7 @@ private struct DrawingFixture {
     mutating func add(_ name: String?, _ type: String, layer: String, _ groups: [(Int, String)]) {
         let modelled = [
             "LINE", "CIRCLE", "ARC", "ELLIPSE", "POINT", "TEXT", "MTEXT", "LWPOLYLINE", "POLYLINE",
-            "DIMENSION",
+            "DIMENSION", "SPLINE",
         ].contains(type)
         records.append((name, modelled, [(0, type), (8, layer)] + groups))
     }
@@ -50,6 +50,23 @@ private struct DrawingFixture {
         let url = directory.appendingPathComponent(name)
         try Data(text().utf8).write(to: url)
         return url.path
+    }
+
+    /// The group codes of a `SPLINE` record: flags, degree, counts, knots, weights, points.
+    static func splineGroups(
+        degree: Int, flags: Int = 8, knots: [Double] = [], weights: [Double] = [],
+        control: [(Double, Double)] = [], fit: [(Double, Double)] = [], color: Int? = nil
+    ) -> [(Int, String)] {
+        var g: [(Int, String)] = [
+            (70, "\(flags)"), (71, "\(degree)"), (72, "\(knots.count)"),
+            (73, "\(control.count)"), (74, "\(fit.count)"),
+        ]
+        if let color { g.append((62, "\(color)")) }
+        g += knots.map { (40, "\($0)") }
+        g += weights.map { (41, "\($0)") }
+        for p in control { g += [(10, "\(p.0)"), (20, "\(p.1)"), (30, "0")] }
+        for p in fit { g += [(11, "\(p.0)"), (21, "\(p.1)"), (31, "0")] }
+        return g
     }
 
     /// The T-slot sheet.
@@ -131,7 +148,12 @@ private struct DrawingFixture {
             "wrapArc", "ARC", layer: "HOLES",
             [(10, "60"), (20, "25"), (30, "0"), (40, "3"), (50, "270"), (51, "90")])
         f.add(nil, "HATCH", layer: "HATCH", [(2, "SOLID")])
-        f.add(nil, "SPLINE", layer: "CURVES", [(71, "3")])
+        // A quadratic Bezier-form spline: it peaks at (20, 40), the midpoint of its curve.
+        f.add(
+            "curve", "SPLINE", layer: "CURVES",
+            splineGroups(
+                degree: 2, knots: [0, 0, 0, 1, 1, 1], control: [(10, 35), (20, 45), (30, 35)],
+                color: 5))
         f.add(nil, "INSERT", layer: "BLOCKS", [(2, "FASTENER"), (10, "70"), (20, "10")])
         return f
     }
@@ -180,18 +202,18 @@ struct DrawingReadToolsTests {
         let path = try fixture.write(to: dir)
 
         let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
-        #expect(r["entityCount"] as? Int == 20)
+        #expect(r["entityCount"] as? Int == 21)
         let byType = try #require(r["byType"] as? [String: Int])
         #expect(
             byType == [
                 "line": 6, "circle": 1, "arc": 2, "polyline": 1, "text": 1, "point": 1,
-                "ellipse": 1, "dimension": 7,
+                "ellipse": 1, "dimension": 7, "spline": 1,
             ])
 
         let layers = try #require(r["layers"] as? [[String: Any]])
         #expect(
             layers.compactMap { $0["name"] as? String } == [
-                "DIMS", "HOLES", "NOTES", "OUTLINE", "SLOT",
+                "CURVES", "DIMS", "HOLES", "NOTES", "OUTLINE", "SLOT",
             ])
         let dims = try #require(layers.first { $0["name"] as? String == "DIMS" })
         #expect(dims["total"] as? Int == 7)
@@ -214,8 +236,8 @@ struct DrawingReadToolsTests {
             near(numbers(computed["max"]), [110, 60, 0]), "\(String(describing: computed["max"]))")
 
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["total"] as? Int == 4)
-        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1, "SPLINE": 1])
+        #expect(skipped["total"] as? Int == 3)
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1])
         let skippedByLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
         #expect(skippedByLayer["BLOCKS"] == ["INSERT": 2])
         #expect(skippedByLayer["HATCH"] == ["HATCH": 1])
@@ -232,6 +254,69 @@ struct DrawingReadToolsTests {
         #expect(source["fileName"] as? String == "tslot.dxf")
     }
 
+    @Test("a SPLINE is an entity and is not also reported as skipped (SwiftDXF 0.3.0)")
+    func splineIsNotSkipped() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let r = try json(
+            await call(
+                "read_drawing", ["inputPath": .string(try DrawingFixture.tSlot().write(to: dir))]))
+        let skipped = try #require(r["skipped"] as? [String: Any])
+        let byType = try #require(skipped["byType"] as? [String: Int])
+        #expect(byType == ["INSERT": 2, "HATCH": 1], "\(byType)")
+        #expect(byType["SPLINE"] == nil, "a modelled SPLINE was counted as skipped too: \(byType)")
+        let byLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
+        #expect(byLayer["CURVES"] == nil, "\(byLayer)")
+        let warnings = try #require(r["warnings"] as? [String])
+        #expect(!warnings.contains { $0.contains("no mapping") }, "\(warnings)")
+    }
+
+    @Test("the source record names the SwiftDXF release line this build is pinned to")
+    func readerVersion() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let r = try json(
+            await call(
+                "read_drawing", ["inputPath": .string(try DrawingFixture.tSlot().write(to: dir))]))
+        let source = try #require(r["source"] as? [String: Any])
+        #expect(source["readerVersion"] as? String == DrawingFile.readerVersion)
+
+        // The tools that take and return ids carry it too, since it is what tells a caller the ids
+        // may no longer mean what they did.
+        let fixture = DrawingFixture.tSlot()
+        let path = try fixture.write(to: dir)
+        let input: [String: Value] = ["inputPath": .string(path)]
+        let entities = try json(await call("list_drawing_entities", input))
+        let dimensions = try json(await call("list_drawing_dimensions", input))
+        let measured = try json(
+            await measure(
+                path, "distance", a: .string(fixture.id("slotLeft")),
+                b: .string(fixture.id("slotRight"))))
+        let results: [(String, [String: Any])] = [
+            ("list_drawing_entities", entities), ("list_drawing_dimensions", dimensions),
+            ("measure_drawing", measured),
+        ]
+        for (tool, result) in results {
+            let carried = result["source"] as? [String: Any]
+            #expect(carried?["readerVersion"] as? String == DrawingFile.readerVersion, "\(tool)")
+        }
+
+        // The constant cannot drift from what Package.resolved pins: a bump that forgets it fails.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("Package.resolved"))
+        let resolved = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let pins = try #require(resolved["pins"] as? [[String: Any]])
+        let pin = try #require(pins.first { $0["identity"] as? String == "swiftdxf" })
+        let state = try #require(pin["state"] as? [String: Any])
+        let resolvedVersion = try #require(state["version"] as? String)
+        let line = DrawingFile.readerVersion
+        #expect(
+            resolvedVersion.hasPrefix(line + "."),
+            "Package.resolved pins SwiftDXF \(resolvedVersion), but the reader line is \(line)")
+    }
+
     @Test("a CRLF file reads the same as an LF one")
     func crlf() async throws {
         let dir = try makeDirectory()
@@ -240,9 +325,9 @@ struct DrawingReadToolsTests {
         fixture.lineEnding = "\r\n"
         let r = try json(
             await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
-        #expect(r["entityCount"] as? Int == 20)
+        #expect(r["entityCount"] as? Int == 21)
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1, "SPLINE": 1])
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1])
         let layers = try #require(r["layers"] as? [[String: Any]])
         #expect(
             layers.compactMap { $0["name"] as? String }.contains("OUTLINE"), "layer names kept a CR"
@@ -329,7 +414,7 @@ struct DrawingReadToolsTests {
         await DrawingCache.shared.clear()
         let path = try DrawingFixture.tSlot().write(to: dir, name: "changing.dxf")
         let before = try json(await call("read_drawing", ["inputPath": .string(path)]))
-        #expect(before["entityCount"] as? Int == 20)
+        #expect(before["entityCount"] as? Int == 21)
 
         var smaller = DrawingFixture()
         smaller.add(
@@ -387,12 +472,12 @@ struct DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = try DrawingFixture.tSlot().write(to: dir)
         let page = try await entities(["limit": 3, "offset": 2], path)
-        #expect(page.total == 20 && page.ids == ["e2", "e3", "e4"])
+        #expect(page.total == 21 && page.ids == ["e2", "e3", "e4"])
         #expect(page.raw["returned"] as? Int == 3 && page.raw["truncated"] as? Bool == true)
-        let last = try await entities(["limit": 3, "offset": 17], path)
-        #expect(last.ids == ["e17", "e18", "e19"] && last.raw["truncated"] as? Bool == false)
+        let last = try await entities(["limit": 3, "offset": 18], path)
+        #expect(last.ids == ["e18", "e19", "e20"] && last.raw["truncated"] as? Bool == false)
         let beyond = try await entities(["offset": 100], path)
-        #expect(beyond.ids.isEmpty && beyond.total == 20)
+        #expect(beyond.ids.isEmpty && beyond.total == 21)
     }
 
     @Test("each entity carries its geometry as numbers, in drawing units")
@@ -485,7 +570,7 @@ struct DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = Value.string(try DrawingFixture.tSlot().write(to: dir))
         let cases: [([String: Value], String)] = [
-            (["types": ["spline"]], "Unknown entity type"),
+            (["types": ["hatch"]], "Unknown entity type"),
             (["rect": [1, 2, 3]], "`rect` must be"),
             (["rect": [5, 0, 1, 10]], "`rect` must be"),
             (["rect": "nope"], "`rect` must be"),
@@ -902,7 +987,7 @@ struct DrawingReadToolsTests {
     }
 
     @Test(
-        "an old-style POLYLINE and an INSERT with attributes are counted once, not by their children"
+        "an old-style POLYLINE is one entity, and an INSERT's ATTRIB records are counted as SwiftDXF counts them"
     )
     func childRecordsAreNotEntities() async throws {
         let dir = try makeDirectory()
@@ -920,9 +1005,11 @@ struct DrawingReadToolsTests {
         let path = try f.write(to: dir)
         let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
         #expect(r["entityCount"] as? Int == 1)
+        // SwiftDXF 0.3.0 reports `Drawing.skipped` itself, and counts an INSERT's ATTRIB records as
+        // skipped entities of their own; the raw scan this replaced counted only the INSERT.
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["total"] as? Int == 1, "\(skipped)")
-        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 1], "\(skipped)")
+        #expect(skipped["total"] as? Int == 3, "\(skipped)")
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 1, "ATTRIB": 2], "\(skipped)")
         let entity = try #require(
             try await entities([:], path).all.first)
         #expect((entity["vertices"] as? [Any])?.count == 3 && entity["closed"] as? Bool == true)
@@ -936,9 +1023,9 @@ struct DrawingReadToolsTests {
         fixture.lineEnding = "\r"
         let r = try json(
             await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
-        #expect(r["entityCount"] as? Int == 20)
+        #expect(r["entityCount"] as? Int == 21)
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1, "SPLINE": 1])
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1])
     }
 
     @Test("filter arguments that are the wrong shape are refused, not ignored")
@@ -967,7 +1054,7 @@ struct DrawingReadToolsTests {
                     "inputPath": path, "types": .null, "layers": .null, "rect": .null,
                     "rectMode": .null,
                 ]))
-        #expect(nulls["total"] as? Int == 20)
+        #expect(nulls["total"] as? Int == 21)
         let kinds = try json(
             await call("list_drawing_dimensions", ["inputPath": path, "kinds": .null]))
         #expect(kinds["total"] as? Int == 7)

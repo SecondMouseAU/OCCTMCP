@@ -109,13 +109,16 @@ extension DrawingReadTools {
     // arc, bulge and ellipse recipes below follow it (same chord count, same bulge centre formula);
     // when OCCTSwiftIO exposes per-entity shapes this file should take them instead.
 
-    /// The edges an entity draws, as OCCT shapes, and whether they only approximate it.
+    /// The edges an entity draws, as OCCT shapes, and what to tell the caller when they only
+    /// approximate it (nil when they are exact).
     ///
     /// An ellipse is cut into 48 chords, as OCCTSwiftIO's own DXF loader does, because OCCT's
-    /// ellipse edge takes no major-axis direction. Everything else is exact.
-    static func shapes(for entity: DXF.Entity) throws -> (shapes: [Shape], approximate: Bool) {
+    /// ellipse edge takes no major-axis direction. A spline whose control data defines a curve is an
+    /// exact NURBS edge; one that does not (fit points only, a knot vector that is the wrong
+    /// length) is cut into chords within a tolerance. Everything else is exact.
+    static func shapes(for entity: DXF.Entity) throws -> (shapes: [Shape], approximation: String?) {
         var shapes: [Shape] = []
-        var approximate = false
+        var approximation: String?
         func add(_ shape: Shape?) { if let shape { shapes.append(shape) } }
 
         switch entity {
@@ -153,7 +156,9 @@ extension DrawingReadTools {
                 }
             }
         case .ellipse(let c, let m, let ratio, let startParam, let endParam, _, _):
-            approximate = true
+            approximation =
+                "An ellipse end is approximated by 48 chords, so the distance to it is "
+                + "accurate to the chord error, not exact."
             let majorR = (m.x * m.x + m.y * m.y).squareRoot()
             if majorR > 0 {
                 let tilt = atan2(m.y, m.x)
@@ -173,6 +178,22 @@ extension DrawingReadTools {
                     previous = next
                 }
             }
+        case .spline(let spline):
+            if let edge = exactEdge(for: spline) {
+                add(edge)
+            } else {
+                let tolerance = DrawingEntities.splineTolerance(spline)
+                let points = spline.flattened(tolerance: tolerance)
+                if points.count == 1 { add(Shape.vertex(at: simd(points[0]))) }
+                for (a, b) in zip(points, points.dropFirst()) where a != b {
+                    add(Shape.edgeFromPoints(simd(a), simd(b)))
+                }
+                approximation =
+                    "A spline end is approximated by chords within "
+                    + "\(String(format: "%.3g", tolerance)) drawing units, because an exact curve could "
+                    + "not be built from its control data, so the distance to it is accurate to "
+                    + "that error, not exact."
+            }
         case .point(let p, _, _):
             add(Shape.vertex(at: simd(p)))
         case .text:
@@ -187,16 +208,66 @@ extension DrawingReadTools {
             throw MeasureError(
                 "This entity type is not one the drawing tools measure; use a point instead.")
         }
-        return (shapes, approximate)
+        return (shapes, approximation)
     }
 
-    private static func shape(for end: MeasureEnd, role: String) throws -> (Shape, Bool) {
+    /// The exact NURBS edge of a spline whose control data defines a curve, nil when it does not.
+    ///
+    /// DXF stores one flat knot vector; OCCT takes each distinct knot with its multiplicity, and
+    /// runs the edge over the curve's valid domain, which for an unclamped vector is narrower than
+    /// the knot vector. The file is untrusted, so what OCCTSwift would trap on or read as a C buffer
+    /// is checked here: the degree must be at least 1 and below the number of control points
+    /// (OCCTSwift narrows it to 32 bits, which traps for a degree outside that range), knots must
+    /// be finite, and weights must be one positive number per control point (SwiftDXF ignores any
+    /// others too, and so does this: the curve is then non-rational). A knot vector of the wrong
+    /// length, out of order or spanning nothing is left to OCCT, which refuses it with nil.
+    /// Fit-point splines, anything OCCT refuses, and a closed spline whose curve's ends do not meet
+    /// (SwiftDXF closes it with a chord) fall back to chords.
+    private static func exactEdge(for spline: DXF.Spline) -> Shape? {
+        let poles = spline.controlPoints
+        let degree = spline.degree
+        guard degree >= 1, poles.count > degree,
+            spline.knots.allSatisfy(\.isFinite)
+        else { return nil }
+        // SwiftDXF closes a closed spline with a chord when the curve's own ends differ, so the exact
+        // edge is only right when they meet. They are the curve's ends, not its first and last
+        // control points: an unclamped curve does not reach its poles.
+        if spline.isClosed, let domain = spline.parameterDomain,
+            let start = spline.point(at: domain.lowerBound),
+            let end = spline.point(at: domain.upperBound),
+            DrawingEntities.distance(start, end) > 1e-9
+        {
+            return nil
+        }
+
+        var knots: [Double] = []
+        var multiplicities: [Int32] = []
+        for knot in spline.knots {
+            if knot == knots.last {
+                multiplicities[multiplicities.count - 1] += 1
+            } else {
+                knots.append(knot)
+                multiplicities.append(1)
+            }
+        }
+        let oneEach = spline.weights.count == poles.count
+        let positive = spline.weights.allSatisfy { $0 > 0 && $0.isFinite }
+        let weights: [Double]? = oneEach && positive ? spline.weights : nil
+        guard
+            let curve = Curve3D.bspline(
+                poles: poles.map(simd), weights: weights, knots: knots,
+                multiplicities: multiplicities, degree: degree)
+        else { return nil }
+        return Shape.edgeFromCurve(curve)
+    }
+
+    private static func shape(for end: MeasureEnd, role: String) throws -> (Shape, String?) {
         switch end {
         case .point(let p):
             guard let vertex = Shape.vertex(at: simd(p)) else {
                 throw MeasureError("`\(role)` could not be built as a point.")
             }
-            return (vertex, false)
+            return (vertex, nil)
         case .entity(let index, let entity):
             let built = try shapes(for: entity)
             guard !built.shapes.isEmpty, let compound = Shape.compound(built.shapes) else {
@@ -204,7 +275,7 @@ extension DrawingReadTools {
                     "`\(role)` (\(DrawingEntities.id(index))) has no measurable geometry: it is empty or degenerate."
                 )
             }
-            return (compound, built.approximate)
+            return (compound, built.approximation)
         }
     }
 
@@ -245,16 +316,14 @@ extension DrawingReadTools {
                 notes = unitNotes
                 let endA = try parseEnd(a, role: "a", in: loaded.drawing)
                 let endB = try parseEnd(b, role: "b", in: loaded.drawing)
-                let (shapeA, approxA) = try shape(for: endA, role: "a")
-                let (shapeB, approxB) = try shape(for: endB, role: "b")
+                let (shapeA, approximationA) = try shape(for: endA, role: "a")
+                let (shapeB, approximationB) = try shape(for: endB, role: "b")
                 guard let result = shapeA.distance(to: shapeB) else {
                     throw MeasureError("OCCT could not compute the distance between `a` and `b`.")
                 }
-                if approxA || approxB {
-                    notes.append(
-                        "An ellipse end is approximated by 48 chords, so the distance to it is "
-                            + "accurate to the chord error, not exact.")
-                }
+                // One note per kind of approximation, even when both ends are the same kind.
+                let approximations = Set([approximationA, approximationB].compactMap { $0 })
+                notes.append(contentsOf: approximations.sorted())
                 return encode(
                     MeasureResult(
                         source: sourceRef(loaded), measure: measure, a: endRecord(endA),

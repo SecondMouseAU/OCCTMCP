@@ -35,31 +35,40 @@ result.
 ## What is read, and what is not
 
 - **DXF** (ASCII) is read: `LINE`, `CIRCLE`, `ARC`, `ELLIPSE`, `POINT`, `TEXT` / `MTEXT`,
-  `LWPOLYLINE` / `POLYLINE` and `DIMENSION` from the `ENTITIES` section. The reader does not tell
+  `LWPOLYLINE` / `POLYLINE`, `SPLINE` and `DIMENSION` from the `ENTITIES` section. The reader does not tell
   model space from paper space, so entities from both appear. Binary DXF is refused with a message.
 - **DWG and JWW are not read yet.** `DWGLoader` is merged in OCCTSwiftIO (#53) but is not in a tagged
   release at this server's pin, and JWW has no entity model there yet (#54). Both return an error
   that says so. Convert the file to ASCII DXF meanwhile.
-- **Extrusion directions are not read.** SwiftDXF ignores DXF groups 210, 220 and 230, so an entity
-  drawn in a mirrored or rotated coordinate system is read at its stored coordinates, unflipped, and
-  nothing warns about it.
-- **A future SwiftDXF may add entity types.** An entity the tools have no mapping for is listed with
+- **Extrusion directions are not read.** SwiftDXF 0.3 ignores DXF groups 210, 220 and 230, so an
+  entity drawn in a mirrored or rotated coordinate system is read at its stored coordinates,
+  unflipped, and nothing warns about it. SwiftDXF 0.4.0 reads them.
+- **SwiftDXF is held on the 0.3 line.** OCCTSwiftIO 2.0.0-beta.5 requires SwiftDXF 0.3.0, but its
+  floor admits 0.4.0, which it does not compile against (OCCTSwiftIO#60). This package declares
+  SwiftDXF `.upToNextMinor(from: "0.3.0")`, so a resolve gives 0.3.0 and a host that embeds
+  `OCCTMCPCore` gets the same. Moving to 0.4.0 (entity handles, hatch and leader entities, computed
+  dimension values, block expansion) is tracked as OCCTMCP#271.
+- **A newer SwiftDXF may add entity types.** An entity the tools have no mapping for is listed with
   type `other` and no layer, colour, bounds or geometry (nothing is made up), a layer filter never
-  matches it, `read_drawing` warns about it and `measure_drawing` refuses it. SwiftDXF 0.3.0, which
-  OCCTSwiftIO 2.0.0-beta.5 requires, adds splines; this server is built against 0.2.1 and does not
-  map them yet.
+  matches it, `read_drawing` warns about it and `measure_drawing` refuses it.
 - **What the reader skips is reported, not hidden.** SwiftDXF models the entity types above and
-  drops the rest of the `ENTITIES` section (`INSERT`, `HATCH`, `SPLINE`, `LEADER` and so on) and does not read
-  the `BLOCKS` section, so a block insert places no geometry. `read_drawing` counts the skipped
-  records from the raw file, by type and by layer, and warns when block inserts are among them.
+  drops the rest of the `ENTITIES` section (`INSERT`, `HATCH`, `LEADER` and so on) and does not read
+  the `BLOCKS` section, so a block insert places no geometry. `read_drawing` reports what SwiftDXF
+  skipped (`Drawing.skipped`), by type and by layer, and warns when block inserts are among them.
+  SwiftDXF counts an `INSERT`'s `ATTRIB` records as skipped entities of their own, so a block
+  insert with attributes shows the attributes as well.
 
 ## Identity and units
 
 - **Entity ids.** An entity's id is `e` and its position in the drawing's entity list (`e0`,
   `e1`, ...). SwiftDXF keeps no DXF handles, so the id is the index. It is stable for the same file
   bytes and this reader: `read_drawing` returns the file's SHA-256, and every result carries the file
-  name and hash so a caller can tell when ids no longer mean what they did. A newer SwiftDXF that
-  models more entity types shifts the ids after them. Skipped records take no index.
+  name, hash and SwiftDXF release line so a caller can tell when ids no longer mean what they did.
+  `source.readerVersion` is that line (`0.3`, major and minor: the part that decides which entity
+  types are modelled). A newer SwiftDXF that models more entity types shifts
+  the ids after them: when SwiftDXF 0.3.0 began to model `SPLINE`, a spline took an index, so the ids
+  after one in the same file are one higher than they were under 0.2. Skipped records take no
+  index.
 - **Units.** Coordinates and values are in **drawing units**. The drawing's units are the DXF
   `$INSUNITS` code, returned with its name and millimetres per unit (codes 0 to 24 as ezdxf lists
   them). A unitless or undeclared drawing has no millimetre figure and the tools say so; pass
@@ -79,8 +88,8 @@ here.
 **Returns**: `entityCount`, `byType`, `layers` (each with its name, total and counts by type),
 `units` (`insUnits`, `name`, `mmPerUnit`), `extents` (`declared` from the header's `$EXTMIN` /
 `$EXTMAX`, `computed` from the entities, which can differ when an editor left the header stale),
-`source` (`path`, `fileName`, `bytes`, `sha256`, `format`, `dxfVersion`, `reader`), `skipped`
-(`total`, `byType`, `byLayer`) and `warnings`.
+`source` (`path`, `fileName`, `bytes`, `sha256`, `format`, `dxfVersion`, `reader`, `readerVersion`),
+`skipped` (`total`, `byType`, `byLayer`) and `warnings`.
 
 **Example**
 
@@ -105,6 +114,7 @@ here.
   "skipped": { "total": 1, "byType": { "INSERT": 1 }, "byLayer": { "BLOCKS": { "INSERT": 1 } } },
   "source": {
     "fileName": "slot.dxf", "bytes": 410, "format": "dxf", "dxfVersion": "AC1027",
+    "readerVersion": "0.3",
     "sha256": "5c9c59756de36f6cddd4c027d7eb956005d7d19ca3935f0737cf51b6e2f6f9a2"
   },
   "warnings": ["1 block insert(s) are not expanded, so the geometry they place is missing from the entity list.", "1 entity record(s) were skipped; see `skipped`."]
@@ -123,7 +133,7 @@ sheet.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `inputPath` | string | yes | Absolute path of the DXF file. |
-| `types` | string[] | no | Any of `line`, `circle`, `arc`, `ellipse`, `point`, `text`, `polyline`, `dimension`. |
+| `types` | string[] | no | Any of `line`, `circle`, `arc`, `ellipse`, `point`, `text`, `polyline`, `spline`, `dimension`. |
 | `layers` | string[] | no | Layer names to keep. |
 | `rect` | number[4] | no | `[xmin, ymin, xmax, ymax]` on the sheet, in drawing units. |
 | `rectMode` | string | no | `intersects` (default) keeps entities whose bounds overlap `rect`; `within` keeps those wholly inside it. |
@@ -141,13 +151,16 @@ Index; 256 is by-layer), `bounds` and its geometry:
 | `arc` | `center`, `radius`, `startAngleDeg`, `endAngleDeg`, `sweepDeg`, `start`, `end`, `length` (counter-clockwise from start to end) |
 | `ellipse` | `center`, `majorAxis` (relative to the center), `ratio`, `startParam`, `endParam` (radians) |
 | `polyline` | `vertices`, `bulges` (only when a segment is curved; a bulge is `tan(θ/4)` of the arc leaving that vertex), `closed`, `length` |
+| `spline` | `degree`, `closed`, `periodic`, `rational`, and as stored in the file: `controlPoints`, `knots` (the flat knot vector), `weights` (rational splines) and `fitPoints` (each left out when the file has none) |
 | `text` | `at`, `height`, `rotationDeg`, `text` |
 | `point` | `at` |
 | `dimension` | `dimension`, the record `list_drawing_dimensions` returns |
 
 Bounds are tight for arcs (an arc of under half a turn does not contain its centre) and for the
-arcs of a bulged polyline. An elliptical arc takes the bounds
-of its whole ellipse, and text is its insertion point, because the reader keeps no text extent.
+arcs of a bulged polyline. A spline's box follows the curve (the curve flattened to within a
+ten-thousandth of the size of its control data, so the box can fall short of it by that much), not
+its control polygon, so a window that clears the curve does not touch it. An elliptical arc takes the bounds of its whole ellipse, and text is its
+insertion point, because the reader keeps no text extent.
 
 **Example**: the two walls of a slot.
 
@@ -158,7 +171,7 @@ of its whole ellipse, and text is its insertion point, because the reader keeps 
 ```json
 {
   "total": 2, "offset": 0, "returned": 2, "truncated": false, "unit": "drawing units",
-  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c..." },
+  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.3" },
   "entities": [
     { "id": "e0", "type": "line", "layer": "SLOT", "color": 256, "start": [0, 0, 0], "end": [0, 20, 0], "length": 20,
       "bounds": { "min": [0, 0, 0], "max": [0, 20, 0] } },
@@ -247,8 +260,15 @@ Distance, angle or radius between named entities or points.
   nearest point on each (`pointOnA`, `pointOnB`). It is OCCT's exact extrema over edges built from
   the entities, so the width of a slot is the true gap between its two walls, whether they are lines
   or arcs, and a circle, an arc and a polyline (curved segments included) are measured along their
-  curves. An ellipse is cut into 48 chords, because OCCT's ellipse edge takes no major-axis
-  direction, and the result says so in `notes`. A `text` entity has no geometry to measure: pass its
+  curves. A spline whose control data defines a curve is an exact NURBS edge, over its valid
+  parameter domain (clamped or unclamped knots, rational or not). One that does not (fit points
+  only, a knot vector of the wrong length or order, an empty domain, a degree above the 25 OCCT's
+  B-spline curves go to, or a closed spline whose ends
+  do not meet, which SwiftDXF closes with a chord, as measured on the curve and not on the control
+  points) is cut into chords within a tolerance of
+  one ten-thousandth of the size of its control data, and the result says so in `notes`. An ellipse
+  is cut into 48 chords, because OCCT's ellipse edge takes no major-axis direction, and the result
+  says so in `notes` too. A `text` entity has no geometry to measure: pass its
   `at` point. A `dimension` has none either: measure the entities it dimensions, or pass its
   definition points from `list_drawing_dimensions` as points.
 - **`angle`**: two `line` entities, or `vertex` with two points `a` and `b`. `value` is in degrees
@@ -274,7 +294,7 @@ unknown), `mmPerUnit`, and `notes`.
   "value": 8, "unit": "drawing units", "valueMm": 8, "mmPerUnit": 1,
   "pointOnA": [0, 0, 0], "pointOnB": [8, 0, 0],
   "notes": [],
-  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c..." }
+  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.3" }
 }
 ```
 

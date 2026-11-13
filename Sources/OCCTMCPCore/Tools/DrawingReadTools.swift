@@ -90,6 +90,17 @@ public enum DrawingReadTools {
         /// The bulge of the segment leaving each vertex; present only when some segment is curved.
         var bulges: [Double]?
         var closed: Bool?
+        /// A spline's degree, flags and NURBS data as stored in the file.
+        ///
+        /// Control points, knots, weights and fit points are absent when the file has none (a
+        /// fit-point spline has no control points, and a non-rational one has no weights).
+        var degree: Int?
+        var periodic: Bool?
+        var rational: Bool?
+        var controlPoints: [[Double]]?
+        var knots: [Double]?
+        var weights: [Double]?
+        var fitPoints: [[Double]]?
         var dimension: DimensionRecord?
     }
 
@@ -156,6 +167,9 @@ public enum DrawingReadTools {
             definitionPoints: points, layer: d.layer, color: d.color)
     }
 
+    /// `values`, or nil when it is empty, so a record leaves out what the file does not have.
+    private static func nonEmpty<T>(_ values: [T]) -> [T]? { values.isEmpty ? nil : values }
+
     static func entityRecord(_ entity: DXF.Entity, index: Int, mmPerUnit: Double?) -> EntityRecord {
         let id = DrawingEntities.id(index)
         var record = EntityRecord(
@@ -202,6 +216,15 @@ public enum DrawingReadTools {
             }
             record.closed = closed
             record.length = DrawingEntities.polylineLength(vertices, closed: closed)
+        case .spline(let spline):
+            record.degree = spline.degree
+            record.closed = spline.isClosed
+            record.periodic = spline.isPeriodic
+            record.rational = spline.isRational
+            record.controlPoints = nonEmpty(spline.controlPoints.map(DrawingEntities.xyz))
+            record.knots = nonEmpty(spline.knots)
+            record.weights = nonEmpty(spline.weights)
+            record.fitPoints = nonEmpty(spline.fitPoints.map(DrawingEntities.xyz))
         case .dimension(let d):
             record.dimension = dimensionRecord(d, id: id, mmPerUnit: mmPerUnit)
         @unknown default:
@@ -325,13 +348,19 @@ public enum DrawingReadTools {
     ]
 
     /// The file reference every drawing tool carries, so a result says which file it read.
+    ///
+    /// It carries the SwiftDXF release line beside the hash: the ids a result names are positions in
+    /// what that reader modelled, and they shift when a newer one models more entity types.
     struct SourceRef: Encodable {
         let fileName: String
         let sha256: String
+        let readerVersion: String
     }
 
     static func sourceRef(_ loaded: LoadedDrawing) -> SourceRef {
-        SourceRef(fileName: loaded.source.fileName, sha256: loaded.source.sha256)
+        SourceRef(
+            fileName: loaded.source.fileName, sha256: loaded.source.sha256,
+            readerVersion: loaded.source.readerVersion)
     }
 
     /// A drawing read, or the error result that says why it was not.
