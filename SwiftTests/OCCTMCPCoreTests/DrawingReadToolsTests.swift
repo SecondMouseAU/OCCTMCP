@@ -960,6 +960,54 @@ struct DrawingReadToolsTests {
         }
     }
 
+    @Test("a degree that does not fit the control data is approximated, not trapped on")
+    func absurdDegree() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // OCCTSwift narrows the degree to 32 bits, so 3 000 000 000 would trap if it got that far.
+        // SwiftDXF clamps a degree into 1...(points - 1): the huge one becomes the quadratic that
+        // peaks at (20, 40), 60 below (20, 100); the others become degree 1, the control polygon,
+        // whose nearest point to (20, 100) is its corner at (20, 45), 55 below.
+        let cases: [(name: String, degree: Int, expected: Double)] = [
+            ("huge", 3_000_000_000, 60), ("negative", -5, 55), ("zero", 0, 55),
+        ]
+        for (name, degree, _) in cases {
+            f.add(
+                name, "SPLINE", layer: "0",
+                DrawingFixture.splineGroups(
+                    degree: degree, knots: [0, 0, 0, 1, 1, 1],
+                    control: [(10, 35), (20, 45), (30, 35)]))
+        }
+        let path = try f.write(to: dir)
+        for (name, _, expected) in cases {
+            let r = try json(await measure(path, "distance", a: .string(f.id(name)), b: [20, 100]))
+            let value = try #require(r["value"] as? Double)
+            #expect(abs(value - expected) < 0.01, "\(name): \(value)")
+            let notes = try #require(r["notes"] as? [String])
+            #expect(
+                notes.contains { $0.contains("spline") && $0.contains("approximated") },
+                "\(name): \(notes)")
+        }
+    }
+
+    @Test("a knot that is not a number is approximated, not handed to OCCT")
+    func nonFiniteKnot() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.add(
+            "nan", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(
+                degree: 2, knots: [0, 0, 0, .nan, 1, 1], control: [(10, 35), (20, 45), (30, 35)]))
+        let r = try json(
+            await measure(try f.write(to: dir), "distance", a: .string(f.id("nan")), b: [20, 100]))
+        let value = try #require(r["value"] as? Double)
+        #expect(abs(value - 60) < 0.01, "\(value)")
+        let notes = try #require(r["notes"] as? [String])
+        #expect(notes.contains { $0.contains("spline") && $0.contains("approximated") }, "\(notes)")
+    }
+
     @Test("a knot vector shorter than the control data needs is approximated, not indexed past")
     func shortKnotVector() async throws {
         let dir = try makeDirectory()
