@@ -885,6 +885,28 @@ struct DrawingReadToolsTests {
         #expect(notes.contains { $0.contains("spline") && $0.contains("approximated") }, "\(notes)")
     }
 
+    @Test("an unclamped spline is measured over its valid domain, not over every knot")
+    func unclampedSplineDomain() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // A uniform cubic B-spline on four control points: one span, over knots 3 to 4. The curve
+        // runs from (10, 8.33) to (20, 8.33) and peaks at (15, 9.583) half way (the point is
+        // (P0 + 23 P1 + 23 P2 + P3) / 48), so the point (15, 30) is 30 - 9.583 above it.
+        f.add(
+            "uniform", "SPLINE", layer: "0",
+            DrawingFixture.splineGroups(
+                degree: 3, knots: [0, 1, 2, 3, 4, 5, 6, 7],
+                control: [(0, 0), (10, 10), (20, 10), (30, 0)]))
+        let r = try json(
+            await measure(
+                try f.write(to: dir), "distance", a: .string(f.id("uniform")), b: [15, 30]))
+        let value = try #require(r["value"] as? Double)
+        #expect(abs(value - (30 - 460.0 / 48)) < 1e-6, "\(value)")
+        let notes = try #require(r["notes"] as? [String])
+        #expect(!notes.contains { $0.contains("approximated") }, "\(notes)")
+    }
+
     @Test("a closed spline whose ends do not meet is measured as drawn: closed by a chord")
     func closedSplineIsClosed() async throws {
         let dir = try makeDirectory()
