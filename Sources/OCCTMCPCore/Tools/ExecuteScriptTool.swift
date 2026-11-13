@@ -69,16 +69,26 @@ public enum ExecuteScriptTool {
     ) async -> ToolText {
         await executeStaged(
             code: code, description: description, history: history, store: store,
-            sceneHistory: sceneHistory, promoter: promoter,
-            runner: { code, stage in
-                do {
-                    try ensureWorkspace()
-                    try writeUserScript(code: code)
-                } catch {
-                    throw WorkspaceSetupError(underlying: error)
-                }
-                return try await runWorkspace(stage: stage)
-            })
+            sceneHistory: sceneHistory, promoter: promoter, runner: workspaceRunner())
+    }
+
+    /// The runner `execute` uses: prepare `workspace` for the script, then run it into the stage.
+    ///
+    /// `swift` and `workspace` are the toolchain and the package directory; tests give it a stand-in
+    /// toolchain and a scratch directory, so the whole path from the stage to the promoted scene
+    /// can be exercised without compiling anything.
+    static func workspaceRunner(
+        swift: String = "/usr/bin/swift", workspace: URL = cacheDir
+    ) -> Runner {
+        { code, stage in
+            do {
+                try ensureWorkspace(at: workspace)
+                try writeUserScript(code: code, at: workspace)
+            } catch {
+                throw WorkspaceSetupError(underlying: error)
+            }
+            return try await runWorkspace(stage: stage, swift: swift, workspace: workspace)
+        }
     }
 
     /// Prepares the workspace for `code` and runs it as a child that writes into `stage`.
@@ -184,13 +194,13 @@ public enum ExecuteScriptTool {
 
     // MARK: - Workspace management
 
-    static func ensureWorkspace() throws {
+    static func ensureWorkspace(at workspace: URL = cacheDir) throws {
         let fm = FileManager.default
         try fm.createDirectory(
-            at: cacheDir.appendingPathComponent("Sources/Script"),
+            at: workspace.appendingPathComponent("Sources/Script"),
             withIntermediateDirectories: true
         )
-        let packageURL = cacheDir.appendingPathComponent("Package.swift")
+        let packageURL = workspace.appendingPathComponent("Package.swift")
         let packageContent = """
             // swift-tools-version: 6.0
             import PackageDescription
@@ -221,8 +231,8 @@ public enum ExecuteScriptTool {
         }
     }
 
-    static func writeUserScript(code: String) throws {
-        let mainURL = cacheDir.appendingPathComponent("Sources/Script/main.swift")
+    static func writeUserScript(code: String, at workspace: URL = cacheDir) throws {
+        let mainURL = workspace.appendingPathComponent("Sources/Script/main.swift")
         try FileManager.default.createDirectory(
             at: mainURL.deletingLastPathComponent(),
             withIntermediateDirectories: true

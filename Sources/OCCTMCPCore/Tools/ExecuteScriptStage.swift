@@ -112,6 +112,14 @@ extension ExecuteScriptTool {
         return nil
     }
 
+    /// The files OCCTMCP keeps in the scene directory besides the manifest.
+    ///
+    /// A stage never replaces them: a script that writes one of these names into its output
+    /// directory is not heard.
+    static let sceneSidecars: Set<String> = [
+        "annotations.json", "zones.json", "provenance.json", "manifest.lock",
+    ]
+
     /// A name with no directory part, not hidden, and not one of the stage's own bookkeeping files.
     static func isPlainFileName(_ name: String) -> Bool {
         !name.isEmpty && name == (name as NSString).lastPathComponent && !name.hasPrefix(".")
@@ -207,6 +215,11 @@ extension ExecuteScriptTool {
         var warnings: [String] = []
         let contents = (try? fm.contentsOfDirectory(atPath: stage.path)) ?? []
         for name in contents where isPlainFileName(name) && renamed[name] == nil {
+            if sceneSidecars.contains(name) {
+                warnings.append(
+                    "The script wrote \(name) into its output directory; the scene keeps its own.")
+                continue
+            }
             var isDirectory: ObjCBool = false
             guard
                 fm.fileExists(

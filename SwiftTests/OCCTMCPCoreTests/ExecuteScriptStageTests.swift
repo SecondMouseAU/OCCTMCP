@@ -337,7 +337,7 @@ struct ExecuteScriptStageTests {
             let graph = GraphDescriptor(id: "g", file: "g.json", sourceBodyId: "b", stats: stats)
             try ManifestIO.write(
                 ScriptManifest(
-                    version: 1, timestamp: stamp, description: "kept", bodies: [body],
+                    version: 3, timestamp: stamp, description: "kept", bodies: [body],
                     graphs: [graph], metadata: metadata),
                 to: stage.appendingPathComponent(ManifestIO.manifestFilename))
             return 0
@@ -346,6 +346,7 @@ struct ExecuteScriptStageTests {
 
         let promoted = try manifest(scene)
         #expect(promoted.description == "kept")
+        #expect(promoted.version == 3)
         #expect(promoted.timestamp > stamp, "the store stamps every write, so the viewport sees it")
         let body = try #require(promoted.bodies.first)
         #expect(promoted.bodies.count == 1)
@@ -371,6 +372,92 @@ struct ExecuteScriptStageTests {
         #expect(kept.source == "cad")
         #expect(kept.tags == ["a", "b"])
         #expect(kept.notes == "n")
+    }
+
+    @Test("a stage file named like a sidecar does not replace the scene's own")
+    func sidecarsAreNotOverwritten() async throws {
+        let scene = try makeScene(bodies: ["old"])
+        defer { cleanUp(scene) }
+        let annotations = scene.dir.appendingPathComponent("annotations.json")
+        let kept = try Data(contentsOf: annotations)
+        let result = await run(scene) { stage in
+            try emit(["new"], to: stage)
+            try Data("overwritten".utf8).write(to: stage.appendingPathComponent("annotations.json"))
+            try Data("overwritten".utf8).write(to: stage.appendingPathComponent("zones.json"))
+            return 0
+        }
+        #expect(!result.isError, "\(result.text)")
+        #expect(try Data(contentsOf: annotations) == kept, "the scene's annotations were replaced")
+        let zones = scene.dir.appendingPathComponent("zones.json")
+        #expect(
+            !FileManager.default.fileExists(atPath: zones.path),
+            "a zones.json the scene never had was created from the stage")
+        #expect(result.text.contains("annotations.json"), "the script is told it was not heard")
+    }
+
+    @Test("an existing manifest that cannot be parsed is not overwritten, and the run says so")
+    func unparseableSceneManifest() async throws {
+        let scene = try makeScene(bodies: ["old"])
+        defer { cleanUp(scene) }
+        try Data("{not json".utf8).write(to: URL(fileURLWithPath: scene.store.path))
+        let before = (files: scene.files, manifest: scene.manifestBytes)
+        let result = await run(scene) { stage in
+            try emit(["new"], to: stage)
+            return 0
+        }
+        #expect(result.isError)
+        #expect(result.text.contains("could not be parsed"), "\(result.text)")
+        #expect(scene.manifestBytes == before.manifest, "the unparseable manifest was replaced")
+        #expect(scene.files == before.files, "a promoted copy was left behind: \(scene.files)")
+    }
+
+    @Test("a re-run's bodies are fileChanged to compare_versions: each run writes new file names")
+    func rerunReportsFileChanged() async throws {
+        let scene = try makeScene(bodies: ["part"])
+        defer { cleanUp(scene) }
+        let history = SceneHistory()
+        let result = await run(scene, sceneHistory: history) { stage in
+            try emit(["part"], to: stage)
+            return 0
+        }
+        #expect(!result.isError, "\(result.text)")
+        let prior = try #require(await history.snapshot(since: 1))
+        let diff = SceneTools.diffManifests(
+            prev: prior, curr: try manifest(scene), since: 1, available: 1)
+        #expect(diff.fileChanged == ["part"])
+        #expect(diff.unchanged.isEmpty)
+    }
+
+    @Test("the whole path: a stand-in toolchain's run writes the stage, and it is promoted")
+    func workspaceRunnerPromotesWhatTheChildWrote() async throws {
+        let scene = try makeScene(bodies: ["old"])
+        defer { cleanUp(scene) }
+        // What the child will write, prepared where the stand-in toolchain can copy it from.
+        let template = scene.root.appendingPathComponent("template")
+        try FileManager.default.createDirectory(at: template, withIntermediateDirectories: true)
+        try emit(["from-the-child"], to: template)
+        let workspace = scene.root.appendingPathComponent("workspace")
+        let fake = scene.root.appendingPathComponent("fake-swift")
+        let body = """
+            #!/bin/sh
+            [ "$1" = build ] && exit 0
+            cp "\(template.path)"/* "$OCCTSWIFT_OUTPUT_DIR"/
+            echo "child ran"
+            """
+        try body.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+
+        let result = await ExecuteScriptTool.executeStaged(
+            code: "// the script", description: nil, history: ScriptHistoryStore(),
+            store: scene.store, sceneHistory: SceneHistory(), promoter: nil,
+            runner: ExecuteScriptTool.workspaceRunner(swift: fake.path, workspace: workspace))
+
+        #expect(!result.isError, "\(result.text)")
+        #expect(try manifest(scene).bodies.map(\.id) == ["from-the-child"])
+        let main = workspace.appendingPathComponent("Sources/Script/main.swift")
+        #expect(try String(contentsOf: main, encoding: .utf8) == "// the script")
+        let package = workspace.appendingPathComponent("Package.swift")
+        #expect(FileManager.default.fileExists(atPath: package.path))
     }
 
     @Test("a script that exits non-zero fails and leaves the scene as it was")
