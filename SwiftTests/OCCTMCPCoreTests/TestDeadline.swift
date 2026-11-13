@@ -23,7 +23,7 @@ func finishing<T: Sendable>(
 }
 
 /// Resumes a continuation once, whichever caller gets there first.
-final class Gate<T: Sendable>: @unchecked Sendable {
+private final class Gate<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<T, Never>?
 
