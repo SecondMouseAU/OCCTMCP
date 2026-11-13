@@ -6,18 +6,21 @@ import Foundation
 /// Runs `work` and gives up after `seconds`, returning nil.
 ///
 /// A call that never returns is left running rather than awaited, so a hang fails the test
-/// instead of stopping the suite. A task group would wait for it.
+/// instead of stopping the suite. A task group would wait for it. The work is cancelled when the
+/// deadline wins, so work that checks for cancellation (a polling loop) stops instead of running
+/// on for the rest of the process.
 func finishing<T: Sendable>(
     within seconds: Double, _ work: @escaping @Sendable () async throws -> T
 ) async -> Result<T, Error>? {
     await withCheckedContinuation { (continuation: CheckedContinuation<Result<T, Error>?, Never>) in
         let gate = Gate(continuation)
-        Task {
+        let running = Task {
             do { gate.open(.success(try await work())) } catch { gate.open(.failure(error)) }
         }
         Task {
             try? await Task.sleep(for: .seconds(seconds))
             gate.open(nil)
+            running.cancel()
         }
     }
 }
