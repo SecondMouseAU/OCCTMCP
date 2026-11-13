@@ -36,7 +36,7 @@ struct LoadedDrawing: Sendable {
         let dxfVersion: String?
         /// What turned the bytes into entities.
         let reader: String
-        /// The SwiftDXF release that did it.
+        /// The SwiftDXF release line that did it, such as `0.3`.
         ///
         /// Entity ids (`e<index>`) shift when a newer reader models more types, so it is recorded
         /// beside the SHA-256 that names the bytes.
@@ -105,11 +105,14 @@ enum DrawingFile {
     /// The formats this build reads, and why the others are not read.
     static let supportedFormats = ["dxf"]
 
-    /// The SwiftDXF release this build reads with.
+    /// The SwiftDXF release line this build reads with: major and minor, the part that decides which
+    /// entity types are modelled and so which ids an entity gets.
     ///
     /// SwiftPM has no runtime query for a dependency's version, so it is written here, and a test
     /// holds it equal to the `swiftdxf` pin in `Package.resolved`: a bump that forgets it fails.
-    static let readerVersion = "0.3.0"
+    /// `Package.swift` holds SwiftDXF to `.upToNextMinor(from: "0.3.0")`, so a patch release can
+    /// resolve without this changing, which is why it is the line and not a patch version.
+    static let readerVersion = "0.3"
 
     /// Read `path` as a drawing, answering from a small cache when the file has not changed.
     static func load(path: String) async throws -> LoadedDrawing {

@@ -201,12 +201,15 @@ enum DrawingEntities {
         return distance(box.min, box.max)
     }
 
-    /// Tight bounds of a spline: the curve flattened to within a millionth of its size.
+    /// Bounds of a spline that follow the curve: it flattened to within a ten-thousandth of its size.
     ///
     /// The control polygon would be a safe box but not a tight one, and a window that clears the
     /// curve (or holds it) would be answered wrongly whenever a control point lies off the curve.
+    /// A box taken from points on the curve is short of the true one by at most that tolerance. A
+    /// finer tolerance costs time on every entity of every call: a millionth was about fifteen times
+    /// slower, which over a few thousand splines approaches the request timeout.
     private static func splineBounds(_ spline: DXF.Spline) -> Bounds? {
-        let points = spline.flattened(tolerance: max(splineSize(spline) * 1e-6, 1e-9))
+        let points = spline.flattened(tolerance: max(splineSize(spline) * 1e-4, 1e-9))
         guard let first = points.first else { return nil }
         var box = Bounds(first)
         for point in points { box.include(point) }
@@ -216,8 +219,8 @@ enum DrawingEntities {
     /// The axis-aligned bounds of an entity, nil when it has no position (an empty polyline).
     ///
     /// Arcs and bulged polyline segments are tight. An elliptical arc takes the bounds of its
-    /// whole ellipse. A spline's box follows the curve. Text is its insertion point, since the
-    /// reader keeps no text extent.
+    /// whole ellipse. A spline's box follows the curve, to a ten-thousandth of its size. Text is its
+    /// insertion point, since the reader keeps no text extent.
     static func bounds(of entity: DXF.Entity) -> Bounds? {
         switch entity {
         case .line(let a, let b, _, _):

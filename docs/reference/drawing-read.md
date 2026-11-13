@@ -64,7 +64,8 @@ result.
   `e1`, ...). SwiftDXF keeps no DXF handles, so the id is the index. It is stable for the same file
   bytes and this reader: `read_drawing` returns the file's SHA-256, and every result carries the file
   name and hash so a caller can tell when ids no longer mean what they did. `source.readerVersion`
-  names the SwiftDXF release that read it. A newer SwiftDXF that models more entity types shifts
+  names the SwiftDXF release line that read it (`0.3`, major and minor: the part that decides which
+  entity types are modelled). A newer SwiftDXF that models more entity types shifts
   the ids after them: when SwiftDXF 0.3.0 began to model `SPLINE`, a spline took an index, so the ids
   after one in the same file are one higher than they were under 0.2. Skipped records take no
   index.
@@ -113,7 +114,7 @@ here.
   "skipped": { "total": 1, "byType": { "INSERT": 1 }, "byLayer": { "BLOCKS": { "INSERT": 1 } } },
   "source": {
     "fileName": "slot.dxf", "bytes": 410, "format": "dxf", "dxfVersion": "AC1027",
-    "readerVersion": "0.3.0",
+    "readerVersion": "0.3",
     "sha256": "5c9c59756de36f6cddd4c027d7eb956005d7d19ca3935f0737cf51b6e2f6f9a2"
   },
   "warnings": ["1 block insert(s) are not expanded, so the geometry they place is missing from the entity list.", "1 entity record(s) were skipped; see `skipped`."]
@@ -157,8 +158,8 @@ Index; 256 is by-layer), `bounds` and its geometry:
 
 Bounds are tight for arcs (an arc of under half a turn does not contain its centre) and for the
 arcs of a bulged polyline. A spline's box follows the curve (the curve flattened to within a
-millionth of the size of its control data), not its control polygon, so a window that clears the
-curve does not touch it. An elliptical arc takes the bounds of its whole ellipse, and text is its
+ten-thousandth of the size of its control data, so the box can fall short of it by that much), not
+its control polygon, so a window that clears the curve does not touch it. An elliptical arc takes the bounds of its whole ellipse, and text is its
 insertion point, because the reader keeps no text extent.
 
 **Example**: the two walls of a slot.
