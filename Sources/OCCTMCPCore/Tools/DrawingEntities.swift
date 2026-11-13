@@ -25,8 +25,8 @@ enum DrawingEntities {
         return n
     }
 
-    // `DXF.Entity` gains cases when SwiftDXF does (0.3.0 adds `spline`, and OCCTSwiftIO 2.0.0-beta.5
-    // requires it), so every switch over it ends in `@unknown default`: a build that resolves a newer
+    // `DXF.Entity` gains cases when SwiftDXF does (0.3.0 added `spline`, 0.4.0 adds `hatch` and
+    // `leader`), so every switch over it ends in `@unknown default`: a build that resolves a newer
     // SwiftDXF compiles, and reads an entity it has no mapping for as type `other`, with no layer,
     // colour, bounds or geometry (nothing is made up), and `read_drawing` warns about it.
 
@@ -39,6 +39,7 @@ enum DrawingEntities {
         case .point: return "point"
         case .text: return "text"
         case .polyline: return "polyline"
+        case .spline: return "spline"
         case .dimension: return "dimension"
         @unknown default: return "other"
         }
@@ -46,7 +47,7 @@ enum DrawingEntities {
 
     /// The type names in the order the tools list them.
     static let typeNames = [
-        "line", "circle", "arc", "ellipse", "point", "text", "polyline", "dimension",
+        "line", "circle", "arc", "ellipse", "point", "text", "polyline", "spline", "dimension",
     ]
 
     /// The entity's layer, nil for an entity this build has no mapping for (it is not made up).
@@ -56,6 +57,8 @@ enum DrawingEntities {
             .ellipse(_, _, _, _, _, let layer, _), .point(_, let layer, _),
             .text(_, _, _, _, let layer, _), .polyline(_, _, let layer, _):
             return layer
+        case .spline(let spline):
+            return spline.layer
         case .dimension(let d):
             return d.layer
         @unknown default:
@@ -70,6 +73,8 @@ enum DrawingEntities {
             .ellipse(_, _, _, _, _, _, let color), .point(_, _, let color),
             .text(_, _, _, _, _, let color), .polyline(_, _, _, let color):
             return color
+        case .spline(let spline):
+            return spline.color
         case .dimension(let d):
             return d.color
         @unknown default:
@@ -185,10 +190,34 @@ enum DrawingEntities {
         }
     }
 
+    /// The diagonal of the box around a spline's control and fit points; 0 when it has none.
+    ///
+    /// The scale a spline's tolerances are taken from.
+    static func splineSize(_ spline: DXF.Spline) -> Double {
+        let points = spline.controlPoints + spline.fitPoints
+        guard let first = points.first else { return 0 }
+        var box = Bounds(first)
+        for point in points { box.include(point) }
+        return distance(box.min, box.max)
+    }
+
+    /// Tight bounds of a spline: the curve flattened to within a millionth of its size.
+    ///
+    /// The control polygon would be a safe box but not a tight one, and a window that clears the
+    /// curve (or holds it) would be answered wrongly whenever a control point lies off the curve.
+    private static func splineBounds(_ spline: DXF.Spline) -> Bounds? {
+        let points = spline.flattened(tolerance: max(splineSize(spline) * 1e-6, 1e-9))
+        guard let first = points.first else { return nil }
+        var box = Bounds(first)
+        for point in points { box.include(point) }
+        return box
+    }
+
     /// The axis-aligned bounds of an entity, nil when it has no position (an empty polyline).
     ///
     /// Arcs and bulged polyline segments are tight. An elliptical arc takes the bounds of its
-    /// whole ellipse. Text is its insertion point, since the reader keeps no text extent.
+    /// whole ellipse. A spline's box follows the curve. Text is its insertion point, since the
+    /// reader keeps no text extent.
     static func bounds(of entity: DXF.Entity) -> Bounds? {
         switch entity {
         case .line(let a, let b, _, _):
@@ -235,6 +264,8 @@ enum DrawingEntities {
                 }
             }
             return box
+        case .spline(let spline):
+            return splineBounds(spline)
         case .dimension(let d):
             var box = Bounds(d.defPoint)
             box.include(d.textPosition)
