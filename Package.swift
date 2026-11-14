@@ -141,7 +141,8 @@ let package = Package(
         // one blocker is gone.
         occtDep("OCCTSwiftInteraction", from: "3.0.0-beta.6"),  // >=3.0.0-beta.4 (#209): the optional `label` on a highlight_requests payload (OCCTSwiftInteraction#35/#36), shown beside the agent attention marker
         // OCCTSwiftIO is also a direct product of OCCTMCPCore since #260: the drawing read tools
-        // call its DXF import and use the SwiftDXF entity model it re-exports. It is the same
+        // read DXF, DWG and JWW through its DrawingLoader (#271) and use the SwiftDXF entity model
+        // it re-exports. It is the same
         // package SwiftPM already resolved through OCCTSwiftScripts / OCCTSwiftTools, declared
         // open-endedly (`from: 1.0.x`-ish) in their manifests. Was capped to
         // the 1.0.x line here to dodge a heavy mesh-IO stack (SwiftPMX / SwiftGLTF /

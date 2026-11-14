@@ -119,11 +119,8 @@ enum DrawingFile {
     ///
     /// SwiftPM has no runtime query for a dependency's version, so it is written here, and a test
     /// holds it equal to the `swiftdxf` pin in `Package.resolved`: a bump that forgets it fails.
-    /// This is the line this build was written for. SwiftDXF resolves through OCCTSwiftIO, whose
-    /// floor (`from: "0.4.0"`) admits a newer minor, and a host that embeds `OCCTMCPCore` and
-    /// resolves one gets different ids with this unchanged: the test compares only this checkout's
-    /// `Package.resolved`, where a newer minor fails it, which is the point. A patch release can
-    /// resolve without this changing, which is why it is the line and not a patch version.
+    /// The SwiftDXF release line (major and minor) this build was written for; a test holds it to
+    /// the `swiftdxf` pin in `Package.resolved`.
     static let readerVersion = "0.4"
 
     /// Read `path` as a drawing, answering from a small cache when the file has not changed.
@@ -136,7 +133,10 @@ enum DrawingFile {
         guard FileManager.default.fileExists(atPath: expanded) else {
             throw DrawingReadError.notFound(expanded)
         }
-        let attributes = try? FileManager.default.attributesOfItem(atPath: expanded)
+        // `attributesOfItem` does not follow a symlink: ask about the file it points to, so the size
+        // is the file's and the cache notices an edit to it.
+        let attributes = try? FileManager.default.attributesOfItem(
+            atPath: URL(fileURLWithPath: expanded).resolvingSymlinksInPath().path)
         let key = DrawingCache.Key(
             path: URL(fileURLWithPath: expanded).standardizedFileURL.path,
             size: (attributes?[.size] as? Int) ?? -1,
@@ -198,11 +198,9 @@ enum DrawingFile {
     /// What the reader left out, in the shape the tools report: the loader's `skippedEntities`
     /// warnings, by type and, where the format says, by layer.
     ///
-    /// An `INSERT` is not an entity, so SwiftDXF counts it as skipped until its block is expanded
-    /// and then takes it out itself: one that stays is not expanded (`expandBlocks` is false, the file
-    /// does not define its block, or an expansion limit stopped short), which is what `skipped`
-    /// should say. SwiftDXF counts an `INSERT`'s `ATTRIB` records as skipped entities of their own,
-    /// and so does this.
+    /// What the reader skipped, by type and layer, from the loader's warnings.
+    ///
+    /// An `INSERT` is among them only when it was not expanded.
     static func skipped(from warnings: [DrawingWarning]) -> LoadedDrawing.Skipped {
         var skipped = LoadedDrawing.Skipped()
         for warning in warnings where warning.kind == .skippedEntities {

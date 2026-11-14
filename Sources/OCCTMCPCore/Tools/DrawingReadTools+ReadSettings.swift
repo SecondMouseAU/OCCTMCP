@@ -57,4 +57,17 @@ extension DrawingReadTools {
         object["properties"] = .object(properties)
         return .object(object)
     }
+
+    /// `tools` with the read settings added to the schemas of the four drawing tools.
+    static func addingReadSettings(to tools: [Tool]) -> [Tool] {
+        let drawing: Set<String> = [
+            "read_drawing", "list_drawing_entities", "list_drawing_dimensions", "measure_drawing",
+        ]
+        return tools.map { tool in
+            guard drawing.contains(tool.name) else { return tool }
+            return Tool(
+                name: tool.name, description: tool.description,
+                inputSchema: withReadSettings(tool.inputSchema), annotations: tool.annotations)
+        }
+    }
 }

@@ -268,6 +268,44 @@ extension DrawingReadToolsTests {
         #expect((listed["entities"] as? [[String: Any]])?.count == 1)
     }
 
+    @Test("a symlink to a drawing reports the file's size, and sees the file change")
+    func symlinkedDrawing() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let real = URL(fileURLWithPath: try DrawingFixture.tSlot().write(to: dir, name: "real.dxf"))
+        let link = dir.appendingPathComponent("link.dxf")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        func read() async throws -> (bytes: Int?, count: Int?) {
+            let r = try json(await call("read_drawing", ["inputPath": .string(link.path)]))
+            return ((r["source"] as? [String: Any])?["bytes"] as? Int, r["entityCount"] as? Int)
+        }
+        let before = try await read()
+        let beforeSize = try Data(contentsOf: real).count
+        #expect(before.bytes == beforeSize, "the link's own length is not the file's: \(before)")
+
+        // The file behind the link becomes the plate: a different size and a different drawing.
+        let plate = try Data(contentsOf: Self.plateDirectory.appendingPathComponent("plate.dxf"))
+        try plate.write(to: real)
+        let after = try await read()
+        #expect(after.bytes == plate.count, "\(after)")
+        #expect(after.count == 5 && after.count != before.count, "a stale read: \(after)")
+    }
+
+    @Test("an entity on a -z plane is mirrored into the world")
+    func extrusionIsRead() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // Centre (10, 5) in a plane whose normal is -z: the x axis runs the other way.
+        f.add(
+            "circle", "CIRCLE", layer: "C",
+            [(10, "10"), (20, "5"), (30, "0"), (40, "2"), (210, "0"), (220, "0"), (230, "-1")])
+        let all = try await entities([:], try f.write(to: dir)).all
+        let circle = try #require(all.first { $0["id"] as? String == f.id("circle") })
+        #expect(near(numbers(circle["center"]), [-10, 5, 0]), "\(String(describing: circle))")
+    }
+
     @Test("all four tools honour both read settings, and null means the default")
     func everyToolHonoursTheReadSettings() async throws {
         let dir = try makeDirectory()
@@ -335,6 +373,17 @@ extension DrawingReadToolsTests {
         let readNull = try json(await call("read_drawing", args(nulls)))
         #expect(readNull["entityCount"] as? Int == read["entityCount"] as? Int)
 
+        // Every tool's source reference carries the options the ids were made under.
+        let echoed: [(String, [String: Value])] = [
+            ("read_drawing", [:]), ("list_drawing_entities", [:]), ("list_drawing_dimensions", [:]),
+            ("measure_drawing", ["measure": "distance", "a": "e0", "b": [3, 3]]),
+        ]
+        for (tool, extra) in echoed {
+            let r = try json(await call(tool, args(extra.merging(both) { $1 })))
+            let options = (r["source"] as? [String: Any])?["options"] as? [String: Bool]
+            #expect(options == ["expandBlocks": false, "skipPaperSpace": true], "\(tool): \(r)")
+        }
+
         // measure_drawing: ids from the default read, then the settings take the entities away.
         let lines = try await entities(["types": ["line"]], path).all
         let model = try #require(lines.first { $0["layer"] as? String == "M" }?["id"] as? String)
@@ -353,7 +402,9 @@ extension DrawingReadToolsTests {
             await call("measure_drawing", args(distance.merging(nulls) { $1 })))
         #expect(measuredNull["value"] as? Double == 9, "null is the default")
         // Skipping paper space takes the line away and renumbers the rest, so the same two ids are
-        // no longer two lines 9 apart.
+        // no longer two lines 9 apart. What they name instead is not the point (here a circle, or
+        // nothing), which is why this checks only that 9 is gone and the echo above checks the
+        // setting arrived.
         let noPaper = await call(
             "measure_drawing", args(distance.merging(["skipPaperSpace": true]) { $1 }))
         let noPaperValue = noPaper.isError ? nil : try json(noPaper)["value"] as? Double

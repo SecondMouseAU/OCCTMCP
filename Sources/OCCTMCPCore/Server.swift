@@ -181,22 +181,7 @@ func catalogTools(extraTools: [ExtraTool] = []) -> [Tool] {
 }
 
 private func builtinCatalogTools() -> [Tool] {
-    return catalogToolsWithDrawingSettings(listedBuiltinTools())
-}
-
-/// The drawing read tools with `expandBlocks` and `skipPaperSpace` added to their schemas, so the
-/// four state the same two options once, in `DrawingReadTools`, and not four times here.
-private func catalogToolsWithDrawingSettings(_ tools: [Tool]) -> [Tool] {
-    let drawing: Set<String> = [
-        "read_drawing", "list_drawing_entities", "list_drawing_dimensions", "measure_drawing",
-    ]
-    return tools.map { tool in
-        guard drawing.contains(tool.name) else { return tool }
-        return Tool(
-            name: tool.name, description: tool.description,
-            inputSchema: DrawingReadTools.withReadSettings(tool.inputSchema),
-            annotations: tool.annotations)
-    }
+    return DrawingReadTools.addingReadSettings(to: listedBuiltinTools())
 }
 
 private func listedBuiltinTools() -> [Tool] {
@@ -404,7 +389,7 @@ private func listedBuiltinTools() -> [Tool] {
         Tool(
             name: "list_drawing_entities",
             description:
-                "List the entities of a 2D drawing (ASCII DXF, DWG or JWW) with identity, geometry and layer, filtered by type, layer or a rectangle on the sheet. Each entity has an id (e<index>, stable for the same file bytes and read options; see read_drawing's sha256), its DXF `handle` (absent when the file has none; it survives an edit that moves entities, which the id does not), a `locator` (section and position), `via` and `blocks` when it came out of a block expansion, type, layer, colour, bounds and its geometry as numbers in drawing units: line start/end/length; circle center/radius; arc center/radius/angles/start/end/length; ellipse center/majorAxis/ratio/params; polyline vertices/bulges/closed/length; spline degree/closed/periodic/rational and, as stored in the file, controlPoints/knots/weights/fitPoints; hatch patternName/solid/boundaryPaths (each with external and polyline vertices or a chain of line, arc, ellipse and spline edges); leader vertices/arrowhead/splinePath/annotationHandle/styleName; text at/height/text; point at; dimension (the same record list_drawing_dimensions returns). `rect` is [xmin, ymin, xmax, ymax] in drawing units; rectMode `intersects` (default) keeps entities whose bounds overlap it, `within` keeps those wholly inside. Arc and bulge bounds are tight; a spline's bounds follow the curve; a hatch's are its boundary paths' and a leader's its vertices'; an elliptical arc takes its whole ellipse's bounds; text is its insertion point. Paged: `limit` (default 200, max 5000) and `offset`; `total` counts matches before paging. Read-only.",
+                "List the entities of a 2D drawing (ASCII DXF, DWG or JWW) with identity, geometry and layer, filtered by type, layer or a rectangle on the sheet. Each entity has an id (e<index>, stable for the same file bytes and read options; see read_drawing's sha256), its DXF `handle` (absent when the file has none; it survives an edit that moves entities, which the id does not; entities expanded from one block share the block's handles, and `via` tells them apart), a `locator` (section and position), `via` and `blocks` when it came out of a block expansion, type, layer, colour, bounds and its geometry as numbers in drawing units: line start/end/length; circle center/radius; arc center/radius/angles/start/end/length; ellipse center/majorAxis/ratio/params; polyline vertices/bulges/closed/length; spline degree/closed/periodic/rational and, as stored in the file, controlPoints/knots/weights/fitPoints; hatch patternName/solid/boundaryPaths (each with external and polyline vertices or a chain of line, arc, ellipse and spline edges); leader vertices/arrowhead/splinePath/annotationHandle/styleName; text at/height/text; point at; dimension (the same record list_drawing_dimensions returns). `rect` is [xmin, ymin, xmax, ymax] in drawing units; rectMode `intersects` (default) keeps entities whose bounds overlap it, `within` keeps those wholly inside. Arc and bulge bounds are tight; a spline's bounds follow the curve; a hatch's are its boundary paths' and a leader's its vertices'; an elliptical arc takes its whole ellipse's bounds; text is its insertion point. Paged: `limit` (default 200, max 5000) and `offset`; `total` counts matches before paging. Read-only.",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([

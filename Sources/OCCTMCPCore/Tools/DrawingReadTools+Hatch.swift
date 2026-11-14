@@ -33,6 +33,8 @@ extension DrawingReadTools {
         var startParam: Double?
         var endParam: Double?
         /// For an arc or an ellipse arc: whether the path travels it counter-clockwise.
+        ///
+        /// The angles and parameters always run counter-clockwise from start to end.
         var counterClockwise: Bool?
         var degree: Int?
         var controlPoints: [[Double]]?

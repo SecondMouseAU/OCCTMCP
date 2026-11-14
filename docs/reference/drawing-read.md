@@ -78,7 +78,10 @@ depend on them.
   `e1`, ...). It is stable for the same file bytes, the same read options and the same reader:
   `read_drawing` returns the file's SHA-256, and every result carries the file name, hash, the
   SwiftDXF release line (`source.readerVersion`, `0.4`: the part that decides which entity types
-  are modelled) and the options, so a caller can tell when ids no longer mean what they did. Turning
+  are modelled) and the options, so a caller can tell when ids no longer mean what they did. A
+  host that embeds `OCCTMCPCore` and resolves a newer SwiftDXF minor than this line reports `0.4`
+  with ids that differ; the test that holds the line to the pin reads this repository's
+  `Package.resolved` only. Turning
   block expansion on or off, or a newer SwiftDXF that models more types, shifts the ids after them.
   Skipped records take no index.
 - **Handles.** An id is a position, so it does not survive an edit that moves entities. Every entity
@@ -86,7 +89,10 @@ depend on them.
   a DWG keeps its own) and `locator` (the section and position, `ENTITIES:12`, present even without
   handles), and an entity that came out of a block expansion carries `via` (the references it came
   through, outermost first, each a handle or a locator) and `blocks` (their names). To find an
-  entity again after an edit, match its `handle` in a fresh `list_drawing_entities`.
+  entity again after an edit, match its `handle` in a fresh `list_drawing_entities`. An expanded
+  entity keeps the handle of the entity inside its block, so two references to one block give entities
+  with the same handle, told apart by `via`. A `source.bytes` is the size of the file the path
+  resolves to, a symlink's target included.
 - **Units.** Coordinates and values are in **drawing units**. The drawing's units are the DXF
   `$INSUNITS` code, returned with its name and millimetres per unit (codes 0 to 24 as ezdxf lists
   them). A unitless or undeclared drawing has no millimetre figure and the tools say so; pass
@@ -175,7 +181,7 @@ Index; 256 is by-layer), `bounds` and its geometry:
 | `ellipse` | `center`, `majorAxis` (relative to the center), `ratio`, `startParam`, `endParam` (radians) |
 | `polyline` | `vertices`, `bulges` (only when a segment is curved; a bulge is `tan(θ/4)` of the arc leaving that vertex), `closed`, `length` |
 | `spline` | `degree`, `closed`, `periodic`, `rational`, and as stored in the file: `controlPoints`, `knots` (the flat knot vector), `weights` (rational splines) and `fitPoints` (each left out when the file has none) |
-| `hatch` | `patternName`, `solid`, `boundaryPaths`: each path has `external` (an outer boundary, otherwise an island or a hole) and `kind`, `polyline` (`vertices`, `bulges`, `closed`) or `edges` (a chain of `line`, `arc`, `ellipse` and `spline` edges, each as numbers in the drawing plane). Only the boundary and the fill kind are read, not the hatch lines. |
+| `hatch` | `patternName`, `solid`, `boundaryPaths`: each path has `external` (an outer boundary, otherwise an island or a hole) and `kind`, `polyline` (`vertices`, `bulges`, `closed`) or `edges` (a chain of `line`, `arc`, `ellipse` and `spline` edges, each as numbers in the drawing plane; an arc's or ellipse's angles always run counter-clockwise from start to end, and `counterClockwise` says which way the path travels it). Only the boundary and the fill kind are read, not the hatch lines. |
 | `leader` | `vertices` (from the arrowhead end), `arrowhead`, `splinePath` (it curves through the vertices), `annotationHandle` (the text or block it is attached to), `styleName` |
 | `text` | `at`, `height`, `rotationDeg`, `text` |
 | `point` | `at` |
