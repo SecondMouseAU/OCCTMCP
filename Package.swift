@@ -152,12 +152,7 @@ let package = Package(
         // graph. Uncapped as of the #90/#91/#93/#97 repin; the heavy stack is now a
         // real (if unused) part of the dependency graph, accepted in exchange for the
         // whole OCCTSwift cohort staying current, including the BRepGraph rename.
-        occtDep("OCCTSwiftIO", from: "2.0.0-beta.5"),  // >=2.0.0-beta.5 (OCCTMCP#263): requires SwiftDXF 0.3.0, which adds DXF.Entity.spline and Drawing.skipped; the drawing read tools use both. >=1.7.8 (#175/#176): repins OCCTSwift floor to 3.0.0; no library source change, three test call sites unwrap through an existing try #require. >=1.7.7 (#171): repin OCCTSwift floor to 2.0.0; audited against the full break table (including sub-shape-enumeration and AAG families), zero hits
-        // SwiftDXF is held on the 0.3 line. OCCTSwiftIO 2.0.0-beta.5 floors it at 0.3.0, so a fresh
-        // resolve floats onto 0.4.0, which adds DXF.Entity.hatch and .leader and stops OCCTSwiftIO's
-        // DXFLoader compiling (a switch with no default). Remove the cap when an OCCTSwiftIO release
-        // builds against 0.4.0 (SecondMouseAU/OCCTSwiftIO#60, SecondMouseAU/OCCTMCP#271).
-        .package(url: "https://github.com/SecondMouseAU/SwiftDXF.git", .upToNextMinor(from: "0.3.0")),
+        occtDep("OCCTSwiftIO", from: "2.0.0-beta.6"),  // >=2.0.0-beta.6 (OCCTMCP#271): builds on a fresh resolve again (beta.5 did not compile against SwiftDXF 0.4.0, OCCTSwiftIO#60), floors SwiftDXF at 0.4.0 and adds DrawingLoader, the one entry point for DXF, DWG and JWW that the drawing read tools read through. >=2.0.0-beta.5 (OCCTMCP#263): requires SwiftDXF 0.3.0, which adds DXF.Entity.spline and Drawing.skipped. >=1.7.8 (#175/#176): repins OCCTSwift floor to 3.0.0; no library source change, three test call sites unwrap through an existing try #require. >=1.7.7 (#171): repin OCCTSwift floor to 2.0.0; audited against the full break table (including sub-shape-enumeration and AAG families), zero hits
     ],
     targets: [
         .target(
@@ -171,11 +166,9 @@ let package = Package(
                 .product(name: "OCCTSwiftTools", package: "OCCTSwiftInteraction"),
                 .product(name: "OCCTSwiftViewport", package: "OCCTSwiftViewport"),
                 .product(name: "OCCTSwiftAIS", package: "OCCTSwiftInteraction"),
-                // The drawing read tools (#260) read DXF through OCCTSwiftIO, which re-exports
-                // SwiftDXF's entity model. SwiftDXF is also a direct dependency, so the cap on it
-                // above applies to this package's own resolve.
+                // The drawing read tools (#260, #271) read DXF, DWG and JWW through OCCTSwiftIO's
+                // DrawingLoader, which re-exports SwiftDXF's entity model.
                 .product(name: "OCCTSwiftIO", package: "OCCTSwiftIO"),
-                .product(name: "SwiftDXF", package: "SwiftDXF"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
