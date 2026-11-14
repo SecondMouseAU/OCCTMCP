@@ -259,21 +259,15 @@ enum DrawingEntities {
                         box.include(DXF.Point(b.x, b.y, 0))
                         add(box)
                     case .arc(let center, let radius, let startDeg, let endDeg, _):
-                        let start = startDeg * .pi / 180
-                        let end = start + sweepDeg(startDeg: startDeg, endDeg: endDeg) * .pi / 180
-                        let c = DXF.Point(center.x, center.y, 0)
-                        var box = Bounds(
-                            DXF.Point(c.x + radius * cos(start), c.y + radius * sin(start), 0))
-                        include(arc: c, radius: radius, start: start, end: end, into: &box)
-                        add(box)
+                        add(
+                            arcBounds(
+                                center: DXF.Point(center.x, center.y, 0), radius: radius,
+                                startDeg: startDeg, endDeg: endDeg))
                     case .ellipse(let center, let major, let ratio, _, _, _):
-                        let nx = -major.y * ratio
-                        let ny = major.x * ratio
-                        let ex = (major.x * major.x + nx * nx).squareRoot()
-                        let ey = (major.y * major.y + ny * ny).squareRoot()
-                        var box = Bounds(DXF.Point(center.x - ex, center.y - ey, 0))
-                        box.include(DXF.Point(center.x + ex, center.y + ey, 0))
-                        add(box)
+                        add(
+                            ellipseBounds(
+                                center: DXF.Point(center.x, center.y, 0), majorX: major.x,
+                                majorY: major.y, ratio: ratio))
                     case .spline(let spline):
                         add(splineBounds(spline))
                     }
@@ -304,6 +298,32 @@ enum DrawingEntities {
         return box
     }
 
+    /// The tight box of an arc running counter-clockwise from `startDeg` to `endDeg`.
+    ///
+    /// It is not seeded with the centre: an arc under half a turn does not contain it.
+    static func arcBounds(
+        center c: DXF.Point, radius r: Double, startDeg: Double, endDeg: Double
+    ) -> Bounds {
+        let start = startDeg * .pi / 180
+        let end = start + sweepDeg(startDeg: startDeg, endDeg: endDeg) * .pi / 180
+        var box = Bounds(DXF.Point(c.x + r * cos(start), c.y + r * sin(start), c.z))
+        include(arc: c, radius: r, start: start, end: end, into: &box)
+        return box
+    }
+
+    /// The box of a whole ellipse, which an elliptical arc takes too.
+    static func ellipseBounds(
+        center c: DXF.Point, majorX: Double, majorY: Double, ratio: Double
+    ) -> Bounds {
+        let nx = -majorY * ratio
+        let ny = majorX * ratio
+        let ex = (majorX * majorX + nx * nx).squareRoot()
+        let ey = (majorY * majorY + ny * ny).squareRoot()
+        var box = Bounds(DXF.Point(c.x - ex, c.y - ey, c.z))
+        box.include(DXF.Point(c.x + ex, c.y + ey, c.z))
+        return box
+    }
+
     /// The axis-aligned bounds of an entity, nil when it has no position (an empty polyline).
     ///
     /// Arcs and bulged polyline segments are tight. An elliptical arc takes the bounds of its
@@ -320,20 +340,9 @@ enum DrawingEntities {
             box.include(DXF.Point(c.x + r, c.y + r, c.z))
             return box
         case .arc(let c, let r, let startDeg, let endDeg, _, _):
-            let start = startDeg * .pi / 180
-            let end = start + sweepDeg(startDeg: startDeg, endDeg: endDeg) * .pi / 180
-            // Not seeded with the centre: an arc under half a turn does not contain it.
-            var box = Bounds(DXF.Point(c.x + r * cos(start), c.y + r * sin(start), c.z))
-            include(arc: c, radius: r, start: start, end: end, into: &box)
-            return box
+            return arcBounds(center: c, radius: r, startDeg: startDeg, endDeg: endDeg)
         case .ellipse(let c, let m, let ratio, _, _, _, _):
-            let nx = -m.y * ratio
-            let ny = m.x * ratio
-            let ex = (m.x * m.x + nx * nx).squareRoot()
-            let ey = (m.y * m.y + ny * ny).squareRoot()
-            var box = Bounds(DXF.Point(c.x - ex, c.y - ey, c.z))
-            box.include(DXF.Point(c.x + ex, c.y + ey, c.z))
-            return box
+            return ellipseBounds(center: c, majorX: m.x, majorY: m.y, ratio: ratio)
         case .point(let p, _, _):
             return Bounds(p)
         case .text(let p, _, _, _, _, _):

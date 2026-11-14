@@ -9,15 +9,12 @@ import OCCTSwiftIO
 /// Why a drawing could not be read.
 enum DrawingReadError: Error, CustomStringConvertible {
     case notFound(String)
-    case unsupportedFormat(extension: String, reason: String)
     case unreadable(path: String, underlying: String)
 
     var description: String {
         switch self {
         case .notFound(let path):
             return "Drawing file not found: \(path)"
-        case .unsupportedFormat(let ext, let reason):
-            return "Cannot read .\(ext) drawings: \(reason)"
         case .unreadable(let path, let underlying):
             return "Failed to read drawing \(path): \(underlying)"
         }
@@ -29,6 +26,7 @@ struct LoadedDrawing: Sendable {
     struct Source: Encodable, Sendable {
         let path: String
         let fileName: String
+        /// The size on disk when the file was opened; `sha256` is the authority on what was read.
         let bytes: Int
         let sha256: String
         /// `dxf`, `dwg` or `jww`, told from the file's bytes.
@@ -45,6 +43,8 @@ struct LoadedDrawing: Sendable {
         /// Entity ids (`e<index>`) shift when a newer reader models more types, so it is recorded
         /// beside the SHA-256 that names the bytes.
         let readerVersion: String
+        /// The options the file was read with: the ids depend on them.
+        let options: DrawingReadTools.ReadSettings
     }
 
     /// Entities the reader does not model, from the loader's `skippedEntities` warnings.
@@ -114,16 +114,15 @@ enum DrawingUnits {
 }
 
 enum DrawingFile {
-    /// The formats this build reads, and why the others are not read.
-    static let supportedFormats = ["dxf", "dwg", "jww"]
-
     /// The SwiftDXF release line this build reads with: major and minor, the part that decides which
     /// entity types are modelled and so which ids an entity gets.
     ///
     /// SwiftPM has no runtime query for a dependency's version, so it is written here, and a test
     /// holds it equal to the `swiftdxf` pin in `Package.resolved`: a bump that forgets it fails.
-    /// SwiftDXF resolves through OCCTSwiftIO, whose floor admits patch and minor releases, so the
-    /// test compares the minor and a newer minor fails it, which is the point; a patch release can
+    /// This is the line this build was written for. SwiftDXF resolves through OCCTSwiftIO, whose
+    /// floor (`from: "0.4.0"`) admits a newer minor, and a host that embeds `OCCTMCPCore` and
+    /// resolves one gets different ids with this unchanged: the test compares only this checkout's
+    /// `Package.resolved`, where a newer minor fails it, which is the point. A patch release can
     /// resolve without this changing, which is why it is the line and not a patch version.
     static let readerVersion = "0.4"
 
@@ -152,12 +151,6 @@ enum DrawingFile {
     private static func read(
         path: String, bytes: Int, settings: DrawingReadTools.ReadSettings
     ) throws -> LoadedDrawing {
-        let ext = (path as NSString).pathExtension.lowercased()
-        guard supportedFormats.contains(ext) else {
-            throw DrawingReadError.unsupportedFormat(
-                extension: ext.isEmpty ? "(none)" : ext,
-                reason: "supported formats: \(supportedFormats.joined(separator: ", ")).")
-        }
         let result: DrawingResult
         do {
             // The loader tells the format from the bytes, reads the file once and hashes what it
@@ -175,8 +168,7 @@ enum DrawingFile {
         } catch DXF.Error.empty {
             throw DrawingReadError.unreadable(path: path, underlying: "the file is empty.")
         } catch {
-            // A DWG's `DWG.Error` and the loader's own errors describe themselves.
-            throw DrawingReadError.unreadable(path: path, underlying: "\(error)")
+            throw DrawingReadError.unreadable(path: path, underlying: describe(error))
         }
         let drawing = result.drawing
         let isDXF = result.source.format == .dxf
@@ -189,24 +181,32 @@ enum DrawingFile {
                 formatVersion: result.source.version,
                 reader: "OCCTSwiftIO DrawingLoader (SwiftDXF for DXF, SwiftDWG for DWG, "
                     + "SwiftJWW for JWW)",
-                readerVersion: readerVersion),
-            skipped: skipped(from: result.warnings, expandedBlocks: settings.expandBlocks),
-            warnings: result.warnings, settings: settings)
+                readerVersion: readerVersion, options: settings),
+            skipped: skipped(from: result.warnings), warnings: result.warnings,
+            settings: settings)
+    }
+
+    /// Why a read failed, in words.
+    ///
+    /// A file-system error (no permission, gone) is a Cocoa error whose `description` is a raw
+    /// dump; its localised text says what happened. A DWG's `DWG.Error` and the loader's own errors
+    /// are not localised and describe themselves.
+    private static func describe(_ error: Error) -> String {
+        (error as NSError).domain == NSCocoaErrorDomain ? error.localizedDescription : "\(error)"
     }
 
     /// What the reader left out, in the shape the tools report: the loader's `skippedEntities`
     /// warnings, by type and, where the format says, by layer.
     ///
-    /// An `INSERT` is not an entity, so SwiftDXF counts it as skipped; once its block is expanded the
-    /// geometry it places is in the entity list and the reference is in `Drawing.references`, so it
-    /// is left out here (a block the file does not define has its own warning). SwiftDXF counts an
-    /// `INSERT`'s `ATTRIB` records as skipped entities of their own, and so does this.
-    static func skipped(
-        from warnings: [DrawingWarning], expandedBlocks: Bool
-    ) -> LoadedDrawing.Skipped {
+    /// An `INSERT` is not an entity, so SwiftDXF counts it as skipped until its block is expanded
+    /// and then takes it out itself: one that stays is not expanded (`expandBlocks` is false, the file
+    /// does not define its block, or an expansion limit stopped short), which is what `skipped`
+    /// should say. SwiftDXF counts an `INSERT`'s `ATTRIB` records as skipped entities of their own,
+    /// and so does this.
+    static func skipped(from warnings: [DrawingWarning]) -> LoadedDrawing.Skipped {
         var skipped = LoadedDrawing.Skipped()
         for warning in warnings where warning.kind == .skippedEntities {
-            guard let type = warning.type, !(expandedBlocks && type == "INSERT") else { continue }
+            guard let type = warning.type else { continue }
             skipped.total += warning.count
             skipped.byType[type, default: 0] += warning.count
             if let layer = warning.layer {

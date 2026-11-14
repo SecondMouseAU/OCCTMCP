@@ -84,40 +84,6 @@ public enum DrawingReadTools {
         let blocks: [String]?
     }
 
-    /// One boundary path of a hatch.
-    struct HatchPathRecord: Encodable {
-        /// Whether it is the outer boundary; a path that is not is an island or a hole.
-        let external: Bool
-        /// `polyline` (vertices with bulges) or `edges` (a chain of lines, arcs, ellipse arcs and
-        /// splines).
-        let kind: String
-        var vertices: [[Double]]?
-        var bulges: [Double]?
-        var closed: Bool?
-        var edges: [HatchEdgeRecord]?
-    }
-
-    /// One edge of a hatch boundary path, in the drawing plane (z is 0).
-    struct HatchEdgeRecord: Encodable {
-        /// `line`, `arc`, `ellipse` or `spline`.
-        let type: String
-        var start: [Double]?
-        var end: [Double]?
-        var center: [Double]?
-        var radius: Double?
-        var startAngleDeg: Double?
-        var endAngleDeg: Double?
-        var majorAxis: [Double]?
-        var ratio: Double?
-        var startParam: Double?
-        var endParam: Double?
-        /// For an arc or an ellipse arc: whether the path travels it counter-clockwise.
-        var counterClockwise: Bool?
-        var degree: Int?
-        var controlPoints: [[Double]]?
-        var knots: [Double]?
-    }
-
     struct EntityRecord: Encodable {
         let id: String
         let type: String
@@ -238,56 +204,8 @@ public enum DrawingReadTools {
             blocks: identity.blocks.isEmpty ? nil : identity.blocks)
     }
 
-    /// A hatch boundary path as numbers.
-    static func hatchPathRecord(_ path: DXF.Hatch.BoundaryPath) -> HatchPathRecord {
-        func xy(_ p: DXF.Point2) -> [Double] { [p.x, p.y, 0] }
-        switch path.geometry {
-        case .polyline(let vertices, let closed):
-            var record = HatchPathRecord(external: path.isExternal, kind: "polyline")
-            record.vertices = vertices.map { DrawingEntities.xyz($0.point) }
-            if vertices.contains(where: { $0.bulge != 0 }) { record.bulges = vertices.map(\.bulge) }
-            record.closed = closed
-            return record
-        case .edges(let edges):
-            var record = HatchPathRecord(external: path.isExternal, kind: "edges")
-            record.edges = edges.map { edge in
-                switch edge {
-                case .line(let a, let b):
-                    var out = HatchEdgeRecord(type: "line")
-                    out.start = xy(a)
-                    out.end = xy(b)
-                    return out
-                case .arc(let c, let r, let startDeg, let endDeg, let ccw):
-                    var out = HatchEdgeRecord(type: "arc")
-                    out.center = xy(c)
-                    out.radius = r
-                    out.startAngleDeg = startDeg
-                    out.endAngleDeg = endDeg
-                    out.counterClockwise = ccw
-                    return out
-                case .ellipse(let c, let m, let ratio, let startParam, let endParam, let ccw):
-                    var out = HatchEdgeRecord(type: "ellipse")
-                    out.center = xy(c)
-                    out.majorAxis = xy(m)
-                    out.ratio = ratio
-                    out.startParam = startParam
-                    out.endParam = endParam
-                    out.counterClockwise = ccw
-                    return out
-                case .spline(let spline):
-                    var out = HatchEdgeRecord(type: "spline")
-                    out.degree = spline.degree
-                    out.controlPoints = nonEmpty(spline.controlPoints.map(DrawingEntities.xyz))
-                    out.knots = nonEmpty(spline.knots)
-                    return out
-                }
-            }
-            return record
-        }
-    }
-
     /// `values`, or nil when it is empty, so a record leaves out what the file does not have.
-    private static func nonEmpty<T>(_ values: [T]) -> [T]? { values.isEmpty ? nil : values }
+    static func nonEmpty<T>(_ values: [T]) -> [T]? { values.isEmpty ? nil : values }
 
     static func entityRecord(
         _ entity: DXF.Entity, index: Int, mmPerUnit: Double?, identity: DXF.Identity
@@ -389,59 +307,6 @@ public enum DrawingReadTools {
     /// A bad argument, named.
     struct ArgumentError: Error, CustomStringConvertible {
         let description: String
-    }
-
-    /// How a drawing is read, which the entity ids depend on.
-    ///
-    /// Every tool takes both, and echoes them in its result.
-    public struct ReadSettings: Hashable, Sendable, Encodable {
-        /// Flatten block references into the entities.
-        ///
-        /// A block insert then places the geometry it stands for. On by default, as in
-        /// OCCTSwiftIO's `DrawingLoader`.
-        public var expandBlocks: Bool
-        /// Leave paper-space entities out, as a model-space read does.
-        public var skipPaperSpace: Bool
-
-        public init(expandBlocks: Bool = true, skipPaperSpace: Bool = false) {
-            self.expandBlocks = expandBlocks
-            self.skipPaperSpace = skipPaperSpace
-        }
-    }
-
-    /// The argument names the read settings take, which every drawing tool accepts.
-    static let readSettingNames = ["expandBlocks", "skipPaperSpace"]
-
-    /// The read settings in `arguments`, defaulted where absent or JSON `null`.
-    static func readSettings(_ arguments: [String: Value]) throws -> ReadSettings {
-        var settings = ReadSettings()
-        if let expand = try optionalBool(arguments["expandBlocks"], name: "expandBlocks") {
-            settings.expandBlocks = expand
-        }
-        if let skip = try optionalBool(arguments["skipPaperSpace"], name: "skipPaperSpace") {
-            settings.skipPaperSpace = skip
-        }
-        return settings
-    }
-
-    /// `schema` with the read settings added to its properties, so every drawing tool offers them.
-    static func withReadSettings(_ schema: Value) -> Value {
-        guard var object = schema.objectValue, var properties = object["properties"]?.objectValue
-        else { return schema }
-        properties["expandBlocks"] = .object([
-            "type": .string("boolean"),
-            "description": .string(
-                "Flatten block references (INSERT) into the entities, so a block insert places the geometry it stands for and each expanded entity's `via` names the reference. Default true. Entity ids (e<index>) depend on it, and every result echoes it under `source.options`."
-            ),
-        ])
-        properties["skipPaperSpace"] = .object([
-            "type": .string("boolean"),
-            "description": .string(
-                "Leave paper-space entities out, as a model-space read does. Default false. Entity ids depend on it."
-            ),
-        ])
-        object["properties"] = .object(properties)
-        return .object(object)
     }
 
     /// An optional boolean, with the same absent and `null` rule.
@@ -610,8 +475,6 @@ public enum DrawingReadTools {
 
     struct DrawingReport: Encodable {
         let source: LoadedDrawing.Source
-        /// How the drawing was read: the entity ids depend on it.
-        let options: ReadSettings
         let units: UnitsRecord
         let extents: ExtentsRecord
         let entityCount: Int
@@ -695,7 +558,7 @@ public enum DrawingReadTools {
         }()
         return encode(
             DrawingReport(
-                source: loaded.source, options: settings,
+                source: loaded.source,
                 units: UnitsRecord(
                     insUnits: drawing.insUnits, name: DrawingUnits.name(insUnits: drawing.insUnits),
                     mmPerUnit: loaded.mmPerUnit),

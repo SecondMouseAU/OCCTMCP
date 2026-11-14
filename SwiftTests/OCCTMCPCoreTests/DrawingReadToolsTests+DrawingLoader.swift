@@ -7,6 +7,7 @@ import CryptoKit
 import Foundation
 import MCP
 @testable import OCCTMCPCore
+import OCCTSwiftIO
 import Testing
 
 extension DrawingReadToolsTests {
@@ -93,6 +94,54 @@ extension DrawingReadToolsTests {
         #expect(!r.text.contains("supported formats"), "\(r.text)")
     }
 
+    @Test("the format is told from the bytes, not the file name")
+    func formatFromTheBytes() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let plate = try Data(contentsOf: Self.plateDirectory.appendingPathComponent("plate.dxf"))
+        for name in ["plot.txt", "no-extension", "mislabelled.dwg"] {
+            let url = dir.appendingPathComponent(name)
+            try plate.write(to: url)
+            let r = try json(await call("read_drawing", ["inputPath": .string(url.path)]))
+            let source = try #require(r["source"] as? [String: Any])
+            #expect(source["format"] as? String == "dxf", "\(name)")
+            #expect(r["entityCount"] as? Int == 5, "\(name)")
+        }
+    }
+
+    @Test(
+        "a file that cannot be opened says why, in words",
+        .enabled(if: getuid() != 0, "a superuser can read a file with no permissions"))
+    func unreadableFile() async throws {
+        let dir = try makeDirectory()
+        let url = dir.appendingPathComponent("locked.dxf")
+        try Data("0\nEOF\n".utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let r = await call("read_drawing", ["inputPath": .string(url.path)])
+        #expect(r.isError && r.text.contains("permission"), "\(r.text)")
+        #expect(!r.text.contains("NSCocoaErrorDomain"), "a raw error dump: \(r.text)")
+    }
+
+    @Test("what a reader skips without saying which layer is counted by type alone")
+    func skippedWithoutLayers() {
+        // A DWG's skipped entities have no layer (SwiftDWG writes them as bare records).
+        let warnings = [
+            DrawingWarning(kind: .skippedEntities, type: "ATTDEF", count: 5, message: "attdef"),
+            DrawingWarning(
+                kind: .skippedEntities, type: "SOLID", layer: "FILL", count: 2, message: "solid"),
+            DrawingWarning(kind: .missingBlock, type: "X", count: 9, message: "not skipped"),
+        ]
+        let skipped = DrawingFile.skipped(from: warnings)
+        #expect(skipped.total == 7)
+        #expect(skipped.byType == ["ATTDEF": 5, "SOLID": 2])
+        #expect(skipped.byLayer == ["FILL": ["SOLID": 2]], "ATTDEF has no layer to be under")
+    }
+
     // ── handles ─────────────────────────────────────────────────────────
 
     @Test("an entity carries its DXF handle and its place in the file, in a DXF and in a DWG")
@@ -149,7 +198,7 @@ extension DrawingReadToolsTests {
         let skipped = try #require(expanded["skipped"] as? [String: Any])
         #expect(skipped["total"] as? Int == 0, "an expanded INSERT is not skipped: \(skipped)")
         #expect(
-            expanded["options"] as? [String: Bool] == [
+            (expanded["source"] as? [String: Any])?["options"] as? [String: Bool] == [
                 "expandBlocks": true, "skipPaperSpace": false,
             ])
         let circles = try await entities(["types": ["circle"]], path).all
@@ -172,7 +221,9 @@ extension DrawingReadToolsTests {
         let flatWarnings = try #require(flat["warnings"] as? [String])
         #expect(flatWarnings.contains { $0.contains("not expanded") }, "\(flatWarnings)")
         #expect(
-            flat["options"] as? [String: Bool] == ["expandBlocks": false, "skipPaperSpace": false])
+            (flat["source"] as? [String: Any])?["options"] as? [String: Bool] == [
+                "expandBlocks": false, "skipPaperSpace": false,
+            ])
 
         // Every tool's source reference carries the options the ids were made under.
         let listed = try json(
@@ -212,7 +263,7 @@ extension DrawingReadToolsTests {
             await call("read_drawing", ["inputPath": .string(path), "skipPaperSpace": true]))
         #expect(modelOnly["entityCount"] as? Int == 1)
         #expect(
-            modelOnly["options"] as? [String: Bool] == [
+            (modelOnly["source"] as? [String: Any])?["options"] as? [String: Bool] == [
                 "expandBlocks": true, "skipPaperSpace": true,
             ])
         let listed = try json(
@@ -362,6 +413,126 @@ extension DrawingReadToolsTests {
         let box = try #require(record["bounds"] as? [String: Any])
         #expect(near(numbers(box["min"]), [0, 0, 0], tol: 1e-9), "\(String(describing: box))")
         #expect(near(numbers(box["max"]), [10, 5, 0], tol: 1e-9), "\(String(describing: box))")
+    }
+
+    @Test(
+        "a hatch lists a bulged polyline path, an ellipse edge and a spline edge, with their bounds"
+    )
+    func hatchEdgeKinds() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // A two-vertex path whose first segment has bulge 1: the semicircle below (0, 0) to (10, 0).
+        f.add(
+            "bulged", "HATCH", layer: "H",
+            [
+                (2, "X"), (70, "0"), (91, "1"), (92, "3"), (72, "1"), (73, "1"), (93, "2"),
+                (10, "0"), (20, "0"), (42, "1"), (10, "10"), (20, "0"), (42, "0"), (97, "0"),
+            ])
+        // An ellipse edge: centre (5, 0), major axis (4, 0), ratio 0.25, a full turn.
+        f.add(
+            "ellipse", "HATCH", layer: "H",
+            [
+                (2, "X"), (70, "0"), (91, "1"), (92, "1"), (93, "1"), (72, "3"), (10, "5"),
+                (20, "0"), (11, "4"), (21, "0"), (40, "0.25"), (50, "0"), (51, "360"), (73, "1"),
+                (97, "0"),
+            ])
+        // A cubic Bezier spline edge from (0, 0) over (3, 4) and (7, 4) to (10, 0): it peaks at y = 3.
+        f.add(
+            "spline", "HATCH", layer: "H",
+            [
+                (2, "X"), (70, "0"), (91, "1"), (92, "1"), (93, "1"), (72, "4"), (94, "3"),
+                (73, "0"), (74, "0"), (95, "8"), (96, "4"),
+            ]
+                + [0, 0, 0, 0, 1, 1, 1, 1].map { (40, "\($0)") }
+                + [
+                    (10, "0"), (20, "0"), (10, "3"), (20, "4"), (10, "7"), (20, "4"), (10, "10"),
+                    (20, "0"), (97, "0"),
+                ])
+        let all = try await entities([:], try f.write(to: dir)).all
+        func record(_ name: String) throws -> [String: Any] {
+            try #require(all.first { $0["id"] as? String == f.id(name) }, "no \(name)")
+        }
+        func path(_ record: [String: Any]) throws -> [String: Any] {
+            try #require((record["boundaryPaths"] as? [[String: Any]])?.first)
+        }
+
+        let bulged = try record("bulged")
+        let bulgedPath = try path(bulged)
+        #expect(
+            bulgedPath["kind"] as? String == "polyline" && bulgedPath["closed"] as? Bool == true)
+        #expect(numbers(bulgedPath["bulges"]) == [1, 0], "\(String(describing: bulgedPath))")
+        let bulgedBox = try #require(bulged["bounds"] as? [String: Any])
+        #expect(near(numbers(bulgedBox["min"]), [0, -5, 0], tol: 1e-9), "\(bulgedBox)")
+        #expect(near(numbers(bulgedBox["max"]), [10, 0, 0], tol: 1e-9), "\(bulgedBox)")
+
+        let ellipse = try record("ellipse")
+        let edge = try #require((try path(ellipse)["edges"] as? [[String: Any]])?.first)
+        #expect(edge["type"] as? String == "ellipse" && edge["ratio"] as? Double == 0.25)
+        #expect(
+            near(numbers(edge["center"]), [5, 0, 0]) && near(numbers(edge["majorAxis"]), [4, 0, 0]))
+        let ellipseBox = try #require(ellipse["bounds"] as? [String: Any])
+        #expect(near(numbers(ellipseBox["min"]), [1, -1, 0]), "\(ellipseBox)")
+        #expect(near(numbers(ellipseBox["max"]), [9, 1, 0]), "\(ellipseBox)")
+
+        let spline = try record("spline")
+        let splineEdge = try #require((try path(spline)["edges"] as? [[String: Any]])?.first)
+        #expect(splineEdge["type"] as? String == "spline" && splineEdge["degree"] as? Int == 3)
+        #expect(numbers(splineEdge["knots"]) == [0, 0, 0, 0, 1, 1, 1, 1])
+        #expect((splineEdge["controlPoints"] as? [Any])?.count == 4)
+        let splineBox = try #require(spline["bounds"] as? [String: Any])
+        #expect(near(numbers(splineBox["min"]), [0, 0, 0], tol: 5e-3), "\(splineBox)")
+        #expect(near(numbers(splineBox["max"]), [10, 3, 0], tol: 5e-3), "\(splineBox)")
+    }
+
+    @Test("a dimension that came out of a block names its reference and block")
+    func dimensionInABlock() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.blocks = [
+            (0, "BLOCK"), (8, "0"), (2, "FASTENER"), (70, "0"), (10, "0"), (20, "0"), (30, "0"),
+            (3, "FASTENER"),
+            (0, "DIMENSION"), (5, "B7"), (8, "0"), (70, "1"), (42, "-1"), (11, "5"), (21, "-2"),
+            (31, "0"), (10, "0"), (20, "-2"), (30, "0"), (13, "0"), (23, "0"), (33, "0"),
+            (14, "10"), (24, "0"), (34, "0"),
+            (0, "ENDBLK"), (8, "0"),
+        ]
+        f.add(
+            nil, "INSERT", layer: "BLOCKS",
+            [(5, "8E"), (2, "FASTENER"), (10, "0"), (20, "50"), (30, "0")])
+        let r = try json(
+            await call("list_drawing_dimensions", ["inputPath": .string(try f.write(to: dir))]))
+        let record = try #require((r["dimensions"] as? [[String: Any]])?.first)
+        #expect(
+            record["via"] as? [String] == ["8E"] && record["blocks"] as? [String] == ["FASTENER"])
+        #expect(record["handle"] as? String == "B7", "its own handle, inside the block")
+        #expect(record["valueFromPoints"] as? Double == 10, "a translation keeps the length")
+    }
+
+    @Test("a hatch's island is not its external boundary, whichever way the path is written")
+    func hatchIslands() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // Three paths: an external polyline (flags 3), a polyline island (flags 2) and an edge
+        // island (flags 0, no external bit).
+        f.add(
+            "ring", "HATCH", layer: "H",
+            [
+                (2, "X"), (70, "0"), (91, "3"),
+                (92, "3"), (72, "0"), (73, "1"), (93, "3"), (10, "0"), (20, "0"), (10, "10"),
+                (20, "0"), (10, "10"), (20, "10"), (97, "0"),
+                (92, "2"), (72, "0"), (73, "1"), (93, "3"), (10, "2"), (20, "2"), (10, "4"),
+                (20, "2"), (10, "4"), (20, "4"), (97, "0"),
+                (92, "0"), (93, "2"), (72, "1"), (10, "6"), (20, "6"), (11, "8"), (21, "6"),
+                (72, "1"), (10, "8"), (20, "6"), (11, "8"), (21, "8"), (97, "0"),
+            ])
+        let all = try await entities([:], try f.write(to: dir)).all
+        let hatch = try #require(all.first { $0["id"] as? String == f.id("ring") })
+        let paths = try #require(hatch["boundaryPaths"] as? [[String: Any]])
+        #expect(paths.map { $0["external"] as? Bool } == [true, false, false], "\(paths)")
+        #expect(paths.map { $0["kind"] as? String } == ["polyline", "polyline", "edges"])
     }
 
     @Test("a leader lists its path and arrowhead, and is measured along its segments")

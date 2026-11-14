@@ -54,17 +54,18 @@ result.
 - **What the reader skips is reported, not hidden.** An entity type SwiftDXF does not model (`SOLID`,
   `3DFACE` and so on) is counted in `skipped`, by type and, where the format says, by layer. A DWG
   counts its skipped entities without their layer, so they are in `byType` and `total` but not in
-  `byLayer`. An `INSERT` is not an entity, so SwiftDXF counts it as skipped; once its block is
-  expanded it is left out of `skipped` (the geometry it places is in the entity list), and a block
-  the file does not define is a warning instead. SwiftDXF counts an `INSERT`'s `ATTRIB` records as
-  skipped entities of their own, so a block insert with attributes shows the attributes.
+  `byLayer`. An `INSERT` is not an entity, so SwiftDXF counts it as skipped until its block is
+  expanded and then takes it out itself: an `INSERT` that is still in `skipped` was not expanded
+  (`expandBlocks` is false, the file does not define its block, or the expansion limit stopped
+  short), and a warning says which. SwiftDXF counts an `INSERT`'s `ATTRIB` records as skipped
+  entities of their own, so a block insert with attributes shows the attributes.
 - **A hatch is not measurable**, and a spline leader is measured along its straight segments; see
   [`measure_drawing`](#measure_drawing).
 
 ## Read options
 
-Every tool takes both, and every result echoes them under `source.options` (`read_drawing` also at
-the top), because the entity ids depend on them.
+Every tool takes both, and every result echoes them under `source.options`, because the entity ids
+depend on them.
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
@@ -100,14 +101,14 @@ here.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `inputPath` | string | yes | Absolute path of the DXF file. |
+| `inputPath` | string | yes | Absolute path of the DXF, DWG or JWW file. |
 
 **Returns**: `entityCount`, `byType`, `layers` (each with its name, total and counts by type),
 `units` (`insUnits`, `name`, `mmPerUnit`), `extents` (`declared` from the header's `$EXTMIN` /
 `$EXTMAX`, `computed` from the entities, which can differ when an editor left the header stale),
 `source` (`path`, `fileName`, `bytes`, `sha256`, `format` (`dxf`, `dwg` or `jww`), `dxfVersion` (a
 DXF's `$ACADVER`), `formatVersion` (the format's own version: `$ACADVER`, the DWG version code,
-the JWW file version), `reader`, `readerVersion`), `options`, `skipped` (`total`, `byType`,
+the JWW file version), `reader`, `readerVersion`, `options`), `skipped` (`total`, `byType`,
 `byLayer`) and `warnings`. `warnings` carries the loader's own messages (missing or cyclic blocks,
 paper space, entities that a non-uniform scale could not carry, a DWG's unreadable entities) as well
 as the tool's (an empty drawing, no usable units).
@@ -132,13 +133,14 @@ as the tool's (an empty drawing, no usable units).
     "declared": { "min": [0, 0, 0], "max": [60, 40, 0] },
     "computed": { "min": [0, -4, 0], "max": [33, 23, 0] }
   },
-  "skipped": { "total": 1, "byType": { "INSERT": 1 }, "byLayer": { "BLOCKS": { "INSERT": 1 } } },
+  "skipped": { "total": 1, "byType": { "SOLID": 1 }, "byLayer": { "FILL": { "SOLID": 1 } } },
   "source": {
     "fileName": "slot.dxf", "bytes": 410, "format": "dxf", "dxfVersion": "AC1027",
     "formatVersion": "AC1027", "readerVersion": "0.4",
+    "options": { "expandBlocks": true, "skipPaperSpace": false },
     "sha256": "5c9c59756de36f6cddd4c027d7eb956005d7d19ca3935f0737cf51b6e2f6f9a2"
   },
-  "warnings": ["1 block insert(s) are not expanded, so the geometry they place is missing from the entity list.", "1 entity record(s) were skipped; see `skipped`."]
+  "warnings": ["1 entity record(s) were skipped; see `skipped`."]
 }
 ```
 
@@ -153,7 +155,7 @@ sheet.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `inputPath` | string | yes | Absolute path of the DXF file. |
+| `inputPath` | string | yes | Absolute path of the DXF, DWG or JWW file. |
 | `types` | string[] | no | Any of `line`, `circle`, `arc`, `ellipse`, `point`, `text`, `polyline`, `spline`, `hatch`, `leader`, `dimension`. |
 | `layers` | string[] | no | Layer names to keep. |
 | `rect` | number[4] | no | `[xmin, ymin, xmax, ymax]` on the sheet, in drawing units. |
@@ -214,7 +216,7 @@ Every `DIMENSION` in the drawing, with its value and the points that define it.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `inputPath` | string | yes | Absolute path of the DXF file. |
+| `inputPath` | string | yes | Absolute path of the DXF, DWG or JWW file. |
 | `layers` | string[] | no | Layer names to keep. |
 | `kinds` | string[] | no | Any of `linear`, `aligned`, `angular`, `diameter`, `radius`, `angular3Point`, `ordinate`. |
 | `limit` | integer | no | Page size, default 500, at most 5000. |
@@ -279,7 +281,7 @@ Distance, angle or radius between named entities or points.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `inputPath` | string | yes | Absolute path of the DXF file. |
+| `inputPath` | string | yes | Absolute path of the DXF, DWG or JWW file. |
 | `measure` | string | yes | `distance`, `angle` or `radius`. |
 | `a` | string or number[] | for all | An entity id such as `"e12"`, or a point `[x, y]` or `[x, y, z]`. |
 | `b` | string or number[] | `distance`, `angle` | The same. |

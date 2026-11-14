@@ -260,17 +260,20 @@ struct DrawingReadToolsTests {
             near(numbers(computed["max"]), [110, 60, 0]), "\(String(describing: computed["max"]))")
 
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["total"] as? Int == 2)
-        #expect(skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1])
+        // The two INSERTs name a block the file does not define, so nothing was expanded and they
+        // are still skipped; the loader's warning comes through beside them.
+        #expect(skipped["total"] as? Int == 4)
+        #expect(
+            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
         let skippedByLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
         #expect(skippedByLayer["FILL"] == ["SOLID": 1])
         #expect(skippedByLayer["MESH"] == ["3DFACE": 1])
-        #expect(skippedByLayer["BLOCKS"] == nil, "an INSERT is not skipped once expanded")
-        // The two INSERTs name a block the file does not define: the loader's warning comes through.
+        #expect(skippedByLayer["BLOCKS"] == ["INSERT": 2])
         let warnings = try #require(r["warnings"] as? [String])
         #expect(warnings.contains { $0.contains("FASTENER") }, "\(warnings)")
-        let options = try #require(r["options"] as? [String: Bool])
-        #expect(options == ["expandBlocks": true, "skipPaperSpace": false])
+        let optionsEchoed = try #require((r["source"] as? [String: Any])?["options"])
+        #expect(
+            optionsEchoed as? [String: Bool] == ["expandBlocks": true, "skipPaperSpace": false])
 
         let source = try #require(r["source"] as? [String: Any])
         let bytes = try Data(contentsOf: URL(fileURLWithPath: path))
@@ -292,7 +295,7 @@ struct DrawingReadToolsTests {
                 "read_drawing", ["inputPath": .string(try DrawingFixture.tSlot().write(to: dir))]))
         let skipped = try #require(r["skipped"] as? [String: Any])
         let byType = try #require(skipped["byType"] as? [String: Int])
-        #expect(byType == ["SOLID": 1, "3DFACE": 1], "\(byType)")
+        #expect(byType == ["SOLID": 1, "3DFACE": 1, "INSERT": 2], "\(byType)")
         #expect(byType["SPLINE"] == nil, "a modelled SPLINE was counted as skipped too: \(byType)")
         let byLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
         #expect(byLayer["CURVES"] == nil, "\(byLayer)")
@@ -356,7 +359,8 @@ struct DrawingReadToolsTests {
             await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
         #expect(r["entityCount"] as? Int == 23)
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1])
+        #expect(
+            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
         let layers = try #require(r["layers"] as? [[String: Any]])
         #expect(
             layers.compactMap { $0["name"] as? String }.contains("OUTLINE"), "layer names kept a CR"
@@ -409,8 +413,8 @@ struct DrawingReadToolsTests {
         #expect(missing.isError && missing.text.contains("not found"), "\(missing.text)")
 
         for (name, needle) in [
-            ("plate.dwg", "not a DWG"), ("plate.jww", "plate.jww"),
-            ("plate.pdf", "supported formats: dxf, dwg, jww"),
+            ("plate.dwg", "not a DWG"), ("plate.jww", "truncated"),
+            ("plate.pdf", "not a DXF, DWG or JWW"),
         ] {
             let path = dir.appendingPathComponent(name).path
             try Data("x".utf8).write(to: URL(fileURLWithPath: path))
@@ -1068,11 +1072,11 @@ struct DrawingReadToolsTests {
         let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
         #expect(r["entityCount"] as? Int == 1)
         // SwiftDXF reports `Drawing.skipped` itself, and counts an INSERT's ATTRIB records as skipped
-        // entities of their own. The INSERT is not counted once blocks are expanded (its block
-        // TITLE is not defined here, which the loader reports as a missing block instead).
+        // entities of their own. The INSERT stays too: its block TITLE is not defined here, so
+        // nothing was expanded (the loader also reports a missing block).
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["total"] as? Int == 2, "\(skipped)")
-        #expect(skipped["byType"] as? [String: Int] == ["ATTRIB": 2], "\(skipped)")
+        #expect(skipped["total"] as? Int == 3, "\(skipped)")
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 1, "ATTRIB": 2], "\(skipped)")
         let entity = try #require(
             try await entities([:], path).all.first)
         #expect((entity["vertices"] as? [Any])?.count == 3 && entity["closed"] as? Bool == true)
@@ -1088,7 +1092,8 @@ struct DrawingReadToolsTests {
             await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
         #expect(r["entityCount"] as? Int == 23)
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1])
+        #expect(
+            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
     }
 
     @Test("filter arguments that are the wrong shape are refused, not ignored")
