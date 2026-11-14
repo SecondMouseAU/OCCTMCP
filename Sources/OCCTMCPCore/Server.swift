@@ -418,12 +418,7 @@ private func listedBuiltinTools() -> [Tool] {
                         "type": .string("array"),
                         "items": .object([
                             "type": .string("string"),
-                            "enum": .array(
-                                [
-                                    "line", "circle", "arc", "ellipse", "point", "text", "polyline",
-                                    "spline", "dimension",
-                                ]
-                                .map { .string($0) }),
+                            "enum": .array(DrawingEntities.typeNames.map { .string($0) }),
                         ]),
                     ]),
                     "layers": .object([

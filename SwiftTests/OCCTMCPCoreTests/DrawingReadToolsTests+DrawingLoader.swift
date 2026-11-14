@@ -277,6 +277,22 @@ extension DrawingReadToolsTests {
         #expect(properties["expandBlocks"] == nil, "a tool that reads no drawing")
     }
 
+    @Test("the catalog's entity types cover every type a drawing produces")
+    func catalogTypesCoverEveryEntity() async throws {
+        // A client that checks arguments against the advertised schema must be able to ask for each.
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let tools = catalogTools()
+        let tool = try #require(tools.first(where: { $0.name == "list_drawing_entities" }))
+        let properties = try #require(tool.inputSchema.objectValue?["properties"]?.objectValue)
+        let items = try #require(properties["types"]?.objectValue?["items"]?.objectValue)
+        let advertised = try #require(items["enum"]?.arrayValue).compactMap { $0.stringValue }
+        let all = try await entities([:], try DrawingFixture.tSlot().write(to: dir)).all
+        let produced = Set(all.compactMap { $0["type"] as? String })
+        #expect(produced.isSuperset(of: ["hatch", "leader", "spline", "dimension", "line"]))
+        #expect(produced.subtracting(advertised).isEmpty, "\(produced.subtracting(advertised))")
+    }
+
     @Test("a dimension reports its oblique angle, its style and its rotation")
     func dimensionStyleAndAngles() async throws {
         let dir = try makeDirectory()
