@@ -120,7 +120,8 @@ struct DrawingFixture {
         func dim(
             _ name: String, type: Int, value: Double, text: String? = nil, textAt: (Double, Double),
             def: (Double, Double), p13: (Double, Double)? = nil, p14: (Double, Double)? = nil,
-            p15: (Double, Double)? = nil, p16: (Double, Double)? = nil, rotation: Double? = nil
+            p15: (Double, Double)? = nil, p16: (Double, Double)? = nil, rotation: Double? = nil,
+            handle: String? = nil
         ) {
             var g: [(Int, String)] = [
                 (70, "\(type)"), (42, "\(value)"), (11, "\(textAt.0)"), (21, "\(textAt.1)"),
@@ -128,6 +129,7 @@ struct DrawingFixture {
             ]
             if let text { g.append((1, text)) }
             if let rotation { g.append((50, "\(rotation)")) }
+            if let handle { g.append((5, handle)) }
             for (base, p) in [(13, p13), (14, p14), (15, p15), (16, p16)] {
                 if let p { g += [(base, "\(p.0)"), (base + 10, "\(p.1)"), (base + 20, "0")] }
             }
@@ -135,7 +137,7 @@ struct DrawingFixture {
         }
         dim(
             "dimWidth", type: 0, value: 100, textAt: (50, -10), def: (0, -10), p13: (0, 0),
-            p14: (100, 0))
+            p14: (100, 0), handle: "D1")
         dim(
             "dimHeight", type: 0, value: 50, textAt: (110, 25), def: (110, 0), p13: (100, 0),
             p14: (100, 50), rotation: 90)
@@ -645,7 +647,8 @@ struct DrawingReadToolsTests {
         #expect(width["rotationDeg"] == nil, "no rotation in the file means horizontal")
         // Each carries where it is in the file, so it can be found again after an edit.
         #expect((width["locator"] as? String)?.hasPrefix("ENTITIES:") == true)
-        #expect(width["handle"] == nil, "the synthetic file has no handles")
+        #expect(width["handle"] as? String == "D1", "a dimension carries its handle too")
+        #expect(height["handle"] == nil, "and none where the file wrote none")
 
         let slot = try #require(list.first { $0["id"] as? String == fixture.id("dimSlot") })
         #expect(slot["text"] as? String == "8 H7")

@@ -174,6 +174,14 @@ extension DrawingReadToolsTests {
         #expect(
             flat["options"] as? [String: Bool] == ["expandBlocks": false, "skipPaperSpace": false])
 
+        // Every tool's source reference carries the options the ids were made under.
+        let listed = try json(
+            await call(
+                "list_drawing_entities", ["inputPath": .string(path), "expandBlocks": false]))
+        let ref = try #require(listed["source"] as? [String: Any])
+        #expect(
+            ref["options"] as? [String: Bool] == ["expandBlocks": false, "skipPaperSpace": false])
+
         // The two reads of one file do not answer each other from the cache.
         let again = try json(await call("read_drawing", ["inputPath": .string(path)]))
         #expect(again["entityCount"] as? Int == 3)
@@ -249,6 +257,44 @@ extension DrawingReadToolsTests {
                     "\(tool) \(setting): \(refused.text)")
             }
         }
+    }
+
+    @Test("the catalog offers the read settings on all four tools, and nowhere else")
+    func catalogOffersTheReadSettings() throws {
+        let tools = catalogTools()
+        for name in [
+            "read_drawing", "list_drawing_entities", "list_drawing_dimensions", "measure_drawing",
+        ] {
+            let tool = try #require(tools.first { $0.name == name }, "\(name)")
+            let properties = try #require(tool.inputSchema.objectValue?["properties"]?.objectValue)
+            for setting in ["expandBlocks", "skipPaperSpace"] {
+                let schema = try #require(properties[setting]?.objectValue, "\(name) \(setting)")
+                #expect(schema["type"]?.stringValue == "boolean", "\(name) \(setting)")
+            }
+        }
+        let other = try #require(tools.first { $0.name == "get_scene" })
+        let properties = try #require(other.inputSchema.objectValue?["properties"]?.objectValue)
+        #expect(properties["expandBlocks"] == nil, "a tool that reads no drawing")
+    }
+
+    @Test("a dimension reports its oblique angle, its style and its rotation")
+    func dimensionStyleAndAngles() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        f.add(
+            "styled", "DIMENSION", layer: "D",
+            [
+                (70, "0"), (42, "10"), (11, "5"), (21, "-2"), (31, "0"), (10, "0"), (20, "-2"),
+                (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "10"), (24, "0"), (34, "0"),
+                (50, "0"), (52, "15"), (3, "ISO-25"),
+            ])
+        let r = try json(
+            await call("list_drawing_dimensions", ["inputPath": .string(try f.write(to: dir))]))
+        let record = try #require((r["dimensions"] as? [[String: Any]])?.first)
+        #expect(record["styleName"] as? String == "ISO-25")
+        #expect(record["obliqueAngleDeg"] as? Double == 15)
+        #expect(record["rotationDeg"] as? Double == 0, "a stated rotation of 0 is stated")
     }
 
     // ── hatches and leaders ─────────────────────────────────────────────
