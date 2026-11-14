@@ -25,8 +25,8 @@ enum DrawingEntities {
         return n
     }
 
-    // `DXF.Entity` gains cases when SwiftDXF does (0.3.0 added `spline`, 0.4.0 adds `hatch` and
-    // `leader`), so every switch over it ends in `@unknown default`: a build that resolves a newer
+    // `DXF.Entity` gains cases when SwiftDXF does (0.3.0 added `spline`, 0.4.0 `hatch` and `leader`),
+    // so every switch over it ends in `@unknown default`: a build that resolves a newer
     // SwiftDXF compiles, and reads an entity it has no mapping for as type `other`, with no layer,
     // colour, bounds or geometry (nothing is made up), and `read_drawing` warns about it.
 
@@ -40,6 +40,8 @@ enum DrawingEntities {
         case .text: return "text"
         case .polyline: return "polyline"
         case .spline: return "spline"
+        case .hatch: return "hatch"
+        case .leader: return "leader"
         case .dimension: return "dimension"
         @unknown default: return "other"
         }
@@ -47,7 +49,8 @@ enum DrawingEntities {
 
     /// The type names in the order the tools list them.
     static let typeNames = [
-        "line", "circle", "arc", "ellipse", "point", "text", "polyline", "spline", "dimension",
+        "line", "circle", "arc", "ellipse", "point", "text", "polyline", "spline", "hatch",
+        "leader", "dimension",
     ]
 
     /// The entity's layer, nil for an entity this build has no mapping for (it is not made up).
@@ -59,6 +62,10 @@ enum DrawingEntities {
             return layer
         case .spline(let spline):
             return spline.layer
+        case .hatch(let hatch):
+            return hatch.layer
+        case .leader(let leader):
+            return leader.layer
         case .dimension(let d):
             return d.layer
         @unknown default:
@@ -75,6 +82,10 @@ enum DrawingEntities {
             return color
         case .spline(let spline):
             return spline.color
+        case .hatch(let hatch):
+            return hatch.color
+        case .leader(let leader):
+            return leader.color
         case .dimension(let d):
             return d.color
         @unknown default:
@@ -201,6 +212,77 @@ enum DrawingEntities {
         return distance(box.min, box.max)
     }
 
+    /// Tight bounds of a polyline: its vertices and the arc each bulged segment follows.
+    static func polylineBounds(_ vertices: [DXF.PolyVertex], closed: Bool) -> Bounds? {
+        guard let first = vertices.first else { return nil }
+        var box = Bounds(first.point)
+        for v in vertices { box.include(v.point) }
+        let count = vertices.count
+        if count >= 2 {
+            for i in 0..<(closed ? count : count - 1) {
+                let a = vertices[i]
+                let b = vertices[(i + 1) % count]
+                if let arc = bulgeArc(from: a.point, to: b.point, bulge: a.bulge) {
+                    include(
+                        arc: arc.center, radius: arc.radius, start: arc.start, end: arc.end,
+                        into: &box)
+                }
+            }
+        }
+        return box
+    }
+
+    /// Bounds of a hatch: the union of its boundary paths, by the same rules as the entities they
+    /// are made of (an arc is tight, an ellipse takes its whole ellipse, a spline follows its curve).
+    ///
+    /// SwiftDXF keeps the equivalent private, and its own is a conservative box.
+    private static func hatchBounds(_ hatch: DXF.Hatch) -> Bounds? {
+        var union: Bounds?
+        func add(_ box: Bounds?) {
+            guard let box else { return }
+            if union == nil {
+                union = box
+            } else {
+                union?.include(box.min)
+                union?.include(box.max)
+            }
+        }
+        for path in hatch.paths {
+            switch path.geometry {
+            case .polyline(let vertices, let closed):
+                add(polylineBounds(vertices, closed: closed))
+            case .edges(let edges):
+                for edge in edges {
+                    switch edge {
+                    case .line(let a, let b):
+                        var box = Bounds(DXF.Point(a.x, a.y, 0))
+                        box.include(DXF.Point(b.x, b.y, 0))
+                        add(box)
+                    case .arc(let center, let radius, let startDeg, let endDeg, _):
+                        let start = startDeg * .pi / 180
+                        let end = start + sweepDeg(startDeg: startDeg, endDeg: endDeg) * .pi / 180
+                        let c = DXF.Point(center.x, center.y, 0)
+                        var box = Bounds(
+                            DXF.Point(c.x + radius * cos(start), c.y + radius * sin(start), 0))
+                        include(arc: c, radius: radius, start: start, end: end, into: &box)
+                        add(box)
+                    case .ellipse(let center, let major, let ratio, _, _, _):
+                        let nx = -major.y * ratio
+                        let ny = major.x * ratio
+                        let ex = (major.x * major.x + nx * nx).squareRoot()
+                        let ey = (major.y * major.y + ny * ny).squareRoot()
+                        var box = Bounds(DXF.Point(center.x - ex, center.y - ey, 0))
+                        box.include(DXF.Point(center.x + ex, center.y + ey, 0))
+                        add(box)
+                    case .spline(let spline):
+                        add(splineBounds(spline))
+                    }
+                }
+            }
+        }
+        return union
+    }
+
     /// The tolerance a spline is flattened to, for its bounds and for measuring it as chords: a
     /// ten-thousandth of its size.
     static func splineTolerance(_ spline: DXF.Spline) -> Double {
@@ -257,24 +339,17 @@ enum DrawingEntities {
         case .text(let p, _, _, _, _, _):
             return Bounds(p)
         case .polyline(let vertices, let closed, _, _):
-            guard let first = vertices.first else { return nil }
-            var box = Bounds(first.point)
-            for v in vertices { box.include(v.point) }
-            let count = vertices.count
-            if count >= 2 {
-                for i in 0..<(closed ? count : count - 1) {
-                    let a = vertices[i]
-                    let b = vertices[(i + 1) % count]
-                    if let arc = bulgeArc(from: a.point, to: b.point, bulge: a.bulge) {
-                        include(
-                            arc: arc.center, radius: arc.radius, start: arc.start, end: arc.end,
-                            into: &box)
-                    }
-                }
-            }
-            return box
+            return polylineBounds(vertices, closed: closed)
         case .spline(let spline):
             return splineBounds(spline)
+        case .hatch(let hatch):
+            return hatchBounds(hatch)
+        case .leader(let leader):
+            // The vertices' box: a spline leader curves between them and can leave it by a little.
+            guard let first = leader.vertices.first else { return nil }
+            var box = Bounds(first)
+            for vertex in leader.vertices { box.include(vertex) }
+            return box
         case .dimension(let d):
             var box = Bounds(d.defPoint)
             box.include(d.textPosition)

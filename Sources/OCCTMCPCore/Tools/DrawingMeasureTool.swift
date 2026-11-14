@@ -194,6 +194,22 @@ extension DrawingReadTools {
                     + "not be built from its control data, so the distance to it is accurate to "
                     + "that error, not exact."
             }
+        case .leader(let leader):
+            // A leader runs straight between its vertices; a spline leader curves through them.
+            let points = leader.vertices
+            if points.count == 1 { add(Shape.vertex(at: simd(points[0]))) }
+            for (a, b) in zip(points, points.dropFirst()) where a != b {
+                add(Shape.edgeFromPoints(simd(a), simd(b)))
+            }
+            if leader.isSpline {
+                approximation =
+                    "A spline leader is measured along the straight segments between its vertices, "
+                    + "so the distance to it is accurate to how far it curves, not exact."
+            }
+        case .hatch:
+            throw MeasureError(
+                "A hatch has no single edge to measure; measure the entities that bound it, or "
+                    + "pass its boundary points from list_drawing_entities as points.")
         case .point(let p, _, _):
             add(Shape.vertex(at: simd(p)))
         case .text:
@@ -283,13 +299,13 @@ extension DrawingReadTools {
 
     public static func measureDrawing(
         inputPath: String, measure: String, a: Value?, b: Value?, vertex: Value?,
-        mmPerUnit override: Double?
+        mmPerUnit override: Double?, settings: ReadSettings = ReadSettings()
     ) async -> ToolText {
         if let override, !(override > 0 && override.isFinite) {
             return .init("`mmPerUnit` must be a positive number.", isError: true)
         }
         let loaded: LoadedDrawing
-        switch await load(inputPath) {
+        switch await load(inputPath, settings: settings) {
         case .loaded(let value): loaded = value
         case .failed(let failure): return failure
         }

@@ -48,8 +48,10 @@ public enum DrawingReadTools {
         /// An angle's unit is not declared in the file.
         let valueUnit: String
         let valueMm: Double?
-        /// The length between the dimension's own definition points, for an aligned, radius or
-        /// diameter dimension; nil for the other kinds.
+        /// The measurement the dimension's own geometry gives (SwiftDXF's `computedMeasurement`):
+        /// the distance between the extension-line origins along the dimension's rotation for a
+        /// linear one, between them for an aligned one, between the two ends of a radius or
+        /// diameter. Nil for an angular or ordinate dimension.
         ///
         /// It is a check on `value` (a stale or overridden dimension disagrees with its geometry)
         /// and the only value when the file omits group 42, which ezdxf says is common.
@@ -61,6 +63,57 @@ public enum DrawingReadTools {
         let definitionPoints: [DefinitionPoint]
         let layer: String
         let color: Int
+        /// A linear dimension's measuring direction in degrees, absent when the file omits it,
+        /// which means horizontal.
+        let rotationDeg: Double?
+        /// The oblique angle of the extension lines in degrees, absent when the file omits it.
+        let obliqueAngleDeg: Double?
+        /// The dimension style's name, absent when the file names none.
+        let styleName: String?
+        /// The DXF handle (group 5), absent when the file has none. It survives an edit that moves
+        /// entities, which the id does not.
+        let handle: String?
+        /// Section and position, such as `ENTITIES:12`, present even when the file has no handles.
+        let locator: String
+        /// The block references an expanded dimension came through, outermost first; absent for one
+        /// that is where the file put it.
+        let via: [String]?
+        /// The names of those blocks.
+        let blocks: [String]?
+    }
+
+    /// One boundary path of a hatch.
+    struct HatchPathRecord: Encodable {
+        /// Whether it is the outer boundary; a path that is not is an island or a hole.
+        let external: Bool
+        /// `polyline` (vertices with bulges) or `edges` (a chain of lines, arcs, ellipse arcs and
+        /// splines).
+        let kind: String
+        var vertices: [[Double]]?
+        var bulges: [Double]?
+        var closed: Bool?
+        var edges: [HatchEdgeRecord]?
+    }
+
+    /// One edge of a hatch boundary path, in the drawing plane (z is 0).
+    struct HatchEdgeRecord: Encodable {
+        /// `line`, `arc`, `ellipse` or `spline`.
+        let type: String
+        var start: [Double]?
+        var end: [Double]?
+        var center: [Double]?
+        var radius: Double?
+        var startAngleDeg: Double?
+        var endAngleDeg: Double?
+        var majorAxis: [Double]?
+        var ratio: Double?
+        var startParam: Double?
+        var endParam: Double?
+        /// For an arc or an ellipse arc: whether the path travels it counter-clockwise.
+        var counterClockwise: Bool?
+        var degree: Int?
+        var controlPoints: [[Double]]?
+        var knots: [Double]?
     }
 
     struct EntityRecord: Encodable {
@@ -101,11 +154,32 @@ public enum DrawingReadTools {
         var knots: [Double]?
         var weights: [Double]?
         var fitPoints: [[Double]]?
+        /// A hatch's pattern name (`SOLID`, `ANSI31`), whether it is a solid fill, and its
+        /// boundaries. Only the boundary and the fill kind are read, not the hatch lines.
+        var patternName: String?
+        var solid: Bool?
+        var boundaryPaths: [HatchPathRecord]?
+        /// A leader's path is `vertices` from the arrowhead end; `splinePath` says it curves
+        /// through them, and `annotationHandle` names the text or block it is attached to.
+        var arrowhead: Bool?
+        var splinePath: Bool?
+        var annotationHandle: String?
+        var styleName: String?
         var dimension: DimensionRecord?
+        /// The DXF handle (group 5), absent when the file has none. It survives an edit that moves
+        /// entities, which the id does not.
+        var handle: String?
+        /// Section and position, such as `ENTITIES:12`, present even when the file has no handles.
+        var locator: String?
+        /// The block references an expanded entity came through, outermost first, each a handle or
+        /// a locator; absent for an entity that is where the file put it.
+        var via: [String]?
+        /// The names of those blocks.
+        var blocks: [String]?
     }
 
     static func dimensionRecord(
-        _ d: DXF.Dimension, id: String, mmPerUnit: Double?
+        _ d: DXF.Dimension, id: String, mmPerUnit: Double?, identity: DXF.Identity
     ) -> DimensionRecord {
         let kind: String
         switch d.kind {
@@ -144,17 +218,7 @@ public enum DrawingReadTools {
             points.append(
                 .init(group: 16, role: "dimensionArcLocation", point: DrawingEntities.xyz(p)))
         }
-        var fromPoints: Double?
-        switch d.kind {
-        case .aligned:
-            if let a = d.defPoint2, let b = d.defPoint3 {
-                fromPoints = DrawingEntities.distance(a, b)
-            }
-        case .radius, .diameter:
-            if let b = d.defPoint4 { fromPoints = DrawingEntities.distance(d.defPoint, b) }
-        default:
-            break
-        }
+        let fromPoints = d.computedMeasurement
         return DimensionRecord(
             id: id, kind: kind, valueKind: isAngle ? "angle" : "length", value: d.measurement,
             valueUnit: isAngle ? "as stored, not declared by DXF" : "drawing units",
@@ -164,18 +228,75 @@ public enum DrawingReadTools {
             // A text of exactly `<>` is DXF's "show the measured value": no override.
             text: d.textOverride == "<>" ? nil : d.textOverride,
             textPosition: DrawingEntities.xyz(d.textPosition),
-            definitionPoints: points, layer: d.layer, color: d.color)
+            definitionPoints: points, layer: d.layer, color: d.color, rotationDeg: d.rotation,
+            obliqueAngleDeg: d.obliqueAngle, styleName: d.styleName, handle: identity.handle,
+            locator: identity.locator, via: identity.via.isEmpty ? nil : identity.via,
+            blocks: identity.blocks.isEmpty ? nil : identity.blocks)
+    }
+
+    /// A hatch boundary path as numbers.
+    static func hatchPathRecord(_ path: DXF.Hatch.BoundaryPath) -> HatchPathRecord {
+        func xy(_ p: DXF.Point2) -> [Double] { [p.x, p.y, 0] }
+        switch path.geometry {
+        case .polyline(let vertices, let closed):
+            var record = HatchPathRecord(external: path.isExternal, kind: "polyline")
+            record.vertices = vertices.map { DrawingEntities.xyz($0.point) }
+            if vertices.contains(where: { $0.bulge != 0 }) { record.bulges = vertices.map(\.bulge) }
+            record.closed = closed
+            return record
+        case .edges(let edges):
+            var record = HatchPathRecord(external: path.isExternal, kind: "edges")
+            record.edges = edges.map { edge in
+                switch edge {
+                case .line(let a, let b):
+                    var out = HatchEdgeRecord(type: "line")
+                    out.start = xy(a)
+                    out.end = xy(b)
+                    return out
+                case .arc(let c, let r, let startDeg, let endDeg, let ccw):
+                    var out = HatchEdgeRecord(type: "arc")
+                    out.center = xy(c)
+                    out.radius = r
+                    out.startAngleDeg = startDeg
+                    out.endAngleDeg = endDeg
+                    out.counterClockwise = ccw
+                    return out
+                case .ellipse(let c, let m, let ratio, let startParam, let endParam, let ccw):
+                    var out = HatchEdgeRecord(type: "ellipse")
+                    out.center = xy(c)
+                    out.majorAxis = xy(m)
+                    out.ratio = ratio
+                    out.startParam = startParam
+                    out.endParam = endParam
+                    out.counterClockwise = ccw
+                    return out
+                case .spline(let spline):
+                    var out = HatchEdgeRecord(type: "spline")
+                    out.degree = spline.degree
+                    out.controlPoints = nonEmpty(spline.controlPoints.map(DrawingEntities.xyz))
+                    out.knots = nonEmpty(spline.knots)
+                    return out
+                }
+            }
+            return record
+        }
     }
 
     /// `values`, or nil when it is empty, so a record leaves out what the file does not have.
     private static func nonEmpty<T>(_ values: [T]) -> [T]? { values.isEmpty ? nil : values }
 
-    static func entityRecord(_ entity: DXF.Entity, index: Int, mmPerUnit: Double?) -> EntityRecord {
+    static func entityRecord(
+        _ entity: DXF.Entity, index: Int, mmPerUnit: Double?, identity: DXF.Identity
+    ) -> EntityRecord {
         let id = DrawingEntities.id(index)
         var record = EntityRecord(
             id: id, type: DrawingEntities.typeName(entity), layer: DrawingEntities.layer(entity),
             color: DrawingEntities.color(entity),
             bounds: DrawingEntities.bounds(of: entity).map(Box.init))
+        record.handle = identity.handle
+        record.locator = identity.locator
+        record.via = identity.via.isEmpty ? nil : identity.via
+        record.blocks = identity.blocks.isEmpty ? nil : identity.blocks
         switch entity {
         case .line(let a, let b, _, _):
             record.start = DrawingEntities.xyz(a)
@@ -225,8 +346,18 @@ public enum DrawingReadTools {
             record.knots = nonEmpty(spline.knots)
             record.weights = nonEmpty(spline.weights)
             record.fitPoints = nonEmpty(spline.fitPoints.map(DrawingEntities.xyz))
+        case .hatch(let hatch):
+            record.patternName = hatch.patternName
+            record.solid = hatch.isSolid
+            record.boundaryPaths = hatch.paths.map(hatchPathRecord)
+        case .leader(let leader):
+            record.vertices = leader.vertices.map(DrawingEntities.xyz)
+            record.arrowhead = leader.hasArrowhead
+            record.splinePath = leader.isSpline
+            record.annotationHandle = leader.annotationHandle
+            record.styleName = leader.styleName
         case .dimension(let d):
-            record.dimension = dimensionRecord(d, id: id, mmPerUnit: mmPerUnit)
+            record.dimension = dimensionRecord(d, id: id, mmPerUnit: mmPerUnit, identity: identity)
         @unknown default:
             break
         }
@@ -254,6 +385,66 @@ public enum DrawingReadTools {
     /// A bad argument, named.
     struct ArgumentError: Error, CustomStringConvertible {
         let description: String
+    }
+
+    /// How a drawing is read, which the entity ids depend on.
+    ///
+    /// Every tool takes both, and echoes them in its result.
+    public struct ReadSettings: Hashable, Sendable, Encodable {
+        /// Flatten block references into the entities, so a block insert places the geometry it
+        /// stands for. On by default, as in OCCTSwiftIO's `DrawingLoader`.
+        public var expandBlocks: Bool
+        /// Leave paper-space entities out, as a model-space read does.
+        public var skipPaperSpace: Bool
+
+        public init(expandBlocks: Bool = true, skipPaperSpace: Bool = false) {
+            self.expandBlocks = expandBlocks
+            self.skipPaperSpace = skipPaperSpace
+        }
+    }
+
+    /// The argument names the read settings take, which every drawing tool accepts.
+    static let readSettingNames = ["expandBlocks", "skipPaperSpace"]
+
+    /// The read settings in `arguments`, defaulted where absent or JSON `null`.
+    static func readSettings(_ arguments: [String: Value]) throws -> ReadSettings {
+        var settings = ReadSettings()
+        if let expand = try optionalBool(arguments["expandBlocks"], name: "expandBlocks") {
+            settings.expandBlocks = expand
+        }
+        if let skip = try optionalBool(arguments["skipPaperSpace"], name: "skipPaperSpace") {
+            settings.skipPaperSpace = skip
+        }
+        return settings
+    }
+
+    /// `schema` with the read settings added to its properties, so every drawing tool offers them.
+    static func withReadSettings(_ schema: Value) -> Value {
+        guard var object = schema.objectValue, var properties = object["properties"]?.objectValue
+        else { return schema }
+        properties["expandBlocks"] = .object([
+            "type": .string("boolean"),
+            "description": .string(
+                "Flatten block references (INSERT) into the entities, so a block insert places the geometry it stands for and each expanded entity's `via` names the reference. Default true. Entity ids (e<index>) depend on it, and every result echoes it under `source.options`."
+            ),
+        ])
+        properties["skipPaperSpace"] = .object([
+            "type": .string("boolean"),
+            "description": .string(
+                "Leave paper-space entities out, as a model-space read does. Default false. Entity ids depend on it."
+            ),
+        ])
+        object["properties"] = .object(properties)
+        return .object(object)
+    }
+
+    /// An optional boolean, with the same absent and `null` rule.
+    static func optionalBool(_ value: Value?, name: String) throws -> Bool? {
+        guard let value = present(value) else { return nil }
+        guard let bool = value.boolValue else {
+            throw ArgumentError(description: "`\(name)` must be true or false.")
+        }
+        return bool
     }
 
     /// The argument, or nil when it is absent or JSON `null`.
@@ -355,12 +546,14 @@ public enum DrawingReadTools {
         let fileName: String
         let sha256: String
         let readerVersion: String
+        /// The options the ids were made under: they change which entities there are.
+        let options: ReadSettings
     }
 
     static func sourceRef(_ loaded: LoadedDrawing) -> SourceRef {
         SourceRef(
             fileName: loaded.source.fileName, sha256: loaded.source.sha256,
-            readerVersion: loaded.source.readerVersion)
+            readerVersion: loaded.source.readerVersion, options: loaded.settings)
     }
 
     /// A drawing read, or the error result that says why it was not.
@@ -369,9 +562,9 @@ public enum DrawingReadTools {
         case failed(ToolText)
     }
 
-    static func load(_ inputPath: String) async -> DrawingLoad {
+    static func load(_ inputPath: String, settings: ReadSettings) async -> DrawingLoad {
         do {
-            return .loaded(try await DrawingFile.load(path: inputPath))
+            return .loaded(try await DrawingFile.load(path: inputPath, settings: settings))
         } catch {
             return .failed(ToolText("\(error)", isError: true))
         }
@@ -411,6 +604,8 @@ public enum DrawingReadTools {
 
     struct DrawingReport: Encodable {
         let source: LoadedDrawing.Source
+        /// How the drawing was read: the entity ids depend on it.
+        let options: ReadSettings
         let units: UnitsRecord
         let extents: ExtentsRecord
         let entityCount: Int
@@ -421,9 +616,11 @@ public enum DrawingReadTools {
         let warnings: [String]
     }
 
-    public static func readDrawing(inputPath: String) async -> ToolText {
+    public static func readDrawing(
+        inputPath: String, settings: ReadSettings = ReadSettings()
+    ) async -> ToolText {
         let loaded: LoadedDrawing
-        switch await load(inputPath) {
+        switch await load(inputPath, settings: settings) {
         case .loaded(let value): loaded = value
         case .failed(let failure): return failure
         }
@@ -467,10 +664,19 @@ public enum DrawingReadTools {
                 "\(other) entity(ies) are of a type this server has no mapping for and are listed as "
                     + "type `other`, with no layer, colour or geometry.")
         }
-        if let inserts = loaded.skipped.byType["INSERT"], inserts > 0 {
+        if !settings.expandBlocks, !drawing.references.isEmpty {
             warnings.append(
-                "\(inserts) block insert(s) are not expanded, so the geometry they place is missing "
-                    + "from the entity list.")
+                "\(drawing.references.count) block reference(s) are not expanded (`expandBlocks` is "
+                    + "false), so the geometry they place is missing from the entity list.")
+        }
+        // What the loader said, as data: missing and cyclic blocks, paper space, entities it could
+        // not carry through a transform or read. Skipped entities are in `skipped`, and the units
+        // and an empty drawing have their own messages above.
+        for warning in loaded.warnings {
+            switch warning.kind {
+            case .skippedEntities, .unitsNotDeclared, .emptyDrawing: continue
+            default: warnings.append(warning.message)
+            }
         }
         if loaded.skipped.total > 0 {
             warnings.append(
@@ -483,7 +689,7 @@ public enum DrawingReadTools {
         }()
         return encode(
             DrawingReport(
-                source: loaded.source,
+                source: loaded.source, options: settings,
                 units: UnitsRecord(
                     insUnits: drawing.insUnits, name: DrawingUnits.name(insUnits: drawing.insUnits),
                     mmPerUnit: loaded.mmPerUnit),
@@ -507,7 +713,7 @@ public enum DrawingReadTools {
 
     public static func listDrawingEntities(
         inputPath: String, types: [String]?, layers: [String]?, rect: [Double]?,
-        rectMode: String?, limit: Int?, offset: Int?
+        rectMode: String?, limit: Int?, offset: Int?, settings: ReadSettings = ReadSettings()
     ) async -> ToolText {
         if let types {
             let unknown = types.filter { !DrawingEntities.typeNames.contains($0) }
@@ -532,7 +738,7 @@ public enum DrawingReadTools {
             return .init("`rectMode` must be \"intersects\" or \"within\".", isError: true)
         }
         let loaded: LoadedDrawing
-        switch await load(inputPath) {
+        switch await load(inputPath, settings: settings) {
         case .loaded(let value): loaded = value
         case .failed(let failure): return failure
         }
@@ -562,7 +768,9 @@ public enum DrawingReadTools {
         let paging = page(offset: offset, limit: limit, maxLimit: 5000, defaultLimit: 200)
         let slice = matching.dropFirst(paging.offset).prefix(paging.limit)
         let records = slice.map {
-            entityRecord(loaded.drawing.entities[$0], index: $0, mmPerUnit: loaded.mmPerUnit)
+            entityRecord(
+                loaded.drawing.entities[$0], index: $0, mmPerUnit: loaded.mmPerUnit,
+                identity: loaded.drawing.identity(ofEntityAt: $0))
         }
         return encode(
             EntityListing(
@@ -584,7 +792,8 @@ public enum DrawingReadTools {
     }
 
     public static func listDrawingDimensions(
-        inputPath: String, layers: [String]?, kinds: [String]?, limit: Int?, offset: Int?
+        inputPath: String, layers: [String]?, kinds: [String]?, limit: Int?, offset: Int?,
+        settings: ReadSettings = ReadSettings()
     ) async -> ToolText {
         if let unknown = kinds?.filter({ !dimensionKinds.contains($0) && !$0.hasPrefix("unknown(") }
         ),
@@ -596,7 +805,7 @@ public enum DrawingReadTools {
                 isError: true)
         }
         let loaded: LoadedDrawing
-        switch await load(inputPath) {
+        switch await load(inputPath, settings: settings) {
         case .loaded(let value): loaded = value
         case .failed(let failure): return failure
         }
@@ -606,7 +815,8 @@ public enum DrawingReadTools {
         for (index, entity) in loaded.drawing.entities.enumerated() {
             guard case .dimension(let d) = entity else { continue }
             let record = dimensionRecord(
-                d, id: DrawingEntities.id(index), mmPerUnit: loaded.mmPerUnit)
+                d, id: DrawingEntities.id(index), mmPerUnit: loaded.mmPerUnit,
+                identity: loaded.drawing.identity(ofEntityAt: index))
             if let layerSet, !layerSet.contains(record.layer) { continue }
             if let kindSet, !kindSet.contains(record.kind) { continue }
             all.append(record)

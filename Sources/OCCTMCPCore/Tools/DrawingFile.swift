@@ -1,8 +1,8 @@
-// DrawingFile: reads a 2D drawing file into OCCTSwiftIO's drawing model (SwiftDXF's `DXF.Drawing`)
-// and records where it came from, what its units are and what the reader left out. The drawing
-// read tools (#260) all start here. Nothing in this file touches the scene or the manifest.
+// DrawingFile: reads a 2D drawing file (DXF, DWG or JWW) through OCCTSwiftIO's `DrawingLoader` into
+// SwiftDXF's `DXF.Drawing`, and records where it came from, what its units are and what the reader
+// left out. The drawing read tools (#260, #271) all start here. Nothing in this file touches the
+// scene or the manifest.
 
-import CryptoKit
 import Foundation
 import OCCTSwiftIO
 
@@ -31,9 +31,13 @@ struct LoadedDrawing: Sendable {
         let fileName: String
         let bytes: Int
         let sha256: String
+        /// `dxf`, `dwg` or `jww`, told from the file's bytes.
         let format: String
-        /// The `$ACADVER` header value (for example `AC1027`), when the file has one.
+        /// The `$ACADVER` header value (for example `AC1027`) of a DXF, when the file has one.
         let dxfVersion: String?
+        /// The format's own version: `$ACADVER` for a DXF, the version code for a DWG
+        /// (`AC1032`), the file version for a JWW.
+        let formatVersion: String
         /// What turned the bytes into entities.
         let reader: String
         /// The SwiftDXF release line that did it, such as `0.3`.
@@ -43,7 +47,10 @@ struct LoadedDrawing: Sendable {
         let readerVersion: String
     }
 
-    /// Entities the reader does not model, as SwiftDXF reports them (`Drawing.skipped`).
+    /// Entities the reader does not model, from the loader's `skippedEntities` warnings.
+    ///
+    /// A DWG's skipped entities are counted without their layer, so they are in `byType` and
+    /// `total` but not in `byLayer`.
     struct Skipped: Encodable, Sendable {
         var total = 0
         var byType: [String: Int] = [:]
@@ -53,6 +60,11 @@ struct LoadedDrawing: Sendable {
     let drawing: DXF.Drawing
     let source: Source
     let skipped: Skipped
+    /// Everything the loader said about the read, as data: skipped and unreadable entities, paper
+    /// space, missing blocks, units, an empty drawing.
+    let warnings: [DrawingWarning]
+    /// The options the drawing was read with: the entity ids depend on them.
+    let settings: DrawingReadTools.ReadSettings
 
     /// Millimetres in one drawing unit, nil when the file declares no units.
     var mmPerUnit: Double? { DrawingUnits.mmPerUnit(insUnits: drawing.insUnits) }
@@ -103,19 +115,24 @@ enum DrawingUnits {
 
 enum DrawingFile {
     /// The formats this build reads, and why the others are not read.
-    static let supportedFormats = ["dxf"]
+    static let supportedFormats = ["dxf", "dwg", "jww"]
 
     /// The SwiftDXF release line this build reads with: major and minor, the part that decides which
     /// entity types are modelled and so which ids an entity gets.
     ///
     /// SwiftPM has no runtime query for a dependency's version, so it is written here, and a test
     /// holds it equal to the `swiftdxf` pin in `Package.resolved`: a bump that forgets it fails.
-    /// `Package.swift` holds SwiftDXF to `.upToNextMinor(from: "0.3.0")`, so a patch release can
+    /// SwiftDXF resolves through OCCTSwiftIO, whose floor admits patch and minor releases, so the
+    /// test compares the minor and a newer minor fails it, which is the point; a patch release can
     /// resolve without this changing, which is why it is the line and not a patch version.
-    static let readerVersion = "0.3"
+    static let readerVersion = "0.4"
 
     /// Read `path` as a drawing, answering from a small cache when the file has not changed.
-    static func load(path: String) async throws -> LoadedDrawing {
+    ///
+    /// The cache is keyed on the options too: the ids depend on whether blocks were expanded.
+    static func load(
+        path: String, settings: DrawingReadTools.ReadSettings = .init()
+    ) async throws -> LoadedDrawing {
         let expanded = NSString(string: path).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: expanded) else {
             throw DrawingReadError.notFound(expanded)
@@ -124,44 +141,31 @@ enum DrawingFile {
         let key = DrawingCache.Key(
             path: URL(fileURLWithPath: expanded).standardizedFileURL.path,
             size: (attributes?[.size] as? Int) ?? -1,
-            modified: (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)
+            modified: (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
+            settings: settings)
         if let hit = await DrawingCache.shared.entry(for: key) { return hit }
-        let loaded = try read(path: key.path)
+        let loaded = try read(path: key.path, bytes: key.size, settings: settings)
         await DrawingCache.shared.store(loaded, for: key)
         return loaded
     }
 
-    private static func read(path: String) throws -> LoadedDrawing {
+    private static func read(
+        path: String, bytes: Int, settings: DrawingReadTools.ReadSettings
+    ) throws -> LoadedDrawing {
         let ext = (path as NSString).pathExtension.lowercased()
-        switch ext {
-        case "dxf":
-            break
-        case "dwg":
-            throw DrawingReadError.unsupportedFormat(
-                extension: ext,
-                reason: "OCCTSwiftIO's DWGLoader is merged upstream (OCCTSwiftIO#53) but not in "
-                    + "a tagged release at this server's pin. Convert the file to ASCII DXF.")
-        case "jww":
-            throw DrawingReadError.unsupportedFormat(
-                extension: ext,
-                reason: "OCCTSwiftIO exposes no entity model for JWW yet (OCCTSwiftIO#54). "
-                    + "Convert the file to ASCII DXF.")
-        default:
+        guard supportedFormats.contains(ext) else {
             throw DrawingReadError.unsupportedFormat(
                 extension: ext.isEmpty ? "(none)" : ext,
                 reason: "supported formats: \(supportedFormats.joined(separator: ", ")).")
         }
-        let data: Data
+        let result: DrawingResult
         do {
-            data = try Data(contentsOf: URL(fileURLWithPath: path))
-        } catch {
-            throw DrawingReadError.unreadable(path: path, underlying: error.localizedDescription)
-        }
-        let drawing: DXF.Drawing
-        do {
-            // `DXFLoader.readEntities(from:)` is `DXF.read(contentsOf:)`. Parsing the bytes read
-            // for the hash instead keeps the source record about exactly what was parsed.
-            drawing = try DXF.read(data: data)
+            // The loader tells the format from the bytes, reads the file once and hashes what it
+            // parsed, so the source record is about exactly what the entities came from.
+            result = try DrawingLoader.read(
+                from: URL(fileURLWithPath: path),
+                options: .init(
+                    expandBlocks: settings.expandBlocks, skipPaperSpace: settings.skipPaperSpace))
         } catch DXF.Error.binaryUnsupported {
             throw DrawingReadError.unreadable(
                 path: path, underlying: "binary DXF is not supported; save it as ASCII DXF.")
@@ -171,32 +175,42 @@ enum DrawingFile {
         } catch DXF.Error.empty {
             throw DrawingReadError.unreadable(path: path, underlying: "the file is empty.")
         } catch {
-            throw DrawingReadError.unreadable(path: path, underlying: error.localizedDescription)
+            // A DWG's `DWG.Error` and the loader's own errors describe themselves.
+            throw DrawingReadError.unreadable(path: path, underlying: "\(error)")
         }
-        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let drawing = result.drawing
+        let isDXF = result.source.format == .dxf
         return LoadedDrawing(
             drawing: drawing,
             source: .init(
-                path: path, fileName: (path as NSString).lastPathComponent, bytes: data.count,
-                sha256: digest, format: "dxf",
-                dxfVersion: drawing.version.isEmpty ? nil : drawing.version,
-                reader: "SwiftDXF (DXF.read), as OCCTSwiftIO DXFLoader.readEntities calls it",
+                path: path, fileName: result.source.fileName, bytes: bytes,
+                sha256: result.source.sha256, format: result.source.format.rawValue,
+                dxfVersion: isDXF && !drawing.version.isEmpty ? drawing.version : nil,
+                formatVersion: result.source.version,
+                reader: "OCCTSwiftIO DrawingLoader (SwiftDXF for DXF, SwiftDWG for DWG, "
+                    + "SwiftJWW for JWW)",
                 readerVersion: readerVersion),
-            skipped: skipped(from: drawing))
+            skipped: skipped(from: result.warnings, expandedBlocks: settings.expandBlocks),
+            warnings: result.warnings, settings: settings)
     }
 
-    /// What the reader left out, in the shape the tools report.
+    /// What the reader left out, in the shape the tools report: the loader's `skippedEntities`
+    /// warnings, by type and, where the format says, by layer.
     ///
-    /// SwiftDXF counts the entity records it does not model by type, and by type then layer; the
-    /// tools report by type and by layer then type. It counts an `INSERT`'s `ATTRIB` records as
-    /// entities of their own, so a block insert with attributes shows the attributes too.
-    static func skipped(from drawing: DXF.Drawing) -> LoadedDrawing.Skipped {
+    /// An `INSERT` is not an entity, so SwiftDXF counts it as skipped; once its block is expanded the
+    /// geometry it places is in the entity list and the reference is in `Drawing.references`, so it
+    /// is left out here (a block the file does not define has its own warning). SwiftDXF counts an
+    /// `INSERT`'s `ATTRIB` records as skipped entities of their own, and so does this.
+    static func skipped(
+        from warnings: [DrawingWarning], expandedBlocks: Bool
+    ) -> LoadedDrawing.Skipped {
         var skipped = LoadedDrawing.Skipped()
-        skipped.byType = drawing.skipped
-        skipped.total = drawing.skipped.values.reduce(0, +)
-        for (type, layers) in drawing.skippedByLayer {
-            for (layer, count) in layers {
-                skipped.byLayer[layer, default: [:]][type, default: 0] += count
+        for warning in warnings where warning.kind == .skippedEntities {
+            guard let type = warning.type, !(expandedBlocks && type == "INSERT") else { continue }
+            skipped.total += warning.count
+            skipped.byType[type, default: 0] += warning.count
+            if let layer = warning.layer {
+                skipped.byLayer[layer, default: [:]][type, default: 0] += warning.count
             }
         }
         return skipped
@@ -209,6 +223,7 @@ actor DrawingCache {
         let path: String
         let size: Int
         let modified: TimeInterval
+        let settings: DrawingReadTools.ReadSettings
     }
 
     static let shared = DrawingCache()
