@@ -38,7 +38,7 @@ struct LoadedDrawing: Sendable {
         let formatVersion: String
         /// What turned the bytes into entities.
         let reader: String
-        /// The SwiftDXF release line that did it, such as `0.3`.
+        /// The SwiftDXF release line that did it, such as `0.4`.
         ///
         /// Entity ids (`e<index>`) shift when a newer reader models more types, so it is recorded
         /// beside the SHA-256 that names the bytes.
@@ -235,11 +235,14 @@ actor DrawingCache {
     func entry(for key: Key) -> LoadedDrawing? { entries[key] }
 
     func store(_ drawing: LoadedDrawing, for key: Key) {
-        // A changed file has a new key, so drop any older entry for the same path.
-        for stale in order where stale.path == key.path && stale != key {
-            entries[stale] = nil
+        // A changed file has a new size or time, so drop every older entry for the same path,
+        // whatever settings it was read under. The same bytes read under other settings stay: the
+        // ids differ between them, and a client alternating the two should not re-parse each time.
+        let stale = order.filter {
+            $0.path == key.path && ($0.size != key.size || $0.modified != key.modified)
         }
-        order.removeAll { $0.path == key.path }
+        for old in stale { entries[old] = nil }
+        order.removeAll { $0 == key || stale.contains($0) }
         order.append(key)
         entries[key] = drawing
         while order.count > Self.capacity {

@@ -1524,6 +1524,27 @@ struct DrawingReadToolsTests {
         #expect(await cache.entry(for: changed) != nil)
     }
 
+    @Test("one file read under two settings keeps both in the cache, and a changed file drops both")
+    func cacheKeepsEachSetting() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let loaded = try await DrawingFile.load(path: try DrawingFixture.tSlot().write(to: dir))
+        let cache = DrawingCache()
+        let expanded = DrawingCache.Key(
+            path: "/d.dxf", size: 1, modified: 0, settings: .init())
+        let flat = DrawingCache.Key(
+            path: "/d.dxf", size: 1, modified: 0, settings: .init(expandBlocks: false))
+        await cache.store(loaded, for: expanded)
+        await cache.store(loaded, for: flat)
+        #expect(await cache.entry(for: expanded) != nil, "storing the other settings kept it")
+        #expect(await cache.entry(for: flat) != nil)
+        let changed = DrawingCache.Key(path: "/d.dxf", size: 2, modified: 0, settings: .init())
+        await cache.store(loaded, for: changed)
+        #expect(await cache.entry(for: expanded) == nil, "the changed file drops it")
+        #expect(await cache.entry(for: flat) == nil, "and the other settings")
+        #expect(await cache.entry(for: changed) != nil)
+    }
+
     // ── registration ────────────────────────────────────────────────────
 
     @Test("the four tools are in the catalog with their required arguments")

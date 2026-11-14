@@ -10,9 +10,11 @@ enum DrawingEntities {
 
     /// An entity's id: `e` and its position in the drawing's entity list.
     ///
-    /// DXF handles are not kept by SwiftDXF, so identity is the index, which is stable for the same
-    /// file bytes. `read_drawing` returns the file's SHA-256 so a caller can tell when ids no longer
-    /// refer to what they did.
+    /// The index is stable for the same file bytes and the same read options, and only for those:
+    /// an edit that moves entities, or a different `expandBlocks`, renumbers it. Every record also
+    /// carries the entity's DXF `handle`, which an edit does not move, and `read_drawing` returns
+    /// the file's SHA-256 and options so a caller can tell when ids no longer refer to what they
+    /// did.
     static func id(_ index: Int) -> String { "e\(index)" }
 
     /// The index an id names, nil for anything that is not exactly what `id(_:)` returns.

@@ -12,17 +12,15 @@ import Testing
 
 extension DrawingReadToolsTests {
 
-    /// Where `plate.dxf` and `plate.dwg` are.
+    /// Where `plate.dxf`, `plate.dwg` and `plate.jww` are.
     static var plateDirectory: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("Fixtures/Drawing")
     }
 
-    /// The plate as a JWW, written into `dir`.
-    func plateJWW(in dir: URL) throws -> String {
-        let url = dir.appendingPathComponent("plate.jww")
-        try JWWFixture.plate().write(to: url)
-        return url.path
+    /// The plate as a JWW: the same 100 x 60 plate as `plate.dxf`, without the dimensions.
+    static var plateJWW: String {
+        plateDirectory.appendingPathComponent("plate.jww").path
     }
 
     // ── DWG and JWW ─────────────────────────────────────────────────────
@@ -46,9 +44,7 @@ extension DrawingReadToolsTests {
 
     @Test("a JWW is read, and its missing units are said rather than assumed")
     func jwwIsRead() async throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let r = try json(await call("read_drawing", ["inputPath": .string(try plateJWW(in: dir))]))
+        let r = try json(await call("read_drawing", ["inputPath": .string(Self.plateJWW)]))
         let source = try #require(r["source"] as? [String: Any])
         #expect(source["format"] as? String == "jww" && source["formatVersion"] as? String == "700")
         #expect(r["byType"] as? [String: Int] == ["line": 4, "circle": 1])
@@ -62,7 +58,7 @@ extension DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let paths = [
             Self.plateDirectory.appendingPathComponent("plate.dxf").path,
-            Self.plateDirectory.appendingPathComponent("plate.dwg").path, try plateJWW(in: dir),
+            Self.plateDirectory.appendingPathComponent("plate.dwg").path, Self.plateJWW,
         ]
         var geometries: [[String]] = []
         for path in paths {
@@ -270,6 +266,120 @@ extension DrawingReadToolsTests {
             await call(
                 "list_drawing_entities", ["inputPath": .string(path), "skipPaperSpace": true]))
         #expect((listed["entities"] as? [[String: Any]])?.count == 1)
+    }
+
+    @Test("all four tools honour both read settings, and null means the default")
+    func everyToolHonoursTheReadSettings() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // A block holding a circle and a dimension; a model line, one insert of the block, then a
+        // paper-space line and a paper-space dimension.
+        f.blocks = [
+            (0, "BLOCK"), (8, "0"), (2, "FASTENER"), (70, "0"), (10, "0"), (20, "0"), (30, "0"),
+            (3, "FASTENER"),
+            (0, "CIRCLE"), (5, "31"), (8, "0"), (10, "0"), (20, "0"), (30, "0"), (40, "2"),
+            (0, "DIMENSION"), (5, "B7"), (8, "0"), (70, "1"), (11, "5"), (21, "-2"), (31, "0"),
+            (10, "0"), (20, "-2"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "10"),
+            (24, "0"), (34, "0"),
+            (0, "ENDBLK"), (8, "0"),
+        ]
+        f.add(
+            nil, "LINE", layer: "M",
+            [(10, "0"), (20, "0"), (30, "0"), (11, "5"), (21, "0"), (31, "0")])
+        f.add(nil, "INSERT", layer: "B", [(5, "8E"), (2, "FASTENER"), (10, "10"), (20, "10")])
+        f.add(
+            nil, "LINE", layer: "P",
+            [(67, "1"), (10, "0"), (20, "9"), (30, "0"), (11, "5"), (21, "9"), (31, "0")])
+        f.add(
+            nil, "DIMENSION", layer: "D",
+            [
+                (67, "1"), (70, "1"), (11, "5"), (21, "-2"), (31, "0"), (10, "0"), (20, "-2"),
+                (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "10"), (24, "0"), (34, "0"),
+            ])
+        let path = try f.write(to: dir)
+        func args(_ extra: [String: Value]) -> [String: Value] {
+            var all: [String: Value] = ["inputPath": .string(path)]
+            all.merge(extra) { $1 }
+            return all
+        }
+        let both: [String: Value] = ["expandBlocks": false, "skipPaperSpace": true]
+        let nulls: [String: Value] = ["expandBlocks": .null, "skipPaperSpace": .null]
+
+        // list_drawing_dimensions: the block's dimension and the paper-space one.
+        func dimensions(_ extra: [String: Value]) async throws -> Int? {
+            try json(await call("list_drawing_dimensions", args(extra)))["total"] as? Int
+        }
+        #expect(try await dimensions([:]) == 2)
+        #expect(try await dimensions(["expandBlocks": false]) == 1, "the block's is not expanded")
+        #expect(try await dimensions(["skipPaperSpace": true]) == 1, "the paper-space one is out")
+        #expect(try await dimensions(both) == 0)
+        #expect(try await dimensions(nulls) == 2, "null is the default")
+
+        // list_drawing_entities: the block's circle, and the model and paper lines.
+        func total(_ type: String, _ extra: [String: Value]) async throws -> Int? {
+            var all = args(extra)
+            all["types"] = [.string(type)]
+            return try json(await call("list_drawing_entities", all))["total"] as? Int
+        }
+        #expect(try await total("circle", [:]) == 1)
+        #expect(try await total("circle", ["expandBlocks": false]) == 0)
+        #expect(try await total("line", [:]) == 2)
+        #expect(try await total("line", ["skipPaperSpace": true]) == 1)
+        #expect(try await total("circle", nulls) == 1)
+        #expect(try await total("line", nulls) == 2)
+
+        // read_drawing: the same, as counts.
+        let read = try json(await call("read_drawing", args([:])))
+        #expect(read["byType"] as? [String: Int] == ["line": 2, "circle": 1, "dimension": 2])
+        let readNull = try json(await call("read_drawing", args(nulls)))
+        #expect(readNull["entityCount"] as? Int == read["entityCount"] as? Int)
+
+        // measure_drawing: ids from the default read, then the settings take the entities away.
+        let lines = try await entities(["types": ["line"]], path).all
+        let model = try #require(lines.first { $0["layer"] as? String == "M" }?["id"] as? String)
+        let paper = try #require(lines.first { $0["layer"] as? String == "P" }?["id"] as? String)
+        let circle = try #require(
+            try await entities(["types": ["circle"]], path).all.first?["id"] as? String)
+        let distance: [String: Value] = [
+            "measure": "distance", "a": .string(model), "b": .string(paper),
+        ]
+        let radius: [String: Value] = ["measure": "radius", "a": .string(circle)]
+        // The model line is (0, 0) to (5, 0) and the paper line (0, 9) to (5, 9): 9 apart.
+        let measured = try json(await call("measure_drawing", args(distance)))
+        #expect(measured["value"] as? Double == 9, "\(measured)")
+        #expect(!(await call("measure_drawing", args(radius))).isError)
+        let measuredNull = try json(
+            await call("measure_drawing", args(distance.merging(nulls) { $1 })))
+        #expect(measuredNull["value"] as? Double == 9, "null is the default")
+        // Skipping paper space takes the line away and renumbers the rest, so the same two ids are
+        // no longer two lines 9 apart.
+        let noPaper = await call(
+            "measure_drawing", args(distance.merging(["skipPaperSpace": true]) { $1 }))
+        let noPaperValue = noPaper.isError ? nil : try json(noPaper)["value"] as? Double
+        #expect(noPaperValue != 9, "the paper-space line is not there to measure: \(noPaper.text)")
+        let noBlocks = await call(
+            "measure_drawing", args(radius.merging(["expandBlocks": false]) { $1 }))
+        #expect(noBlocks.isError, "the block's circle is not there to measure: \(noBlocks.text)")
+    }
+
+    @Test("a clockwise hatch arc is boxed by the stretch it runs along")
+    func clockwiseHatchArc() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = DrawingFixture()
+        // Centre (5, 0), radius 5, clockwise from 180 degrees to 0: over the top, through (5, 5).
+        f.add(
+            "arc", "HATCH", layer: "H",
+            [
+                (2, "X"), (70, "0"), (91, "1"), (92, "1"), (93, "1"), (72, "2"), (10, "5"),
+                (20, "0"), (40, "5"), (50, "180"), (51, "0"), (73, "0"), (97, "0"),
+            ])
+        let all = try await entities([:], try f.write(to: dir)).all
+        let hatch = try #require(all.first { $0["id"] as? String == f.id("arc") })
+        let box = try #require(hatch["bounds"] as? [String: Any])
+        #expect(near(numbers(box["min"]), [0, 0, 0], tol: 1e-9), "\(box)")
+        #expect(near(numbers(box["max"]), [10, 5, 0], tol: 1e-9), "\(box)")
     }
 
     @Test("every tool takes the read settings, a wrong type is refused, and null means the default")
