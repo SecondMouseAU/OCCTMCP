@@ -184,6 +184,7 @@ let package = Package(
             name: "OCCTMCPCoreTests",
             dependencies: ["OCCTMCPCore"],
             path: "SwiftTests/OCCTMCPCoreTests",
+            exclude: ["Fixtures"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

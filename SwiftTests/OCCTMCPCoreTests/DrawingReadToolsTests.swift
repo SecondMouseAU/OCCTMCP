@@ -263,7 +263,7 @@ struct DrawingReadToolsTests {
         let skippedByLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
         #expect(skippedByLayer["FILL"] == ["SOLID": 1])
         #expect(skippedByLayer["MESH"] == ["3DFACE": 1])
-        #expect(skippedByLayer["BLOCKS"] == nil, "an INSERT is not skipped once blocks are expanded")
+        #expect(skippedByLayer["BLOCKS"] == nil, "an INSERT is not skipped once expanded")
         // The two INSERTs name a block the file does not define: the loader's warning comes through.
         let warnings = try #require(r["warnings"] as? [String])
         #expect(warnings.contains { $0.contains("FASTENER") }, "\(warnings)")
@@ -1009,6 +1009,16 @@ struct DrawingReadToolsTests {
                 (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "8"),
                 (24, "0"), (34, "0"),
             ])
+        // SolidWorks and McMaster write -1 (and some writers 0) for "no measurement": it is missing,
+        // not a value, and the geometry still gives one.
+        for (name, stored) in [("negative", "-1"), ("zero", "0")] {
+            dim(
+                name, type: 1, value: stored,
+                [
+                    (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "8"),
+                    (24, "0"), (34, "0"),
+                ])
+        }
         let path = try f.write(to: dir)
         let r = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
         let list = try #require(r["dimensions"] as? [[String: Any]])
@@ -1026,6 +1036,11 @@ struct DrawingReadToolsTests {
         #expect(try record("linearVertical")["rotationDeg"] as? Double == 90)
         // Millimetres follow the drawing's units; this drawing declares millimetres.
         #expect(try record("aligned")["valueFromPointsMm"] as? Double == 50)
+        for name in ["negative", "zero"] {
+            #expect(try record(name)["value"] == nil, "\(name): a stored value that means none")
+            #expect(try record(name)["valueMm"] == nil, "\(name)")
+            #expect(try record(name)["valueFromPoints"] as? Double == 8, "\(name)")
+        }
         let stale = try record("stale")
         #expect(stale["value"] as? Double == 7 && stale["valueFromPoints"] as? Double == 8)
     }
@@ -1486,13 +1501,16 @@ struct DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let loaded = try await DrawingFile.load(path: try DrawingFixture.tSlot().write(to: dir))
         let cache = DrawingCache()
-        let keys = (0..<5).map { DrawingCache.Key(path: "/drawing\($0).dxf", size: 1, modified: 0, settings: .init()) }
+        let keys = (0..<5).map {
+            DrawingCache.Key(path: "/drawing\($0).dxf", size: 1, modified: 0, settings: .init())
+        }
         for key in keys { await cache.store(loaded, for: key) }
         #expect(await cache.entry(for: keys[0]) == nil, "the oldest of five is evicted")
         for key in keys.dropFirst() {
             #expect(await cache.entry(for: key) != nil, "\(key.path)")
         }
-        let changed = DrawingCache.Key(path: "/drawing4.dxf", size: 2, modified: 0, settings: .init())
+        let changed = DrawingCache.Key(
+            path: "/drawing4.dxf", size: 2, modified: 0, settings: .init())
         await cache.store(loaded, for: changed)
         #expect(await cache.entry(for: keys[4]) == nil, "the entry for the old bytes is dropped")
         #expect(await cache.entry(for: changed) != nil)

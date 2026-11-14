@@ -48,10 +48,11 @@ public enum DrawingReadTools {
         /// An angle's unit is not declared in the file.
         let valueUnit: String
         let valueMm: Double?
-        /// The measurement the dimension's own geometry gives (SwiftDXF's `computedMeasurement`):
-        /// the distance between the extension-line origins along the dimension's rotation for a
-        /// linear one, between them for an aligned one, between the two ends of a radius or
-        /// diameter. Nil for an angular or ordinate dimension.
+        /// The measurement the dimension's own geometry gives.
+        ///
+        /// This is SwiftDXF's `computedMeasurement`: the distance between the extension-line origins
+        /// along the dimension's rotation for a linear one, between them for an aligned one,
+        /// between the two ends of a radius or diameter. Nil for an angular or ordinate dimension.
         ///
         /// It is a check on `value` (a stale or overridden dimension disagrees with its geometry)
         /// and the only value when the file omits group 42, which ezdxf says is common.
@@ -70,8 +71,9 @@ public enum DrawingReadTools {
         let obliqueAngleDeg: Double?
         /// The dimension style's name, absent when the file names none.
         let styleName: String?
-        /// The DXF handle (group 5), absent when the file has none. It survives an edit that moves
-        /// entities, which the id does not.
+        /// The DXF handle (group 5), absent when the file has none.
+        ///
+        /// It survives an edit that moves entities, which the id does not.
         let handle: String?
         /// Section and position, such as `ENTITIES:12`, present even when the file has no handles.
         let locator: String
@@ -154,8 +156,9 @@ public enum DrawingReadTools {
         var knots: [Double]?
         var weights: [Double]?
         var fitPoints: [[Double]]?
-        /// A hatch's pattern name (`SOLID`, `ANSI31`), whether it is a solid fill, and its
-        /// boundaries. Only the boundary and the fill kind are read, not the hatch lines.
+        /// A hatch's pattern name (`SOLID`, `ANSI31`), whether it is a solid fill, and its boundaries.
+        ///
+        /// Only the boundary and the fill kind are read, not the hatch lines.
         var patternName: String?
         var solid: Bool?
         var boundaryPaths: [HatchPathRecord]?
@@ -166,8 +169,9 @@ public enum DrawingReadTools {
         var annotationHandle: String?
         var styleName: String?
         var dimension: DimensionRecord?
-        /// The DXF handle (group 5), absent when the file has none. It survives an edit that moves
-        /// entities, which the id does not.
+        /// The DXF handle (group 5), absent when the file has none.
+        ///
+        /// It survives an edit that moves entities, which the id does not.
         var handle: String?
         /// Section and position, such as `ENTITIES:12`, present even when the file has no handles.
         var locator: String?
@@ -391,8 +395,10 @@ public enum DrawingReadTools {
     ///
     /// Every tool takes both, and echoes them in its result.
     public struct ReadSettings: Hashable, Sendable, Encodable {
-        /// Flatten block references into the entities, so a block insert places the geometry it
-        /// stands for. On by default, as in OCCTSwiftIO's `DrawingLoader`.
+        /// Flatten block references into the entities.
+        ///
+        /// A block insert then places the geometry it stands for. On by default, as in
+        /// OCCTSwiftIO's `DrawingLoader`.
         public var expandBlocks: Bool
         /// Leave paper-space entities out, as a model-space read does.
         public var skipPaperSpace: Bool

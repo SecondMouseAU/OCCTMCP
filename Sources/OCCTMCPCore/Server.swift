@@ -181,6 +181,25 @@ func catalogTools(extraTools: [ExtraTool] = []) -> [Tool] {
 }
 
 private func builtinCatalogTools() -> [Tool] {
+    return catalogToolsWithDrawingSettings(listedBuiltinTools())
+}
+
+/// The drawing read tools with `expandBlocks` and `skipPaperSpace` added to their schemas, so the
+/// four state the same two options once, in `DrawingReadTools`, and not four times here.
+private func catalogToolsWithDrawingSettings(_ tools: [Tool]) -> [Tool] {
+    let drawing: Set<String> = [
+        "read_drawing", "list_drawing_entities", "list_drawing_dimensions", "measure_drawing",
+    ]
+    return tools.map { tool in
+        guard drawing.contains(tool.name) else { return tool }
+        return Tool(
+            name: tool.name, description: tool.description,
+            inputSchema: DrawingReadTools.withReadSettings(tool.inputSchema),
+            annotations: tool.annotations)
+    }
+}
+
+private func listedBuiltinTools() -> [Tool] {
     return [
         Tool(
             name: "get_scene",
@@ -368,7 +387,7 @@ private func builtinCatalogTools() -> [Tool] {
             name: "read_drawing",
             description:
                 "Read a 2D engineering drawing (ASCII DXF) as a drawing, not a picture, and summarise it: entity counts by type and by layer, the drawing's units (the DXF $INSUNITS code, its name and millimetres per unit), its extents (declared in the header and computed from the entities), the source record (file name, byte count, SHA-256, DXF version, reader and reader version) and what the reader skipped (entity records it does not model, such as block inserts and hatches, by type and layer; the reader does not separate model space from paper space) with warnings. Start here: the SHA-256 identifies the bytes every entity id (e<index>) refers to. Read-only; touches no scene body. Returns numbers and names, never an image. DWG and JWW are not read yet and return an error saying so.",
-            inputSchema: DrawingReadTools.withReadSettings(.object([
+            inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "inputPath": .object([
@@ -380,13 +399,13 @@ private func builtinCatalogTools() -> [Tool] {
                 ]),
                 "required": .array([.string("inputPath")]),
                 "additionalProperties": .bool(false),
-            ]))
+            ])
         ),
         Tool(
             name: "list_drawing_entities",
             description:
                 "List the entities of a 2D drawing (ASCII DXF) with identity, geometry and layer, filtered by type, layer or a rectangle on the sheet. Each entity has an id (e<index>, stable for the same file bytes; see read_drawing's sha256), type, layer, colour, bounds and its geometry as numbers in drawing units: line start/end/length; circle center/radius; arc center/radius/angles/start/end/length; ellipse center/majorAxis/ratio/params; polyline vertices/bulges/closed/length; spline degree/closed/periodic/rational and, as stored in the file, controlPoints/knots/weights/fitPoints; text at/height/text; point at; dimension (the same record list_drawing_dimensions returns). `rect` is [xmin, ymin, xmax, ymax] in drawing units; rectMode `intersects` (default) keeps entities whose bounds overlap it, `within` keeps those wholly inside. Arc and bulge bounds are tight; a spline's bounds follow the curve; an elliptical arc takes its whole ellipse's bounds; text is its insertion point. Paged: `limit` (default 200, max 5000) and `offset`; `total` counts matches before paging. Read-only.",
-            inputSchema: DrawingReadTools.withReadSettings(.object([
+            inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "inputPath": .object([
@@ -430,13 +449,13 @@ private func builtinCatalogTools() -> [Tool] {
                 ]),
                 "required": .array([.string("inputPath")]),
                 "additionalProperties": .bool(false),
-            ]))
+            ])
         ),
         Tool(
             name: "list_drawing_dimensions",
             description:
                 "List every DIMENSION in a 2D drawing (ASCII DXF): id (e<index>, as in list_drawing_entities), kind (linear, aligned, angular, diameter, radius, angular3Point, ordinate), the stored value in drawing units and in millimetres when the drawing declares its units (absent when the file omits it), `valueFromPoints` (the length between the dimension's own definition points, for aligned, radius and diameter dimensions: a check on the stored value, and the value when the file has none), the user's text override (absent when the dimension shows its own value, including a text of exactly `<>`), the text position, the definition points (each with its DXF group code, and its role where documented: a linear or aligned dimension's dimension-line point and two extension-line origins, a radius or diameter's two ends), layer and colour. Angular values are returned as stored: DXF does not declare their unit. Filter by `layers` or `kinds`; paged by `limit` (default 500) and `offset`. Read-only; returns numbers, not a rendering.",
-            inputSchema: DrawingReadTools.withReadSettings(.object([
+            inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "inputPath": .object([
@@ -460,13 +479,13 @@ private func builtinCatalogTools() -> [Tool] {
                 ]),
                 "required": .array([.string("inputPath")]),
                 "additionalProperties": .bool(false),
-            ]))
+            ])
         ),
         Tool(
             name: "measure_drawing",
             description:
                 "Measure on a 2D drawing (ASCII DXF) between named entities or points, in drawing units and in millimetres. `measure: distance` takes `a` and `b`, each an entity id (e<index> from list_drawing_entities) or a point [x, y(, z)], and returns the exact minimum distance with the nearest point on each end (OCCT extrema over edges built from the entities, so a slot width is the true gap between two lines or arcs; a spline is an exact NURBS edge when its control data defines a curve, and chords within a stated tolerance otherwise, which the result's notes say; text and dimension entities have no geometry, use their point). `measure: angle` takes two line entities `a` and `b`, or a `vertex` point with points `a` and `b`, and returns degrees (0 to 180, between the drawn directions) and the acute angle between the lines. `measure: radius` takes a circle or arc entity `a` and returns the radius and diameter. Millimetres come from the drawing's declared units; a unitless drawing gives none unless `mmPerUnit` is passed. Read-only.",
-            inputSchema: DrawingReadTools.withReadSettings(.object([
+            inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "inputPath": .object([
@@ -517,7 +536,7 @@ private func builtinCatalogTools() -> [Tool] {
                 ]),
                 "required": .array([.string("inputPath"), .string("measure"), .string("a")]),
                 "additionalProperties": .bool(false),
-            ]))
+            ])
         ),
         Tool(
             name: "get_api_reference",
