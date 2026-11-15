@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-11-16
+
+* **Update**: Release v1.37.1-beta.8. `serverVersion` is bumped to match the tag and the pins page says "as of v1.37.1-beta.8". Ships #271 (the drawing read tools on OCCTSwiftIO 2.0.0-beta.6's `DrawingLoader`: DXF, DWG and JWW, SwiftDXF 0.4.0, block expansion on by default, entity handles, hatch and leader, computed dimension values). The pins are unchanged from beta.7 apart from OCCTSwiftIO (beta.5 to beta.6) and the SwiftDXF cap, which is gone.
+
 ## 2026-11-15
 
 * **Update**: #271. The drawing read tools read through OCCTSwiftIO's `DrawingLoader` on SwiftDXF 0.4.0, now that OCCTSwiftIO 2.0.0-beta.6 compiles against it (OCCTSwiftIO#60). The SwiftDXF cap is gone. DXF, DWG (SwiftDWG, in process) and JWW (SwiftJWW) are read from their bytes. `expandBlocks` (default true) and `skipPaperSpace` are arguments of all four tools and are echoed under `source.options`, because the ids depend on them. Hatch and leader are entities with records and bounds; every entity and dimension carries its DXF `handle` and `locator` (and, once expanded, the `via` references and `blocks` it came through); a dimension reports its computed value, rotation, oblique angle and style, and a stored measurement of -1 or 0 is absent. An INSERT is no longer counted as skipped once SwiftDXF has expanded it (one that stays, for a block the file does not define, still is), the loader's warnings come through as data, and the format is told from the bytes, not the file extension. Not done: matching an entity by handle as an input (the id is still the index), measuring a hatch, and DWG's `CADFileFormat` case in OCCTSwiftIO.
