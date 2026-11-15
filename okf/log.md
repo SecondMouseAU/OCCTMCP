@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-11-15
+
+* **Update**: #271. The drawing read tools read through OCCTSwiftIO's `DrawingLoader` on SwiftDXF 0.4.0, now that OCCTSwiftIO 2.0.0-beta.6 compiles against it (OCCTSwiftIO#60). The SwiftDXF cap is gone. DXF, DWG (SwiftDWG, in process) and JWW (SwiftJWW) are read from their bytes. `expandBlocks` (default true) and `skipPaperSpace` are arguments of all four tools and are echoed under `source.options`, because the ids depend on them. Hatch and leader are entities with records and bounds; every entity and dimension carries its DXF `handle` and `locator` (and, once expanded, the `via` references and `blocks` it came through); a dimension reports its computed value, rotation, oblique angle and style, and a stored measurement of -1 or 0 is absent. An INSERT is no longer counted as skipped once SwiftDXF has expanded it (one that stays, for a block the file does not define, still is), the loader's warnings come through as data, and the format is told from the bytes, not the file extension. Not done: matching an entity by handle as an input (the id is still the index), measuring a hatch, and DWG's `CADFileFormat` case in OCCTSwiftIO.
+
 ## 2026-11-13
 
 * **Update**: Release v1.37.1-beta.7. Ships #263 (the drawing read tools on SwiftDXF 0.3.0: splines, `Drawing.skipped`, the reader line on every tool's source reference; OCCTSwiftIO 2.0.0-beta.5, with SwiftDXF held on the 0.3 line because beta.5 does not compile against 0.4.0, OCCTSwiftIO#60) and #268 (the slow-observer test holds the observer shut instead of timing the result; test-only). `serverVersion` is bumped to match the tag.

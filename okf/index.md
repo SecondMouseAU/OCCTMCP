@@ -32,7 +32,7 @@ macOS 15+) and the original **Node / TypeScript** server (37 tools, shells out t
   [OCCTSwiftTools](https://github.com/SecondMouseAU/OCCTSwiftTools),
   [OCCTSwiftViewport](https://github.com/SecondMouseAU/OCCTSwiftViewport),
   [OCCTSwiftAIS](https://github.com/SecondMouseAU/OCCTSwiftAIS),
-  [OCCTSwiftIO](https://github.com/SecondMouseAU/OCCTSwiftIO) (the drawing read tools' DXF import).
+  [OCCTSwiftIO](https://github.com/SecondMouseAU/OCCTSwiftIO) (the drawing read tools' DXF, DWG and JWW reader, `DrawingLoader`).
 - **External deps (not in `depends_on`):** the official
   [modelcontextprotocol/swift-sdk](https://github.com/modelcontextprotocol/swift-sdk) (MCP).
 - **Feeds products:** none declared yet; the LLM-facing CAD surface over the OCCTSwift kernel.

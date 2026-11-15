@@ -13,12 +13,14 @@ import Testing
 struct DrawingFixture {
     var insUnits: Int? = 4
     var lineEnding = "\n"
+    /// The records of the `BLOCKS` section, as group codes; empty leaves the section out.
+    var blocks: [(Int, String)] = []
     private var records: [(name: String?, modelled: Bool, groups: [(Int, String)])] = []
 
     mutating func add(_ name: String?, _ type: String, layer: String, _ groups: [(Int, String)]) {
         let modelled = [
             "LINE", "CIRCLE", "ARC", "ELLIPSE", "POINT", "TEXT", "MTEXT", "LWPOLYLINE", "POLYLINE",
-            "DIMENSION", "SPLINE",
+            "DIMENSION", "SPLINE", "HATCH", "LEADER",
         ].contains(type)
         records.append((name, modelled, [(0, type), (8, layer)] + groups))
     }
@@ -40,7 +42,9 @@ struct DrawingFixture {
         if let insUnits { groups += [(9, "$INSUNITS"), (70, "\(insUnits)")] }
         groups += [(9, "$EXTMIN"), (10, "0"), (20, "0"), (30, "0")]
         groups += [(9, "$EXTMAX"), (10, "100"), (20, "50"), (30, "0")]
-        groups += [(0, "ENDSEC"), (0, "SECTION"), (2, "ENTITIES")]
+        groups += [(0, "ENDSEC")]
+        if !blocks.isEmpty { groups += [(0, "SECTION"), (2, "BLOCKS")] + blocks + [(0, "ENDSEC")] }
+        groups += [(0, "SECTION"), (2, "ENTITIES")]
         for record in records { groups += record.groups }
         groups += [(0, "ENDSEC"), (0, "EOF")]
         return groups.map { "\($0.0)\(lineEnding)\($0.1)\(lineEnding)" }.joined()
@@ -116,13 +120,16 @@ struct DrawingFixture {
         func dim(
             _ name: String, type: Int, value: Double, text: String? = nil, textAt: (Double, Double),
             def: (Double, Double), p13: (Double, Double)? = nil, p14: (Double, Double)? = nil,
-            p15: (Double, Double)? = nil, p16: (Double, Double)? = nil
+            p15: (Double, Double)? = nil, p16: (Double, Double)? = nil, rotation: Double? = nil,
+            handle: String? = nil
         ) {
             var g: [(Int, String)] = [
                 (70, "\(type)"), (42, "\(value)"), (11, "\(textAt.0)"), (21, "\(textAt.1)"),
                 (31, "0"), (10, "\(def.0)"), (20, "\(def.1)"), (30, "0"),
             ]
             if let text { g.append((1, text)) }
+            if let rotation { g.append((50, "\(rotation)")) }
+            if let handle { g.append((5, handle)) }
             for (base, p) in [(13, p13), (14, p14), (15, p15), (16, p16)] {
                 if let p { g += [(base, "\(p.0)"), (base + 10, "\(p.1)"), (base + 20, "0")] }
             }
@@ -130,10 +137,10 @@ struct DrawingFixture {
         }
         dim(
             "dimWidth", type: 0, value: 100, textAt: (50, -10), def: (0, -10), p13: (0, 0),
-            p14: (100, 0))
+            p14: (100, 0), handle: "D1")
         dim(
             "dimHeight", type: 0, value: 50, textAt: (110, 25), def: (110, 0), p13: (100, 0),
-            p14: (100, 50))
+            p14: (100, 50), rotation: 90)
         dim(
             "dimSlot", type: 1, value: 8, text: "8 H7", textAt: (50, -5), def: (46, -5),
             p13: (46, 0), p14: (54, 0))
@@ -147,13 +154,30 @@ struct DrawingFixture {
         f.add(
             "wrapArc", "ARC", layer: "HOLES",
             [(10, "60"), (20, "25"), (30, "0"), (40, "3"), (50, "270"), (51, "90")])
-        f.add(nil, "HATCH", layer: "HATCH", [(2, "SOLID")])
+        // A solid hatch with one outer polyline boundary: a 10 by 10 square at (80, 40).
+        f.add(
+            "hatch", "HATCH", layer: "HATCH",
+            [
+                (2, "SOLID"), (70, "1"), (91, "1"), (92, "3"), (72, "0"), (73, "1"), (93, "4"),
+                (10, "80"), (20, "40"), (10, "90"), (20, "40"), (10, "90"), (20, "50"),
+                (10, "80"), (20, "50"), (97, "0"),
+            ])
+        // A leader with an arrowhead from (5, 40) to the datum point at (50, 25).
+        f.add(
+            "leader", "LEADER", layer: "NOTES",
+            [
+                (71, "1"), (72, "0"), (76, "2"), (10, "5"), (20, "40"), (30, "0"), (10, "50"),
+                (20, "25"), (30, "0"),
+            ])
         // A quadratic Bezier-form spline: it peaks at (20, 40), the midpoint of its curve.
         f.add(
             "curve", "SPLINE", layer: "CURVES",
             splineGroups(
                 degree: 2, knots: [0, 0, 0, 1, 1, 1], control: [(10, 35), (20, 45), (30, 35)],
                 color: 5))
+        // Entity types SwiftDXF does not model: reported as skipped, by type and layer.
+        f.add(nil, "SOLID", layer: "FILL", [(10, "0"), (20, "0")])
+        f.add(nil, "3DFACE", layer: "MESH", [(10, "0"), (20, "0")])
         f.add(nil, "INSERT", layer: "BLOCKS", [(2, "FASTENER"), (10, "70"), (20, "10")])
         return f
     }
@@ -202,18 +226,18 @@ struct DrawingReadToolsTests {
         let path = try fixture.write(to: dir)
 
         let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
-        #expect(r["entityCount"] as? Int == 21)
+        #expect(r["entityCount"] as? Int == 23)
         let byType = try #require(r["byType"] as? [String: Int])
         #expect(
             byType == [
                 "line": 6, "circle": 1, "arc": 2, "polyline": 1, "text": 1, "point": 1,
-                "ellipse": 1, "dimension": 7, "spline": 1,
+                "ellipse": 1, "dimension": 7, "spline": 1, "hatch": 1, "leader": 1,
             ])
 
         let layers = try #require(r["layers"] as? [[String: Any]])
         #expect(
             layers.compactMap { $0["name"] as? String } == [
-                "CURVES", "DIMS", "HOLES", "NOTES", "OUTLINE", "SLOT",
+                "CURVES", "DIMS", "HATCH", "HOLES", "NOTES", "OUTLINE", "SLOT",
             ])
         let dims = try #require(layers.first { $0["name"] as? String == "DIMS" })
         #expect(dims["total"] as? Int == 7)
@@ -236,13 +260,20 @@ struct DrawingReadToolsTests {
             near(numbers(computed["max"]), [110, 60, 0]), "\(String(describing: computed["max"]))")
 
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["total"] as? Int == 3)
-        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1])
+        // The two INSERTs name a block the file does not define, so nothing was expanded and they
+        // are still skipped; the loader's warning comes through beside them.
+        #expect(skipped["total"] as? Int == 4)
+        #expect(
+            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
         let skippedByLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
+        #expect(skippedByLayer["FILL"] == ["SOLID": 1])
+        #expect(skippedByLayer["MESH"] == ["3DFACE": 1])
         #expect(skippedByLayer["BLOCKS"] == ["INSERT": 2])
-        #expect(skippedByLayer["HATCH"] == ["HATCH": 1])
         let warnings = try #require(r["warnings"] as? [String])
-        #expect(warnings.contains { $0.contains("2 block insert") }, "\(warnings)")
+        #expect(warnings.contains { $0.contains("FASTENER") }, "\(warnings)")
+        let optionsEchoed = try #require((r["source"] as? [String: Any])?["options"])
+        #expect(
+            optionsEchoed as? [String: Bool] == ["expandBlocks": true, "skipPaperSpace": false])
 
         let source = try #require(r["source"] as? [String: Any])
         let bytes = try Data(contentsOf: URL(fileURLWithPath: path))
@@ -251,6 +282,7 @@ struct DrawingReadToolsTests {
         #expect(source["bytes"] as? Int == bytes.count)
         #expect(source["format"] as? String == "dxf")
         #expect(source["dxfVersion"] as? String == "AC1027")
+        #expect(source["formatVersion"] as? String == "AC1027")
         #expect(source["fileName"] as? String == "tslot.dxf")
     }
 
@@ -263,7 +295,7 @@ struct DrawingReadToolsTests {
                 "read_drawing", ["inputPath": .string(try DrawingFixture.tSlot().write(to: dir))]))
         let skipped = try #require(r["skipped"] as? [String: Any])
         let byType = try #require(skipped["byType"] as? [String: Int])
-        #expect(byType == ["INSERT": 2, "HATCH": 1], "\(byType)")
+        #expect(byType == ["SOLID": 1, "3DFACE": 1, "INSERT": 2], "\(byType)")
         #expect(byType["SPLINE"] == nil, "a modelled SPLINE was counted as skipped too: \(byType)")
         let byLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
         #expect(byLayer["CURVES"] == nil, "\(byLayer)")
@@ -325,9 +357,10 @@ struct DrawingReadToolsTests {
         fixture.lineEnding = "\r\n"
         let r = try json(
             await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
-        #expect(r["entityCount"] as? Int == 21)
+        #expect(r["entityCount"] as? Int == 23)
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1])
+        #expect(
+            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
         let layers = try #require(r["layers"] as? [[String: Any]])
         #expect(
             layers.compactMap { $0["name"] as? String }.contains("OUTLINE"), "layer names kept a CR"
@@ -380,8 +413,8 @@ struct DrawingReadToolsTests {
         #expect(missing.isError && missing.text.contains("not found"), "\(missing.text)")
 
         for (name, needle) in [
-            ("plate.dwg", "DWGLoader"), ("plate.jww", "JWW"),
-            ("plate.pdf", "supported formats: dxf"),
+            ("plate.dwg", "not a DWG"), ("plate.jww", "truncated"),
+            ("plate.pdf", "not a DXF, DWG or JWW"),
         ] {
             let path = dir.appendingPathComponent(name).path
             try Data("x".utf8).write(to: URL(fileURLWithPath: path))
@@ -414,7 +447,7 @@ struct DrawingReadToolsTests {
         await DrawingCache.shared.clear()
         let path = try DrawingFixture.tSlot().write(to: dir, name: "changing.dxf")
         let before = try json(await call("read_drawing", ["inputPath": .string(path)]))
-        #expect(before["entityCount"] as? Int == 21)
+        #expect(before["entityCount"] as? Int == 23)
 
         var smaller = DrawingFixture()
         smaller.add(
@@ -472,12 +505,12 @@ struct DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = try DrawingFixture.tSlot().write(to: dir)
         let page = try await entities(["limit": 3, "offset": 2], path)
-        #expect(page.total == 21 && page.ids == ["e2", "e3", "e4"])
+        #expect(page.total == 23 && page.ids == ["e2", "e3", "e4"])
         #expect(page.raw["returned"] as? Int == 3 && page.raw["truncated"] as? Bool == true)
-        let last = try await entities(["limit": 3, "offset": 18], path)
-        #expect(last.ids == ["e18", "e19", "e20"] && last.raw["truncated"] as? Bool == false)
+        let last = try await entities(["limit": 3, "offset": 20], path)
+        #expect(last.ids == ["e20", "e21", "e22"] && last.raw["truncated"] as? Bool == false)
         let beyond = try await entities(["offset": 100], path)
-        #expect(beyond.ids.isEmpty && beyond.total == 21)
+        #expect(beyond.ids.isEmpty && beyond.total == 23)
     }
 
     @Test("each entity carries its geometry as numbers, in drawing units")
@@ -570,7 +603,7 @@ struct DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = Value.string(try DrawingFixture.tSlot().write(to: dir))
         let cases: [([String: Value], String)] = [
-            (["types": ["hatch"]], "Unknown entity type"),
+            (["types": ["wipeout"]], "Unknown entity type"),
             (["rect": [1, 2, 3]], "`rect` must be"),
             (["rect": [5, 0, 1, 10]], "`rect` must be"),
             (["rect": "nope"], "`rect` must be"),
@@ -608,9 +641,18 @@ struct DrawingReadToolsTests {
             list.compactMap { $0["valueMm"] as? Double } == [100, 50, 8, 5, 12, 12.5],
             "angular has no mm")
         #expect(list.allSatisfy { $0["layer"] as? String == "DIMS" })
-        // Aligned, radius and diameter dimensions also report the length between their own points.
-        #expect(list.compactMap { $0["valueFromPoints"] as? Double } == [8, 5, 12])
-        #expect(list.compactMap { $0["valueFromPointsMm"] as? Double } == [8, 5, 12])
+        // Every kind but the angular and ordinate ones also reports what its own geometry gives: a
+        // linear dimension measures along its rotation (the height one is rotated to vertical).
+        #expect(list.compactMap { $0["valueFromPoints"] as? Double } == [100, 50, 8, 5, 12])
+        #expect(list.compactMap { $0["valueFromPointsMm"] as? Double } == [100, 50, 8, 5, 12])
+        let height = try #require(list.first { $0["id"] as? String == fixture.id("dimHeight") })
+        #expect(height["rotationDeg"] as? Double == 90)
+        let width = try #require(list.first { $0["id"] as? String == fixture.id("dimWidth") })
+        #expect(width["rotationDeg"] == nil, "no rotation in the file means horizontal")
+        // Each carries where it is in the file, so it can be found again after an edit.
+        #expect((width["locator"] as? String)?.hasPrefix("ENTITIES:") == true)
+        #expect(width["handle"] as? String == "D1", "a dimension carries its handle too")
+        #expect(height["handle"] == nil, "and none where the file wrote none")
 
         let slot = try #require(list.first { $0["id"] as? String == fixture.id("dimSlot") })
         #expect(slot["text"] as? String == "8 H7")
@@ -953,12 +995,19 @@ struct DrawingReadToolsTests {
         dim(
             "diameter", type: 3, value: nil,
             [(10, "-3"), (20, "-4"), (30, "0"), (15, "3"), (25, "4"), (35, "0")])
-        // The angle of a linear dimension is not modelled, so its length cannot be derived.
+        // A linear dimension measures along its rotation, horizontal when the file gives none: the
+        // extension origins are 30 apart in x and 40 in y, so 30 here and 40 when rotated to 90.
         dim(
             "linear", type: 0, value: nil,
             [
                 (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "30"),
                 (24, "40"), (34, "0"),
+            ])
+        dim(
+            "linearVertical", type: 0, value: nil,
+            [
+                (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "30"),
+                (24, "40"), (34, "0"), (50, "90"),
             ])
         // Stored 7, but the extension origins are 8 apart: the disagreement is visible.
         dim(
@@ -967,21 +1016,38 @@ struct DrawingReadToolsTests {
                 (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "8"),
                 (24, "0"), (34, "0"),
             ])
+        // SolidWorks and McMaster write -1 (and some writers 0) for "no measurement": it is missing,
+        // not a value, and the geometry still gives one.
+        for (name, stored) in [("negative", "-1"), ("zero", "0")] {
+            dim(
+                name, type: 1, value: stored,
+                [
+                    (10, "0"), (20, "-5"), (30, "0"), (13, "0"), (23, "0"), (33, "0"), (14, "8"),
+                    (24, "0"), (34, "0"),
+                ])
+        }
         let path = try f.write(to: dir)
         let r = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
         let list = try #require(r["dimensions"] as? [[String: Any]])
         func record(_ name: String) throws -> [String: Any] {
             try #require(list.first { $0["id"] as? String == f.id(name) }, "no \(name)")
         }
-        for name in ["aligned", "radius", "diameter", "linear"] {
+        for name in ["aligned", "radius", "diameter", "linear", "linearVertical"] {
             #expect(try record(name)["value"] == nil, "\(name) has no stored value")
         }
         #expect(try record("aligned")["valueFromPoints"] as? Double == 50)
         #expect(try record("radius")["valueFromPoints"] as? Double == 5)
         #expect(try record("diameter")["valueFromPoints"] as? Double == 10)
-        #expect(try record("linear")["valueFromPoints"] == nil)
+        #expect(try record("linear")["valueFromPoints"] as? Double == 30)
+        #expect(try record("linearVertical")["valueFromPoints"] as? Double == 40)
+        #expect(try record("linearVertical")["rotationDeg"] as? Double == 90)
         // Millimetres follow the drawing's units; this drawing declares millimetres.
         #expect(try record("aligned")["valueFromPointsMm"] as? Double == 50)
+        for name in ["negative", "zero"] {
+            #expect(try record(name)["value"] == nil, "\(name): a stored value that means none")
+            #expect(try record(name)["valueMm"] == nil, "\(name)")
+            #expect(try record(name)["valueFromPoints"] as? Double == 8, "\(name)")
+        }
         let stale = try record("stale")
         #expect(stale["value"] as? Double == 7 && stale["valueFromPoints"] as? Double == 8)
     }
@@ -1005,8 +1071,9 @@ struct DrawingReadToolsTests {
         let path = try f.write(to: dir)
         let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
         #expect(r["entityCount"] as? Int == 1)
-        // SwiftDXF 0.3.0 reports `Drawing.skipped` itself, and counts an INSERT's ATTRIB records as
-        // skipped entities of their own; the raw scan this replaced counted only the INSERT.
+        // SwiftDXF reports `Drawing.skipped` itself, and counts an INSERT's ATTRIB records as skipped
+        // entities of their own. The INSERT stays too: its block TITLE is not defined here, so
+        // nothing was expanded (the loader also reports a missing block).
         let skipped = try #require(r["skipped"] as? [String: Any])
         #expect(skipped["total"] as? Int == 3, "\(skipped)")
         #expect(skipped["byType"] as? [String: Int] == ["INSERT": 1, "ATTRIB": 2], "\(skipped)")
@@ -1023,9 +1090,10 @@ struct DrawingReadToolsTests {
         fixture.lineEnding = "\r"
         let r = try json(
             await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
-        #expect(r["entityCount"] as? Int == 21)
+        #expect(r["entityCount"] as? Int == 23)
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2, "HATCH": 1])
+        #expect(
+            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
     }
 
     @Test("filter arguments that are the wrong shape are refused, not ignored")
@@ -1054,7 +1122,7 @@ struct DrawingReadToolsTests {
                     "inputPath": path, "types": .null, "layers": .null, "rect": .null,
                     "rectMode": .null,
                 ]))
-        #expect(nulls["total"] as? Int == 21)
+        #expect(nulls["total"] as? Int == 23)
         let kinds = try json(
             await call("list_drawing_dimensions", ["inputPath": path, "kinds": .null]))
         #expect(kinds["total"] as? Int == 7)
@@ -1441,15 +1509,39 @@ struct DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let loaded = try await DrawingFile.load(path: try DrawingFixture.tSlot().write(to: dir))
         let cache = DrawingCache()
-        let keys = (0..<5).map { DrawingCache.Key(path: "/drawing\($0).dxf", size: 1, modified: 0) }
+        let keys = (0..<5).map {
+            DrawingCache.Key(path: "/drawing\($0).dxf", size: 1, modified: 0, settings: .init())
+        }
         for key in keys { await cache.store(loaded, for: key) }
         #expect(await cache.entry(for: keys[0]) == nil, "the oldest of five is evicted")
         for key in keys.dropFirst() {
             #expect(await cache.entry(for: key) != nil, "\(key.path)")
         }
-        let changed = DrawingCache.Key(path: "/drawing4.dxf", size: 2, modified: 0)
+        let changed = DrawingCache.Key(
+            path: "/drawing4.dxf", size: 2, modified: 0, settings: .init())
         await cache.store(loaded, for: changed)
         #expect(await cache.entry(for: keys[4]) == nil, "the entry for the old bytes is dropped")
+        #expect(await cache.entry(for: changed) != nil)
+    }
+
+    @Test("one file read under two settings keeps both in the cache, and a changed file drops both")
+    func cacheKeepsEachSetting() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let loaded = try await DrawingFile.load(path: try DrawingFixture.tSlot().write(to: dir))
+        let cache = DrawingCache()
+        let expanded = DrawingCache.Key(
+            path: "/d.dxf", size: 1, modified: 0, settings: .init())
+        let flat = DrawingCache.Key(
+            path: "/d.dxf", size: 1, modified: 0, settings: .init(expandBlocks: false))
+        await cache.store(loaded, for: expanded)
+        await cache.store(loaded, for: flat)
+        #expect(await cache.entry(for: expanded) != nil, "storing the other settings kept it")
+        #expect(await cache.entry(for: flat) != nil)
+        let changed = DrawingCache.Key(path: "/d.dxf", size: 2, modified: 0, settings: .init())
+        await cache.store(loaded, for: changed)
+        #expect(await cache.entry(for: expanded) == nil, "the changed file drops it")
+        #expect(await cache.entry(for: flat) == nil, "and the other settings")
         #expect(await cache.entry(for: changed) != nil)
     }
 
