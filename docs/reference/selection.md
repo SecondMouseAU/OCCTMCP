@@ -344,8 +344,9 @@ again by matching those. `entityType` is the DXF record type and is advisory: it
 host did not send one, or sent one that is not a string. A drawing-entity entry with no `entity`, a
 `null` one, one that is not a string, or one that is empty or only whitespace names no entity, so that
 row gets an `error` and the rest of the response is unaffected. A drawing-entity entry may also leave
-out `index` or give one that is not an integer, since the kind has none; a model entry still needs
-its `index`, and a file without it is reported as malformed. Model and drawing picks can share one
+out `index` and `uid`, or give ones of the wrong type, since the kind has neither, and so may an
+entry of a kind this server does not know; a model entry still needs its `index`, and a file without
+it is reported as malformed. Model and drawing picks can share one
 `selection.json`; the rows keep the file's order and count.
 
 Any other kind this server does not know is still a per-entry `error`, never a failed call, so a kind
