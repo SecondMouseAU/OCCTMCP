@@ -90,6 +90,14 @@ extension SelectionBridgeToolsTests {
             "no selectionId, anchor, error, uid or index: \(row.keys.sorted())")
     }
 
+    @Test("get_selection: the result text spells the identity with a plain slash, not an escaped one")
+    func identityIsReadableInTheResultText() async throws {
+        let result = try await hostSelection([drawingEntry(entity: "8E/31", entityType: "LINE")])
+        try #require(!result.isError, "unexpected error: \(result.text)")
+        #expect(result.text.contains(#""entity" : "8E/31""#), "\(result.text)")
+        #expect(!result.text.contains(#"\/"#), "an escaped slash reads as a backslash: \(result.text)")
+    }
+
     @Test(
         "get_selection: the entity string is passed through exactly as the host wrote it",
         arguments: ["2C1", "8E/31", "ENTITIES:12", "BLOCKS:3/ENTITIES:12", "8e/31", " 8E ", "é/ü"])
@@ -100,17 +108,6 @@ extension SelectionBridgeToolsTests {
         try #require(rows.count == 1)
         #expect(rows[0]["entity"] as? String == entity)
         #expect(rows[0]["error"] == nil)
-    }
-
-    @Test("get_selection: an entity written with an escaped slash reads back as a plain slash")
-    func escapedSlashReadsBack() async throws {
-        // Foundation's JSONEncoder writes `/` as `\/` unless told not to, so a host's `8E/31`
-        // can arrive as `8E\/31`.
-        let raw = #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": "8E\/31"}"#
-        let result = try await hostSelection([raw])
-        let rows = try selectionRows(result)
-        try #require(rows.count == 1)
-        #expect(rows[0]["entity"] as? String == "8E/31")
     }
 
     @Test("get_selection: the record type is advisory, so a pick without one still passes through")
@@ -150,6 +147,30 @@ extension SelectionBridgeToolsTests {
         try #require(rows.count == 1)
         #expect(rows[0]["entity"] as? String == "8E/31")
         #expect(rows[0]["uid"] == nil, "a GraphUID names BRepGraph nodes, and a drawing has none")
+    }
+
+    @Test("get_selection: a drawing pick needs no scene, and no manifest.json at all")
+    func drawingEntityNeedsNoManifest() async throws {
+        let dir = NSTemporaryDirectory() + "occtmcp-selbridge-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let lock = try #require(HeldLock(path: "\(dir)/host.lock"))
+        defer { lock.release() }
+        let entry = try drawingEntry(entity: "8E/31", entityType: "DIMENSION")
+        let json = """
+            {"revision": 1, "updatedAt": "2026-11-18T09:00:00Z", "selections": [\(entry)]}
+            """
+        try Data(json.utf8).write(to: URL(fileURLWithPath: "\(dir)/selection.json"))
+        try #require(!FileManager.default.fileExists(atPath: "\(dir)/manifest.json"))
+
+        let store = ManifestStore(path: "\(dir)/manifest.json")
+        let result = await SelectionBridgeTools.getSelection(
+            store: store, registry: SelectionRegistry())
+        try #require(!result.isError, "unexpected error: \(result.text)")
+        let rows = try selectionRows(result)
+        try #require(rows.count == 1)
+        #expect(rows[0]["entity"] as? String == "8E/31")
+        #expect(rows[0]["error"] == nil, "\(rows[0]["error"] ?? "")")
     }
 
     @Test("get_selection: a drawing case that shares a scene body's id mints no selectionId")
@@ -249,8 +270,10 @@ extension SelectionBridgeToolsTests {
     }
 
     @Test(
-        "get_selection: a drawing-entity with a missing or mistyped index still decodes, so it cannot poison the file",
+        "get_selection: a drawing-entity with a missing or mistyped index or uid still decodes, so it cannot poison the file",
         arguments: [
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "uid": 5, "entity": "8E/31", "entityType": "DIMENSION"}"#,
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "uid": ["a"], "entity": "8E/31", "entityType": "DIMENSION"}"#,
             #"{"bodyId": "6575N383", "kind": "drawing-entity", "entity": "8E/31", "entityType": "DIMENSION"}"#,
             #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": null, "entity": "8E/31", "entityType": "DIMENSION"}"#,
             #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": "0", "entity": "8E/31", "entityType": "DIMENSION"}"#,
@@ -270,8 +293,9 @@ extension SelectionBridgeToolsTests {
     }
 
     @Test(
-        "get_selection: a model entry with a missing or mistyped index is still a malformed file",
+        "get_selection: a model entry with a missing or mistyped index or uid is still a malformed file",
         arguments: [
+            #"{"bodyId": "box", "kind": "face", "index": 0, "uid": 5}"#,
             #"{"bodyId": "box", "kind": "face"}"#,
             #"{"bodyId": "box", "kind": "face", "index": null}"#,
             #"{"bodyId": "box", "kind": "face", "index": "0"}"#,
@@ -311,6 +335,24 @@ extension SelectionBridgeToolsTests {
         #expect(rows[0]["entity"] == nil, "only the exact kind drawing-entity is passed through")
 
         #expect(rows[1]["selectionId"] is String)
+    }
+
+    @Test(
+        "get_selection: an unknown kind with no usable index or uid is that row's error, not a malformed file",
+        arguments: [
+            #"{"bodyId": "box", "kind": "annotation-pin"}"#,
+            #"{"bodyId": "6575N383", "kind": "annotation-pin", "index": null}"#,
+            #"{"bodyId": "box", "kind": "annotation-pin", "index": "x", "uid": 5}"#,
+        ])
+    func unknownKindWithoutIndexIsAPerEntryError(entry: String) async throws {
+        let result = try await hostSelection(
+            [entry, modelEntry(kind: "face", index: 0)], bodies: [("box", try box())])
+        #expect(!result.isError, "a later kind must not fail the call: \(result.text)")
+        let rows = try selectionRows(result)
+        try #require(rows.count == 2)
+        let message = try #require(rows[0]["error"] as? String, "no error on \(rows[0])")
+        #expect(message.contains("unknown kind"), "wrong error: \(message)")
+        #expect(rows[1]["selectionId"] is String, "the face after it must still resolve")
     }
 
     @Test(

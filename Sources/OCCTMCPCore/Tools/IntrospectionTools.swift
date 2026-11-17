@@ -524,9 +524,11 @@ public enum IntrospectionTools {
 
     // ── shared encoder ─────────────────────────────────────────────────
 
-    static func encode<T: Encodable>(_ value: T) -> ToolText {
+    static func encode<T: Encodable>(
+        _ value: T, formatting: JSONEncoder.OutputFormatting = [.prettyPrinted, .sortedKeys]
+    ) -> ToolText {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = formatting
         do {
             let data = try encoder.encode(value)
             return .init(String(data: data, encoding: .utf8) ?? "{}")

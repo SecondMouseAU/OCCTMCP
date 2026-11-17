@@ -243,11 +243,12 @@ public enum SelectionBridgeTools {
             resolved.append(await resolveSelection(entry: entry, store: store, registry: registry))
         }
 
+        // Slashes stay as written: a drawing entity's identity is read literally, as `8E/31`.
         return IntrospectionTools.encode(
             GetSelectionResult(
                 state: "hostRunning", selections: resolved,
                 revision: sidecar.revision, updatedAt: sidecar.updatedAt, host: host
-            ))
+            ), formatting: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     }
 
     static func readHostInfo(outputDir: String) -> HostInfo? {
@@ -653,21 +654,24 @@ public enum SelectionBridgeTools {
 }
 
 extension SelectionBridgeTools.SelectionJSONEntry {
-    /// Decode an entry, forgiving what a `drawing-entity` pick leaves out or gets wrong.
+    /// Decode an entry, forgiving what a non-model kind leaves out or gets wrong.
     ///
-    /// That kind has no index, and `entity` and `entityType` are new, so a missing or mistyped
-    /// one must not turn the whole file into a malformed read and hide the model picks beside it.
-    /// Every other kind decodes `index` strictly, as before.
+    /// A `drawing-entity` pick has no index or uid, and a kind added later may not either, so a
+    /// missing or mistyped one must not turn the whole file into a malformed read and hide the
+    /// model picks beside it. `entity` and `entityType` are new, so a mistyped one is dropped
+    /// for every kind. A model kind decodes `index` and `uid` strictly, as before. This lives
+    /// in this file because the synthesized `CodingKeys` is private to it.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         bodyId = try container.decode(String.self, forKey: .bodyId)
         kind = try container.decode(String.self, forKey: .kind)
-        if kind == SelectionBridgeTools.drawingEntityKind {
-            index = (try? container.decodeIfPresent(Int.self, forKey: .index)) ?? 0
-        } else {
+        if SelectionBridgeTools.validKinds.contains(kind) {
             index = try container.decode(Int.self, forKey: .index)
+            uid = try container.decodeIfPresent(String.self, forKey: .uid)
+        } else {
+            index = (try? container.decodeIfPresent(Int.self, forKey: .index)) ?? 0
+            uid = try? container.decodeIfPresent(String.self, forKey: .uid)
         }
-        uid = try container.decodeIfPresent(String.self, forKey: .uid)
         entity = try? container.decodeIfPresent(String.self, forKey: .entity)
         entityType = try? container.decodeIfPresent(String.self, forKey: .entityType)
     }
