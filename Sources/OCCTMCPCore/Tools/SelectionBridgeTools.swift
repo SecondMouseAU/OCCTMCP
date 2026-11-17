@@ -152,7 +152,8 @@ public enum SelectionBridgeTools {
     /// are populated only when resolution against this server's OWN scene
     /// succeeded (bad `bodyId`, or an `index` outside this body's current
     /// topology, leaves both nil and populates `error` instead, without
-    /// failing the rest of the response).
+    /// failing the rest of the response). A `drawing-entity` row has no scene geometry to
+    /// resolve: it carries `entity` and `entityType` and leaves the rest nil.
     public struct ResolvedSelection: Encodable {
         public let selectionId: String?
         public let bodyId: String
@@ -279,6 +280,12 @@ public enum SelectionBridgeTools {
                 uid: entry.uid, anchor: nil, error: message)
         }
 
+        // Before the body lookup too, so a kind added later reads as an unknown kind and not as
+        // a body that is missing.
+        guard validKinds.contains(entry.kind) else {
+            return failure(unknownKindMessage(entry.kind))
+        }
+
         let loaded: (manifest: ScriptManifest, body: BodyDescriptor, path: String)
         do {
             loaded = try IntrospectionTools.resolveBody(bodyId: entry.bodyId, store: store)
@@ -402,31 +409,8 @@ public enum SelectionBridgeTools {
                 index: entry.index, uid: entry.uid, anchor: snapshot, error: nil)
 
         default:
-            return failure(
-                "unknown kind '\(entry.kind)'. Expected one of: body, face, edge, vertex, "
-                    + "\(drawingEntityKind).")
+            return failure(unknownKindMessage(entry.kind))
         }
-    }
-
-    /// The `kind` of a pick on a 2D drawing entity.
-    static let drawingEntityKind = "drawing-entity"
-
-    /// Pass a `drawing-entity` pick through as itself, without touching the scene.
-    ///
-    /// A drawing has no scene geometry, so the row carries no `selectionId`, `anchor`, `index` or
-    /// `uid`. A pick with no usable `entity` names nothing, so its row carries an `error`.
-    static func resolveDrawingEntity(_ entry: SelectionJSONEntry) -> ResolvedSelection {
-        let named =
-            entry.entity.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            ?? false
-        return ResolvedSelection(
-            selectionId: nil, bodyId: entry.bodyId, kind: entry.kind, index: nil, uid: nil,
-            anchor: nil,
-            error: named
-                ? nil
-                : "\(drawingEntityKind) pick on \(entry.bodyId) has no entity: "
-                    + "the host wrote none, or an empty one.",
-            entity: entry.entity, entityType: entry.entityType)
     }
 
     // MARK: - highlight_selection
@@ -669,21 +653,22 @@ public enum SelectionBridgeTools {
 }
 
 extension SelectionBridgeTools.SelectionJSONEntry {
-    /// Decode an entry, where only a `drawing-entity` pick may leave out `index`.
+    /// Decode an entry, forgiving what a `drawing-entity` pick leaves out or gets wrong.
     ///
-    /// That kind has no index, so a writer that omits it must not turn the whole file into a
-    /// malformed read and hide the model picks beside it.
+    /// That kind has no index, and `entity` and `entityType` are new, so a missing or mistyped
+    /// one must not turn the whole file into a malformed read and hide the model picks beside it.
+    /// Every other kind decodes `index` strictly, as before.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         bodyId = try container.decode(String.self, forKey: .bodyId)
         kind = try container.decode(String.self, forKey: .kind)
         if kind == SelectionBridgeTools.drawingEntityKind {
-            index = try container.decodeIfPresent(Int.self, forKey: .index) ?? 0
+            index = (try? container.decodeIfPresent(Int.self, forKey: .index)) ?? 0
         } else {
             index = try container.decode(Int.self, forKey: .index)
         }
         uid = try container.decodeIfPresent(String.self, forKey: .uid)
-        entity = try container.decodeIfPresent(String.self, forKey: .entity)
-        entityType = try container.decodeIfPresent(String.self, forKey: .entityType)
+        entity = try? container.decodeIfPresent(String.self, forKey: .entity)
+        entityType = try? container.decodeIfPresent(String.self, forKey: .entityType)
     }
 }

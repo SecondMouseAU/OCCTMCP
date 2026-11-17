@@ -124,6 +124,34 @@ extension SelectionBridgeToolsTests {
         #expect(rows[0]["error"] == nil)
     }
 
+    @Test(
+        "get_selection: an entityType that is not a string is dropped, not a malformed file",
+        arguments: ["31", "true", #"["DIMENSION"]"#, #"{"a": 1}"#])
+    func mistypedEntityTypeIsDropped(raw: String) async throws {
+        let entry =
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": "8E/31", "entityType": \#(raw)}"#
+        let result = try await hostSelection([entry, modelEntry(kind: "face", index: 0)], bodies: [("box", try box())])
+        try #require(!result.isError, "unexpected error: \(result.text)")
+        let rows = try selectionRows(result)
+        try #require(rows.count == 2)
+        #expect(rows[0]["entity"] as? String == "8E/31")
+        #expect(rows[0]["entityType"] == nil)
+        #expect(rows[0]["error"] == nil)
+        #expect(rows[1]["selectionId"] is String)
+    }
+
+    @Test("get_selection: a uid on a drawing-entity entry is not echoed")
+    func drawingRowDropsAUid() async throws {
+        let entry =
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "uid": "host-uid-abc", "entity": "8E/31"}"#
+        let result = try await hostSelection([entry])
+        try #require(!result.isError, "unexpected error: \(result.text)")
+        let rows = try selectionRows(result)
+        try #require(rows.count == 1)
+        #expect(rows[0]["entity"] as? String == "8E/31")
+        #expect(rows[0]["uid"] == nil, "a GraphUID names BRepGraph nodes, and a drawing has none")
+    }
+
     @Test("get_selection: a drawing case that shares a scene body's id mints no selectionId")
     func drawingEntityIsRoutedBeforeTheBodyLookup() async throws {
         // The scene HAS a body called `box`, so a lookup-first order finds it. The pick still
@@ -195,6 +223,10 @@ extension SelectionBridgeToolsTests {
             #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": null}"#,
             #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": ""}"#,
             #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": "   "}"#,
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": 31}"#,
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": true}"#,
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": ["8E"]}"#,
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 0, "entity": {"id": "8E"}}"#,
         ])
     func drawingEntityWithoutIdentityIsAPerEntryError(entry: String) async throws {
         let result = try await hostSelection(
@@ -207,23 +239,28 @@ extension SelectionBridgeToolsTests {
         #expect(bad["bodyId"] as? String == "6575N383", "the row still says which drawing")
         #expect(bad["kind"] as? String == "drawing-entity")
         let message = try #require(bad["error"] as? String, "no error on \(bad)")
-        #expect(message.contains("entity"), "the error should name the missing field: \(message)")
-        #expect(!message.contains("body not found"), "wrong error: \(message)")
+        #expect(message.contains("no usable entity"), "the error should say so: \(message)")
+        #expect(!message.lowercased().contains("body not found"), "wrong error: \(message)")
+        #expect(!message.contains("unknown kind"), "wrong error: \(message)")
         #expect(bad["selectionId"] == nil)
 
         #expect(rows[1]["selectionId"] is String, "the face after it must still resolve")
         #expect(rows[1]["error"] == nil)
     }
 
-    @Test("get_selection: a drawing-entity with no index still decodes, so it cannot poison the file")
-    func drawingEntityWithoutIndexDecodes() async throws {
+    @Test(
+        "get_selection: a drawing-entity with a missing or mistyped index still decodes, so it cannot poison the file",
+        arguments: [
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "entity": "8E/31", "entityType": "DIMENSION"}"#,
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": null, "entity": "8E/31", "entityType": "DIMENSION"}"#,
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": "0", "entity": "8E/31", "entityType": "DIMENSION"}"#,
+            #"{"bodyId": "6575N383", "kind": "drawing-entity", "index": 1.5, "entity": "8E/31", "entityType": "DIMENSION"}"#,
+        ])
+    func drawingEntityWithoutIndexDecodes(entry: String) async throws {
         // The schema says `index` is 0 and ignored for this kind; a writer that leaves it out
         // must not turn the whole file into "malformed" and cut the agent off from the model picks.
         let result = try await hostSelection(
-            [
-                drawingEntry(entity: "8E/31", entityType: "DIMENSION", index: nil),
-                modelEntry(kind: "face", index: 0),
-            ], bodies: [("box", try box())])
+            [entry, modelEntry(kind: "face", index: 0)], bodies: [("box", try box())])
         try #require(!result.isError, "unexpected error: \(result.text)")
         let rows = try selectionRows(result)
         try #require(rows.count == 2)
@@ -232,11 +269,16 @@ extension SelectionBridgeToolsTests {
         #expect(rows[1]["selectionId"] is String)
     }
 
-    @Test("get_selection: a model entry with no index is still a malformed file")
-    func modelEntryWithoutIndexIsStillMalformed() async throws {
+    @Test(
+        "get_selection: a model entry with a missing or mistyped index is still a malformed file",
+        arguments: [
+            #"{"bodyId": "box", "kind": "face"}"#,
+            #"{"bodyId": "box", "kind": "face", "index": null}"#,
+            #"{"bodyId": "box", "kind": "face", "index": "0"}"#,
+        ])
+    func modelEntryWithoutIndexIsStillMalformed(entry: String) async throws {
         // Pins that the index leniency above is for drawing-entity only.
-        let result = try await hostSelection(
-            [#"{"bodyId": "box", "kind": "face"}"#], bodies: [("box", try box())])
+        let result = try await hostSelection([entry], bodies: [("box", try box())])
         #expect(result.isError, "a face with no index names no face: \(result.text)")
         #expect(result.text.contains("is malformed"), "wrong error: \(result.text)")
     }
@@ -248,10 +290,13 @@ extension SelectionBridgeToolsTests {
         arguments: [
             "drawing_entity", "Drawing-Entity", "drawing-entity ", "drawing-entit", "annotation-pin",
             "",
-        ])
-    func otherKindsStayPerEntryErrors(kind: String) async throws {
+        ], ["box", "6575N383"])
+    func otherKindsStayPerEntryErrors(kind: String, bodyId: String) async throws {
+        // `box` is in the scene and `6575N383` is not: an unknown kind reads as one either way,
+        // never as a missing body.
         let future = try entryJSON([
-            "bodyId": "box", "kind": kind, "index": 0, "entity": "8E/31", "entityType": "DIMENSION",
+            "bodyId": bodyId, "kind": kind, "index": 0, "entity": "8E/31",
+            "entityType": "DIMENSION",
         ])
         let result = try await hostSelection(
             [future, modelEntry(kind: "face", index: 0)], bodies: [("box", try box())])
@@ -261,17 +306,19 @@ extension SelectionBridgeToolsTests {
 
         let message = try #require(rows[0]["error"] as? String, "no error on \(rows[0])")
         #expect(message.contains("unknown kind"), "wrong error: \(message)")
+        #expect(!message.lowercased().contains("body not found"), "wrong error: \(message)")
         #expect(rows[0]["selectionId"] == nil)
         #expect(rows[0]["entity"] == nil, "only the exact kind drawing-entity is passed through")
 
         #expect(rows[1]["selectionId"] is String)
     }
 
-    @Test("get_selection: entity fields on a model entry are not echoed on its row")
-    func modelRowsDoNotCarryEntityFields() async throws {
-        let stray = try entryJSON([
-            "bodyId": "box", "kind": "face", "index": 0, "entity": "8E/31", "entityType": "LINE",
-        ])
+    @Test(
+        "get_selection: entity fields on a model entry are not echoed on its row",
+        arguments: [#""8E/31""#, "31", "null", #"["8E"]"#])
+    func modelRowsDoNotCarryEntityFields(raw: String) async throws {
+        let stray =
+            #"{"bodyId": "box", "kind": "face", "index": 0, "entity": \#(raw), "entityType": \#(raw)}"#
         let result = try await hostSelection([stray], bodies: [("box", try box())])
         try #require(!result.isError, "unexpected error: \(result.text)")
         let rows = try selectionRows(result)
