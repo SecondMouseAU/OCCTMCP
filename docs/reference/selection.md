@@ -346,13 +346,14 @@ host did not send one, or sent one that is not a string. A drawing-entity entry 
 row gets an `error` and the rest of the response is unaffected. A drawing-entity entry may also leave
 out `index` and `uid`, or give ones of the wrong type, since the kind has neither, and so may an
 entry of a kind this server does not know; a model entry still needs its `index`, and a file without
-it is reported as malformed. Model and drawing picks can share one
-`selection.json`; the rows keep the file's order and count.
+it is reported as malformed. An unusable `entity` is not echoed on the error row. Model and drawing
+picks can share one `selection.json`; the rows keep the file's order and count.
 
 Any other kind this server does not know is still a per-entry `error`, never a failed call, so a kind
 added later does not break the read. It is reported as an unknown kind whether or not its `bodyId`
-is in the scene. `highlight_selection` takes only the model kinds (`body`, `face`, `edge`, `vertex`):
-highlighting a drawing entity is not part of this bridge.
+is in the scene, and its row carries only `bodyId`, `kind` and `error`. `highlight_selection` takes
+only the model kinds (`body`, `face`, `edge`, `vertex`): highlighting a drawing entity is not part
+of this bridge.
 
 **Example**
 
