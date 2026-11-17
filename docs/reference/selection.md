@@ -331,6 +331,25 @@ match), or an `error` string when that one entry couldn't be resolved (bad `body
 missing or malformed (a torn read) is reported as an explicit tool error, never swallowed into an
 empty selection list.
 
+A pick on a 2D drawing entity (SecondMouseAU/OCCTMCP#277), written by a host with a drawings pane
+as `kind: "drawing-entity"`, is returned as itself and is not resolved against the scene. Its row
+carries only `bodyId` (the drawing case the host holds, not a scene body), `kind`, `entity` and
+`entityType`: no `selectionId` (there is no scene geometry to compose with `remap_selection` or
+`measure_distance`), no `anchor`, no `index`, no `uid`. `entity` is the entity's DXF identity as one
+string, passed through exactly as the host wrote it: the handle where the file has one, else the
+section and position (`ENTITIES:12`), preceded by the references of a block expansion it came
+through, outermost first, joined with `/` (`8E/31`). It is the same identity the drawing read tools
+report as `via`, then `handle` (or `locator` when the file has none), so a caller finds the entity
+again by matching those. `entityType` is the DXF record type and is advisory: it is absent when the
+host did not send one. A drawing-entity entry with no `entity`, a `null` one, or one that is empty or
+only whitespace names no entity, so that row gets an `error` and the rest of the response is
+unaffected. Model and drawing picks can share one `selection.json`; the rows keep the file's order and
+count.
+
+Any other kind this server does not know is still a per-entry `error`, never a failed call, so a kind
+added later does not break the read. `highlight_selection` takes only the model kinds (`body`, `face`, `edge`, `vertex`):
+highlighting a drawing entity is not part of this bridge.
+
 **Example**
 
 ```json
@@ -352,6 +371,12 @@ empty selection list.
       "uid": "host-graphuid-string",
       "anchor": { "center": [0.0, 0.0, 10.0], "area": 314.15, "surfaceType": "plane" },
       "error": null
+    },
+    {
+      "bodyId": "6575N383",
+      "kind": "drawing-entity",
+      "entity": "8E/31",
+      "entityType": "DIMENSION"
     }
   ]
 }
