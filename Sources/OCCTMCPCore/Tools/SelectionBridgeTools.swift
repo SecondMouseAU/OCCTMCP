@@ -18,7 +18,7 @@
 // File layout (all under the resolved output directory):
 //   host.lock                            : empty file, host holds LOCK_EX for its lifetime
 //   host.json                            : {pid, startedAt, hostName, hostVersion, schemaVersion}
-//   selection.json                       : {selections: [{bodyId,kind,index,uid?}], revision, updatedAt}
+//   selection.json                       : {selections: [{bodyId,kind,index,uid?,entity?,entityType?}], revision, updatedAt}
 //   highlight_requests/<id>.json         : written here: {id,bodyId,kind,index,scheme,target,question?,label?}
 //   highlight_requests/handled/<id>.json : written by the host: {outcome,reason?,target?}
 //
@@ -102,6 +102,10 @@ public enum SelectionBridgeTools {
         public let kind: String
         public let index: Int
         public let uid: String?
+        /// The DXF identity of a `drawing-entity` pick as one string, such as `8E/31`.
+        public var entity: String? = nil
+        /// The DXF record type of a `drawing-entity` pick, advisory.
+        public var entityType: String? = nil
     }
 
     public struct SelectionSidecar: Codable, Sendable {
@@ -153,10 +157,15 @@ public enum SelectionBridgeTools {
         public let selectionId: String?
         public let bodyId: String
         public let kind: String
-        public let index: Int
+        /// nil for a `drawing-entity` pick, which has no index.
+        public let index: Int?
         public let uid: String?
         public let anchor: AnchorSnapshot?
         public let error: String?
+        /// A `drawing-entity` pick's DXF identity, as the host wrote it.
+        public var entity: String? = nil
+        /// A `drawing-entity` pick's DXF record type, as the host wrote it.
+        public var entityType: String? = nil
     }
 
     public struct GetSelectionResult: Encodable {
@@ -259,6 +268,11 @@ public enum SelectionBridgeTools {
         store: ManifestStore,
         registry: SelectionRegistry
     ) async -> ResolvedSelection {
+        // Before the body lookup: a drawing case is not a scene body.
+        if entry.kind == drawingEntityKind {
+            return resolveDrawingEntity(entry)
+        }
+
         func failure(_ message: String) -> ResolvedSelection {
             ResolvedSelection(
                 selectionId: nil, bodyId: entry.bodyId, kind: entry.kind, index: entry.index,
@@ -389,8 +403,30 @@ public enum SelectionBridgeTools {
 
         default:
             return failure(
-                "unknown kind '\(entry.kind)'. Expected one of: body, face, edge, vertex.")
+                "unknown kind '\(entry.kind)'. Expected one of: body, face, edge, vertex, "
+                    + "\(drawingEntityKind).")
         }
+    }
+
+    /// The `kind` of a pick on a 2D drawing entity.
+    static let drawingEntityKind = "drawing-entity"
+
+    /// Pass a `drawing-entity` pick through as itself, without touching the scene.
+    ///
+    /// A drawing has no scene geometry, so the row carries no `selectionId`, `anchor`, `index` or
+    /// `uid`. A pick with no usable `entity` names nothing, so its row carries an `error`.
+    static func resolveDrawingEntity(_ entry: SelectionJSONEntry) -> ResolvedSelection {
+        let named =
+            entry.entity.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            ?? false
+        return ResolvedSelection(
+            selectionId: nil, bodyId: entry.bodyId, kind: entry.kind, index: nil, uid: nil,
+            anchor: nil,
+            error: named
+                ? nil
+                : "\(drawingEntityKind) pick on \(entry.bodyId) has no entity: "
+                    + "the host wrote none, or an empty one.",
+            entity: entry.entity, entityType: entry.entityType)
     }
 
     // MARK: - highlight_selection
@@ -629,5 +665,25 @@ public enum SelectionBridgeTools {
         } catch {
             return .malformed(error.localizedDescription)
         }
+    }
+}
+
+extension SelectionBridgeTools.SelectionJSONEntry {
+    /// Decode an entry, where only a `drawing-entity` pick may leave out `index`.
+    ///
+    /// That kind has no index, so a writer that omits it must not turn the whole file into a
+    /// malformed read and hide the model picks beside it.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bodyId = try container.decode(String.self, forKey: .bodyId)
+        kind = try container.decode(String.self, forKey: .kind)
+        if kind == SelectionBridgeTools.drawingEntityKind {
+            index = try container.decodeIfPresent(Int.self, forKey: .index) ?? 0
+        } else {
+            index = try container.decode(Int.self, forKey: .index)
+        }
+        uid = try container.decodeIfPresent(String.self, forKey: .uid)
+        entity = try container.decodeIfPresent(String.self, forKey: .entity)
+        entityType = try container.decodeIfPresent(String.self, forKey: .entityType)
     }
 }
