@@ -19,7 +19,7 @@ extension SelectionBridgeTools {
     ///
     /// The row carries `bodyId` (the drawing case), `kind`, `entity` and `entityType`, and no
     /// `selectionId`, `anchor`, `index` or `uid`. A pick with no usable `entity` names nothing,
-    /// so its row carries an `error`.
+    /// so its row carries an `error` and no `entity`.
     static func resolveDrawingEntity(_ entry: SelectionJSONEntry) -> ResolvedSelection {
         let named =
             entry.entity.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -31,6 +31,6 @@ extension SelectionBridgeTools {
                 ? nil
                 : "\(drawingEntityKind) pick on \(entry.bodyId) has no usable entity: the host "
                     + "wrote none, or one that is null, empty, blank or not a string.",
-            entity: entry.entity, entityType: entry.entityType)
+            entity: named ? entry.entity : nil, entityType: entry.entityType)
     }
 }

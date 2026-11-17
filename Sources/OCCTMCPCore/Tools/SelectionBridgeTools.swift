@@ -153,7 +153,8 @@ public enum SelectionBridgeTools {
     /// succeeded (bad `bodyId`, or an `index` outside this body's current
     /// topology, leaves both nil and populates `error` instead, without
     /// failing the rest of the response). A `drawing-entity` row has no scene geometry to
-    /// resolve: it carries `entity` and `entityType` and leaves the rest nil.
+    /// resolve: it carries `entity` and `entityType` and leaves the rest nil. A row for a kind
+    /// this server does not know carries only `bodyId`, `kind` and `error`.
     public struct ResolvedSelection: Encodable {
         public let selectionId: String?
         public let bodyId: String
@@ -281,10 +282,17 @@ public enum SelectionBridgeTools {
                 uid: entry.uid, anchor: nil, error: message)
         }
 
+        // The row for a kind this server does not know: no index or uid, whose meaning is unknown.
+        func unknownKind() -> ResolvedSelection {
+            ResolvedSelection(
+                selectionId: nil, bodyId: entry.bodyId, kind: entry.kind, index: nil, uid: nil,
+                anchor: nil, error: unknownKindMessage(entry.kind))
+        }
+
         // Before the body lookup too, so a kind added later reads as an unknown kind and not as
         // a body that is missing.
         guard validKinds.contains(entry.kind) else {
-            return failure(unknownKindMessage(entry.kind))
+            return unknownKind()
         }
 
         let loaded: (manifest: ScriptManifest, body: BodyDescriptor, path: String)
@@ -410,7 +418,7 @@ public enum SelectionBridgeTools {
                 index: entry.index, uid: entry.uid, anchor: snapshot, error: nil)
 
         default:
-            return failure(unknownKindMessage(entry.kind))
+            return unknownKind()
         }
     }
 

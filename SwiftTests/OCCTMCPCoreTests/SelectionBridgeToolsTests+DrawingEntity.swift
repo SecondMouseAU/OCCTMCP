@@ -261,6 +261,7 @@ extension SelectionBridgeToolsTests {
         #expect(bad["kind"] as? String == "drawing-entity")
         let message = try #require(bad["error"] as? String, "no error on \(bad)")
         #expect(message.contains("no usable entity"), "the error should say so: \(message)")
+        #expect(bad["entity"] == nil, "a blank or mistyped identity is not echoed: \(bad)")
         #expect(!message.lowercased().contains("body not found"), "wrong error: \(message)")
         #expect(!message.contains("unknown kind"), "wrong error: \(message)")
         #expect(bad["selectionId"] == nil)
@@ -296,6 +297,9 @@ extension SelectionBridgeToolsTests {
         "get_selection: a model entry with a missing or mistyped index or uid is still a malformed file",
         arguments: [
             #"{"bodyId": "box", "kind": "face", "index": 0, "uid": 5}"#,
+            #"{"bodyId": "box", "kind": "body"}"#,
+            #"{"bodyId": "box", "kind": "edge"}"#,
+            #"{"bodyId": "box", "kind": "vertex"}"#,
             #"{"bodyId": "box", "kind": "face"}"#,
             #"{"bodyId": "box", "kind": "face", "index": null}"#,
             #"{"bodyId": "box", "kind": "face", "index": "0"}"#,
@@ -331,6 +335,7 @@ extension SelectionBridgeToolsTests {
         let message = try #require(rows[0]["error"] as? String, "no error on \(rows[0])")
         #expect(message.contains("unknown kind"), "wrong error: \(message)")
         #expect(!message.lowercased().contains("body not found"), "wrong error: \(message)")
+        #expect(Set(rows[0].keys) == ["bodyId", "kind", "error"], "\(rows[0].keys.sorted())")
         #expect(rows[0]["selectionId"] == nil)
         #expect(rows[0]["entity"] == nil, "only the exact kind drawing-entity is passed through")
 
@@ -352,6 +357,7 @@ extension SelectionBridgeToolsTests {
         try #require(rows.count == 2)
         let message = try #require(rows[0]["error"] as? String, "no error on \(rows[0])")
         #expect(message.contains("unknown kind"), "wrong error: \(message)")
+        #expect(Set(rows[0].keys) == ["bodyId", "kind", "error"], "no index the host never wrote")
         #expect(rows[1]["selectionId"] is String, "the face after it must still resolve")
     }
 
