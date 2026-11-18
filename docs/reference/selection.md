@@ -331,6 +331,30 @@ match), or an `error` string when that one entry couldn't be resolved (bad `body
 missing or malformed (a torn read) is reported as an explicit tool error, never swallowed into an
 empty selection list.
 
+A pick on a 2D drawing entity (SecondMouseAU/OCCTMCP#277), written by a host with a drawings pane
+as `kind: "drawing-entity"`, is returned as itself and is not resolved against the scene. Its row
+carries only `bodyId` (the drawing case the host holds, not a scene body), `kind`, `entity` and
+`entityType`: no `selectionId` (there is no scene geometry to compose with `remap_selection` or
+`measure_distance`), no `anchor`, no `index`, no `uid`. `entity` is the entity's DXF identity as one
+string, passed through exactly as the host wrote it: the handle where the file has one, else the
+section and position (`ENTITIES:12`), preceded by the references of a block expansion it came
+through, outermost first, joined with `/` (`8E/31`). It is the same identity the drawing read tools
+report as `via`, then `handle` (or `locator` when the file has none), so a caller finds the entity
+again by matching those. `entityType` is the DXF record type and is advisory: it is absent when the
+host did not send one, or sent one that is not a string. A drawing-entity entry with no `entity`, a
+`null` one, one that is not a string, or one that is empty or only whitespace names no entity, so that
+row gets an `error` and the rest of the response is unaffected. A drawing-entity entry may also leave
+out `index` and `uid`, or give ones of the wrong type, since the kind has neither, and so may an
+entry of a kind this server does not know; a model entry still needs its `index`, and a file without
+it is reported as malformed. An unusable `entity` is not echoed on the error row. Model and drawing
+picks can share one `selection.json`; the rows keep the file's order and count.
+
+Any other kind this server does not know is still a per-entry `error`, never a failed call, so a kind
+added later does not break the read. It is reported as an unknown kind whether or not its `bodyId`
+is in the scene, and its row carries only `bodyId`, `kind` and `error`. `highlight_selection` takes
+only the model kinds (`body`, `face`, `edge`, `vertex`): highlighting a drawing entity is not part
+of this bridge.
+
 **Example**
 
 ```json
@@ -350,8 +374,13 @@ empty selection list.
       "kind": "face",
       "index": 2,
       "uid": "host-graphuid-string",
-      "anchor": { "center": [0.0, 0.0, 10.0], "area": 314.15, "surfaceType": "plane" },
-      "error": null
+      "anchor": { "center": [0.0, 0.0, 10.0], "area": 314.15, "surfaceType": "plane" }
+    },
+    {
+      "bodyId": "6575N383",
+      "kind": "drawing-entity",
+      "entity": "8E/31",
+      "entityType": "DIMENSION"
     }
   ]
 }

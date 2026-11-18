@@ -18,7 +18,7 @@
 // File layout (all under the resolved output directory):
 //   host.lock                            : empty file, host holds LOCK_EX for its lifetime
 //   host.json                            : {pid, startedAt, hostName, hostVersion, schemaVersion}
-//   selection.json                       : {selections: [{bodyId,kind,index,uid?}], revision, updatedAt}
+//   selection.json                       : {selections: [{bodyId,kind,index,uid?,entity?,entityType?}], revision, updatedAt}
 //   highlight_requests/<id>.json         : written here: {id,bodyId,kind,index,scheme,target,question?,label?}
 //   highlight_requests/handled/<id>.json : written by the host: {outcome,reason?,target?}
 //
@@ -102,6 +102,10 @@ public enum SelectionBridgeTools {
         public let kind: String
         public let index: Int
         public let uid: String?
+        /// The DXF identity of a `drawing-entity` pick as one string, such as `8E/31`.
+        public var entity: String? = nil
+        /// The DXF record type of a `drawing-entity` pick, advisory.
+        public var entityType: String? = nil
     }
 
     public struct SelectionSidecar: Codable, Sendable {
@@ -148,15 +152,22 @@ public enum SelectionBridgeTools {
     /// are populated only when resolution against this server's OWN scene
     /// succeeded (bad `bodyId`, or an `index` outside this body's current
     /// topology, leaves both nil and populates `error` instead, without
-    /// failing the rest of the response).
+    /// failing the rest of the response). A `drawing-entity` row has no scene geometry to
+    /// resolve: it carries `entity` and `entityType` and leaves the rest nil. A row for a kind
+    /// this server does not know carries only `bodyId`, `kind` and `error`.
     public struct ResolvedSelection: Encodable {
         public let selectionId: String?
         public let bodyId: String
         public let kind: String
-        public let index: Int
+        /// nil for a `drawing-entity` pick, which has no index.
+        public let index: Int?
         public let uid: String?
         public let anchor: AnchorSnapshot?
         public let error: String?
+        /// A `drawing-entity` pick's DXF identity, as the host wrote it.
+        public var entity: String? = nil
+        /// A `drawing-entity` pick's DXF record type, as the host wrote it.
+        public var entityType: String? = nil
     }
 
     public struct GetSelectionResult: Encodable {
@@ -233,11 +244,12 @@ public enum SelectionBridgeTools {
             resolved.append(await resolveSelection(entry: entry, store: store, registry: registry))
         }
 
+        // Slashes stay as written: a drawing entity's identity is read literally, as `8E/31`.
         return IntrospectionTools.encode(
             GetSelectionResult(
                 state: "hostRunning", selections: resolved,
                 revision: sidecar.revision, updatedAt: sidecar.updatedAt, host: host
-            ))
+            ), formatting: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     }
 
     static func readHostInfo(outputDir: String) -> HostInfo? {
@@ -259,10 +271,28 @@ public enum SelectionBridgeTools {
         store: ManifestStore,
         registry: SelectionRegistry
     ) async -> ResolvedSelection {
+        // Before the body lookup: a drawing case is not a scene body.
+        if entry.kind == drawingEntityKind {
+            return resolveDrawingEntity(entry)
+        }
+
         func failure(_ message: String) -> ResolvedSelection {
             ResolvedSelection(
                 selectionId: nil, bodyId: entry.bodyId, kind: entry.kind, index: entry.index,
                 uid: entry.uid, anchor: nil, error: message)
+        }
+
+        // The row for a kind this server does not know: no index or uid, whose meaning is unknown.
+        func unknownKind() -> ResolvedSelection {
+            ResolvedSelection(
+                selectionId: nil, bodyId: entry.bodyId, kind: entry.kind, index: nil, uid: nil,
+                anchor: nil, error: unknownKindMessage(entry.kind))
+        }
+
+        // Before the body lookup too, so a kind added later reads as an unknown kind and not as
+        // a body that is missing.
+        guard validKinds.contains(entry.kind) else {
+            return unknownKind()
         }
 
         let loaded: (manifest: ScriptManifest, body: BodyDescriptor, path: String)
@@ -388,8 +418,7 @@ public enum SelectionBridgeTools {
                 index: entry.index, uid: entry.uid, anchor: snapshot, error: nil)
 
         default:
-            return failure(
-                "unknown kind '\(entry.kind)'. Expected one of: body, face, edge, vertex.")
+            return unknownKind()
         }
     }
 
@@ -629,5 +658,29 @@ public enum SelectionBridgeTools {
         } catch {
             return .malformed(error.localizedDescription)
         }
+    }
+}
+
+extension SelectionBridgeTools.SelectionJSONEntry {
+    /// Decode an entry, forgiving what a non-model kind leaves out or gets wrong.
+    ///
+    /// A `drawing-entity` pick has no index or uid, and a kind added later may not either, so a
+    /// missing or mistyped one must not turn the whole file into a malformed read and hide the
+    /// model picks beside it. `entity` and `entityType` are new, so a mistyped one is dropped
+    /// for every kind. A model kind decodes `index` and `uid` strictly, as before. This lives
+    /// in this file because the synthesized `CodingKeys` is private to it.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bodyId = try container.decode(String.self, forKey: .bodyId)
+        kind = try container.decode(String.self, forKey: .kind)
+        if SelectionBridgeTools.validKinds.contains(kind) {
+            index = try container.decode(Int.self, forKey: .index)
+            uid = try container.decodeIfPresent(String.self, forKey: .uid)
+        } else {
+            index = (try? container.decodeIfPresent(Int.self, forKey: .index)) ?? 0
+            uid = try? container.decodeIfPresent(String.self, forKey: .uid)
+        }
+        entity = try? container.decodeIfPresent(String.self, forKey: .entity)
+        entityType = try? container.decodeIfPresent(String.self, forKey: .entityType)
     }
 }
