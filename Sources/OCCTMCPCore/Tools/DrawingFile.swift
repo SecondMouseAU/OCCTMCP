@@ -49,8 +49,8 @@ struct LoadedDrawing: Sendable {
 
     /// Entities the reader does not model, from the loader's `skippedEntities` warnings.
     ///
-    /// A DWG's skipped entities are counted without their layer, so they are in `byType` and
-    /// `total` but not in `byLayer`.
+    /// A DWG's skipped entities, and a JWW's solid fills, are counted without their layer, so they
+    /// are in `byType` and `total` but not in `byLayer`.
     struct Skipped: Encodable, Sendable {
         var total = 0
         var byType: [String: Int] = [:]

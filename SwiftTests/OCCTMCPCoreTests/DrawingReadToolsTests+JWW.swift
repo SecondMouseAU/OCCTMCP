@@ -31,6 +31,21 @@ extension DrawingReadToolsTests {
         plateDirectory.appendingPathComponent("both-dimensions.jww").path
     }
 
+    /// A line in group 0 at 1:10 and one in group 1, which states a scale of 0.
+    static var unstatedBesideScaledJWW: String {
+        plateDirectory.appendingPathComponent("unstated-beside-scaled.jww").path
+    }
+
+    /// A line in group 1 (at 1:5) inside a block placed by a reference in group 0 (at 1:10).
+    static var blockGroupJWW: String {
+        plateDirectory.appendingPathComponent("block-group.jww").path
+    }
+
+    /// A 100 unit line and a solid fill.
+    static var solidFillJWW: String {
+        plateDirectory.appendingPathComponent("solid.jww").path
+    }
+
     /// A line in a layer group that states a scale of 0.
     static var unstatedScaleJWW: String {
         plateDirectory.appendingPathComponent("unstated.jww").path
@@ -238,6 +253,43 @@ extension DrawingReadToolsTests {
                 Self.dimensionedJWW, "distance", a: .string("e0"), b: .string("e2")))
         let singleNotes = try #require(single["notes"] as? [String])
         #expect(
-            !singleNotes.contains { $0.contains("different scales") }, "\(singleNotes)")
+            !singleNotes.contains { $0.contains("not the sheet distance") }, "\(singleNotes)")
+    }
+
+    @Test("a group that states no scale beside a scaled one is a mixed scale, at drawn size")
+    func jwwUnstatedBesideScaled() async throws {
+        let path = Self.unstatedBesideScaledJWW
+        let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
+        let scales = try #require(r["layerGroupScales"] as? [[String: Any]])
+        #expect(scales.map { $0["group"] as? Int } == [0, 1], "\(scales)")
+        #expect(scales.map { $0["scale"] as? Double } == [10, 1], "\(scales)")
+        let warnings = try #require(r["warnings"] as? [String])
+        #expect(warnings.contains { $0.contains("states no scale") }, "\(warnings)")
+        #expect(warnings.contains { $0.contains("drawn size for group 1") }, "\(warnings)")
+        let lines = try await entities(["types": ["line"]], path).all
+        #expect(lines.compactMap { $0["length"] as? Double } == [100, 5], "\(lines)")
+    }
+
+    @Test(
+        "a block member takes the scale of the group that places it, and its own group is not listed"
+    )
+    func jwwBlockMemberScale() async throws {
+        let path = Self.blockGroupJWW
+        let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
+        // The member is drawn in group 1 (1:5) and placed by a reference in group 0 (1:10).
+        let scales = try #require(r["layerGroupScales"] as? [[String: Any]])
+        #expect(scales.map { $0["group"] as? Int } == [0], "\(scales)")
+        let lines = try await entities(["types": ["line"]], path).all
+        #expect(lines.compactMap { $0["length"] as? Double } == [10], "\(lines)")
+    }
+
+    @Test("a JWW solid fill is skipped by type with no layer, as the loader counts it")
+    func jwwSolidFillIsSkipped() async throws {
+        let r = try json(await call("read_drawing", ["inputPath": .string(Self.solidFillJWW)]))
+        let skipped = try #require(r["skipped"] as? [String: Any])
+        #expect(skipped["total"] as? Int == 1, "\(skipped)")
+        #expect(skipped["byType"] as? [String: Int] == ["SOLID": 1], "\(skipped)")
+        let byLayer = try #require(skipped["byLayer"] as? [String: Any])
+        #expect(byLayer.isEmpty, "a JWW solid fill carries no layer: \(byLayer)")
     }
 }

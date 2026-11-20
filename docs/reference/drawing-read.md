@@ -70,8 +70,8 @@ result.
   matches it, `read_drawing` warns about it and `measure_drawing` refuses it.
 - **What the reader skips is reported, not hidden.** An entity type SwiftDXF does not model (`SOLID`,
   `3DFACE` and so on) is counted in `skipped`, by type and, where the format says, by layer. A DWG
-  counts its skipped entities without their layer, so they are in `byType` and `total` but not in
-  `byLayer`. An `INSERT` is not an entity, so SwiftDXF counts it as skipped until its block is
+  counts its skipped entities, and a JWW its solid fills, without their layer, so they are in
+  `byType` and `total` but not in `byLayer`. An `INSERT` is not an entity, so SwiftDXF counts it as skipped until its block is
   expanded and then takes it out itself: an `INSERT` that is still in `skipped` was not expanded
   (`expandBlocks` is false, the file does not define its block, or the expansion limit stopped
   short), and a warning says which. SwiftDXF counts an `INSERT`'s `ATTRIB` records as skipped
@@ -340,7 +340,8 @@ Distance, angle or radius between named entities or points.
 
 **Returns**: `measure`, `a` / `b` / `vertex` (what each end resolved to), `value` and `unit`
 (`drawing units`, or `degrees` for an angle), `valueMm` (absent for an angle and when the units are
-unknown), `mmPerUnit`, and `notes`.
+unknown), `mmPerUnit`, and `notes` (an approximation, and for a JWW whose layer groups are at
+different scales, the note that a distance across groups is not the sheet distance).
 
 **Example**: the slot width, measured between its two named walls rather than read off a picture.
 

@@ -23,6 +23,12 @@ committed as bytes the same way:
 - `stored.jww`: a 10 unit line at 1:10 with one stored dimension record, value `100`
   (`storedDimension()`).
 - `unstated.jww`: a 10 unit line in a layer group that states a scale of 0 (`unstatedScale()`).
+- `unstated-beside-scaled.jww`: a line in group 0 at 1:10 and one in group 1 that states a scale of
+  0 (`scaledBesideUnstated()`).
+- `block-group.jww`: a block whose one line is in group 1 (at 1:5), placed by a reference in
+  group 0 (at 1:10), so group 1 holds no top-level element. Composed from the builder's `block`
+  and `insert` items, like `both-dimensions.jww`.
+- `solid.jww`: a 100 unit line and a solid fill (`solidFill()`).
 
 They are here so the drawing tools are tested on a DWG and a JWW read through `DrawingLoader`, not
 only on DXF text built in the tests. The AutoCAD-written DWG samples in OCCTSwiftIO's tests are not
