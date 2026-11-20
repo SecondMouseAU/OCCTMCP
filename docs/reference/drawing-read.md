@@ -50,9 +50,9 @@ result.
   scale is read at drawn size (scale 1) and the loader warns. Groups at different scales get a
   warning that names them, and each is at full size on its own, so a `measure_drawing` distance
   between entities of two groups is not the distance on the sheet and says so in `notes`. JWW
-  layers are named `<group>-<layer>` in hexadecimal, such as `0-E`. A dimension Jw_cad keeps as loose lines and text is rebuilt as a `DIMENSION` and
-  marked `rebuilt: true`; a dimension value that nothing explains stays in the drawing as a loose
-  text and has a warning that names it.
+  layers are named `<group>-<layer>` in hexadecimal, such as `0-E`. A dimension Jw_cad keeps as
+  loose lines and text is rebuilt as a `DIMENSION` and marked `rebuilt: true`; a dimension value
+  that nothing explains stays in the drawing as a loose text and has a warning that names it.
 - **A DWG's insert attributes are not read** (as of SwiftDWG 0.2.0 it does not decode `ATTRIB` and
   `ATTDEF`, SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
 - **A file that is damaged says so.** A DWG that is truncated or whose structure does not add up
