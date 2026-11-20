@@ -344,8 +344,9 @@ extension DrawingReadTools {
                 // so a distance between entities of two groups is not the distance on the sheet.
                 if let mixed = loaded.warnings.first(where: { $0.kind == .mixedScales }) {
                     notes.append(
-                        "A distance across layer groups is not the sheet distance: " + mixed.message
-                    )
+                        "A distance between entities of different layer groups is not the sheet "
+                            + "distance; this note is on every distance in the drawing: "
+                            + mixed.message)
                 }
                 return encode(
                     MeasureResult(

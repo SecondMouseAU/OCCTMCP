@@ -222,6 +222,16 @@ extension DrawingReadToolsTests {
             },
             "\(notes)")
 
+        // The note is the drawing's, as the reference says: a distance from one entity to a point
+        // carries it too, whichever groups are involved.
+        let toPoint = try json(
+            await measure(
+                Self.mixedScalesJWW, "distance", a: .string("e0"),
+                b: .array([.double(0), .double(0)])
+            ))
+        let pointNotes = try #require(toPoint["notes"] as? [String])
+        #expect(pointNotes.contains { $0.contains("not the sheet distance") }, "\(pointNotes)")
+
         // The control: a JWW with one scale has no such note, so the note is not always there.
         let single = try json(
             await measure(
