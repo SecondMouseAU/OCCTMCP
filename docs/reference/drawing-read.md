@@ -40,8 +40,31 @@ result.
 - **DXF** (ASCII), **DWG** and **JWW** are read, into one entity model: `LINE`, `CIRCLE`, `ARC`,
   `ELLIPSE`, `POINT`, `TEXT` / `MTEXT`, `LWPOLYLINE` / `POLYLINE`, `SPLINE`, `HATCH`, `LEADER` and
   `DIMENSION`. Binary DXF is refused with a message. A DWG is read in process by SwiftDWG
-  (releases R2000 to R2018, and R14 for simple entities; R12 and earlier are refused with the
-  release named), a JWW through SwiftJWW's DXF writer. `source.format` says which it was.
+  (releases R2000 to R2018, and R14 for simple entities, lightweight polylines and hatches; R12 and
+  earlier are refused with the release named), a JWW through SwiftJWW's DXF writer.
+  `source.format` says which it was.
+- **A JWW is read at full size.** Jw_cad draws at a scale (1:80, say), and the reader multiplies
+  each layer group's lengths by its own scale, so an entity is its real size and not the drawn one.
+  A JWW declares no units; see **Units** below for the millimetre figure.
+  `layerGroupScales` in `read_drawing` says what was applied to each group that holds a top-level
+  element (a group used only inside blocks is not listed). A block's members keep their own layer
+  names but take the scale of the group of the reference that places them, so a layer `1-3` next to
+  a listed group 1 can be at group 0's scale. A group that states no usable scale is read at drawn
+  size (`scale` 1 in `layerGroupScales`) and the loader warns. Groups at different scales get a
+  warning that names them, and each is at full size on its own, so a `measure_drawing` distance
+  between entities of two groups is not the distance on the sheet. Every distance in such a drawing
+  carries a note that says so, whichever entities it measures. JWW layers are named
+  `<group>-<layer>` in hexadecimal, such as `0-E`. A dimension Jw_cad keeps as loose lines and text
+  is rebuilt as a `DIMENSION` and marked `rebuilt: true`; a dimension value that nothing explains
+  stays in the drawing as a loose text and has a warning that names it. Only the top level of a JWW
+  is scanned for dimensions: loose dimension pieces inside a block are not rebuilt, and an older
+  dimension record inside a block is not listed (OCCTSwiftIO 2.0.0-beta.10, known limits), so a JWW
+  whose dimensions are loose pieces in blocks can show none in `rebuiltDimensions` or
+  `list_drawing_dimensions`. A stored dimension record in a block is listed. An older record is one
+  from a file before Jw_cad 4.20, which keeps no measured points: at the top level it is not a
+  dimension either, it stays as a line and text, and a warning names its value.
+- **A DWG's insert attributes are not read** (as of SwiftDWG 0.2.0 it does not decode `ATTRIB` and
+  `ATTDEF`, SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
 - **A file that is damaged says so.** A DWG that is truncated or whose structure does not add up
   fails with SwiftDWG's reason. A DWG whose entities or table records it cannot read is read without
   them, and the loader's warning says how many (`warnings`).
@@ -51,14 +74,16 @@ result.
 - **A newer SwiftDXF may add entity types.** An entity the tools have no mapping for is listed with
   type `other` and no layer, colour, bounds or geometry (nothing is made up), a layer filter never
   matches it, `read_drawing` warns about it and `measure_drawing` refuses it.
-- **What the reader skips is reported, not hidden.** An entity type SwiftDXF does not model (`SOLID`,
-  `3DFACE` and so on) is counted in `skipped`, by type and, where the format says, by layer. A DWG
-  counts its skipped entities without their layer, so they are in `byType` and `total` but not in
-  `byLayer`. An `INSERT` is not an entity, so SwiftDXF counts it as skipped until its block is
-  expanded and then takes it out itself: an `INSERT` that is still in `skipped` was not expanded
-  (`expandBlocks` is false, the file does not define its block, or the expansion limit stopped
-  short), and a warning says which. SwiftDXF counts an `INSERT`'s `ATTRIB` records as skipped
-  entities of their own, so a block insert with attributes shows the attributes.
+- **What the reader skips is reported, not hidden.** An entity type SwiftDXF does not model
+  (`SOLID`, `3DFACE` and so on) is counted in `skipped`, by type and, where the format says, by
+  layer. A DWG counts its skipped entities, and a JWW its solid fills, without their layer, so they
+  are in `byType` and `total` but not in `byLayer`. An `INSERT` is not an entity, so SwiftDXF counts
+  it as skipped until its block is expanded and then takes it out itself: an `INSERT` that is still
+  in `skipped` was not expanded (`expandBlocks` is false, the file does not define its block, or the
+  expansion limit stopped short), and a warning says which. SwiftDXF counts an `INSERT`'s `ATTRIB`
+  records as skipped entities of their own, so a block insert with attributes shows the attributes.
+  A JWW solid fill inside a block is not counted: OCCTSwiftIO 2.0.0-beta.10 reports only top-level
+  fills (SecondMouseAU/OCCTSwiftIO#81 fixes it after that release).
 - **A hatch is not measurable**, and a spline leader is measured along its straight segments; see
   [`measure_drawing`](#measure_drawing).
 
@@ -77,11 +102,12 @@ depend on them.
 - **Entity ids.** An entity's id is `e` and its position in the drawing's entity list (`e0`,
   `e1`, ...). It is stable for the same file bytes, the same read options and the same reader:
   `read_drawing` returns the file's SHA-256, and every result carries the file name, hash, the
-  SwiftDXF release line (`source.readerVersion`, `0.4`: the part that decides which entity types
+  SwiftDXF release line (`source.readerVersion`, `0.5`: the part that decides which entity types
   are modelled) and the options, so a caller can tell when ids no longer mean what they did. A
-  host that embeds `OCCTMCPCore` and resolves a newer SwiftDXF minor than this line reports `0.4`
+  host that embeds `OCCTMCPCore` and resolves a newer SwiftDXF minor than this line reports `0.5`
   with ids that differ; the test that holds the line to the pin reads this repository's
-  `Package.resolved` only. Turning
+  `Package.resolved` only. SwiftDXF 0.5.0 also decodes TEXT and MTEXT, so a `text` string can differ
+  from the raw string in the file (`%%c` comes back as `⌀`). Turning
   block expansion on or off, or a newer SwiftDXF that models more types, shifts the ids after them.
   Skipped records take no index.
 - **Handles.** An id is a position, so it does not survive an edit that moves entities. Every entity
@@ -96,7 +122,11 @@ depend on them.
 - **Units.** Coordinates and values are in **drawing units**. The drawing's units are the DXF
   `$INSUNITS` code, returned with its name and millimetres per unit (codes 0 to 24 as ezdxf lists
   them). A unitless or undeclared drawing has no millimetre figure and the tools say so; pass
-  `mmPerUnit` to `measure_drawing` to supply one.
+  `mmPerUnit` to `measure_drawing` to supply one. A JWW declares no units, so it has no `valueMm`
+  on a dimension or a distance, and `read_drawing` warns of it. Jw_cad draws in millimetres
+  (SwiftJWW's own note on its coordinates), so `mmPerUnit: 1` on `measure_drawing` gives the
+  millimetre figure; `list_drawing_dimensions` takes no such argument, and its values are the
+  drawing units, which for a JWW at full size are those millimetres.
 
 ---
 
@@ -116,8 +146,10 @@ here.
 DXF's `$ACADVER`), `formatVersion` (the format's own version: `$ACADVER`, the DWG version code,
 the JWW file version), `reader`, `readerVersion`, `options`), `skipped` (`total`, `byType`,
 `byLayer`) and `warnings`. `warnings` carries the loader's own messages (missing or cyclic blocks,
-paper space, entities that a non-uniform scale could not carry, a DWG's unreadable entities) as well
-as the tool's (an empty drawing, no usable units).
+paper space, entities that a non-uniform scale could not carry, a DWG's unreadable entities, a JWW's
+unexplained dimension values and mixed or unstated scales) as well as the tool's (an empty drawing,
+no usable units). A JWW also gets `layerGroupScales` (each with `group`, `layerNamePrefix` and
+`scale`) and, when any were rebuilt, `rebuiltDimensions` (a count); a DXF or a DWG has neither.
 
 **Example**
 
@@ -142,7 +174,7 @@ as the tool's (an empty drawing, no usable units).
   "skipped": { "total": 1, "byType": { "SOLID": 1 }, "byLayer": { "FILL": { "SOLID": 1 } } },
   "source": {
     "fileName": "slot.dxf", "bytes": 410, "format": "dxf", "dxfVersion": "AC1027",
-    "formatVersion": "AC1027", "readerVersion": "0.4",
+    "formatVersion": "AC1027", "readerVersion": "0.5",
     "options": { "expandBlocks": true, "skipPaperSpace": false },
     "sha256": "5c9c59756de36f6cddd4c027d7eb956005d7d19ca3935f0737cf51b6e2f6f9a2"
   },
@@ -203,7 +235,7 @@ elliptical arc takes the bounds of its whole ellipse, and text is its insertion 
 ```json
 {
   "total": 2, "offset": 0, "returned": 2, "truncated": false, "unit": "drawing units",
-  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.4",
+  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.5",
              "options": { "expandBlocks": true, "skipPaperSpace": false } },
   "entities": [
     { "id": "e0", "type": "line", "layer": "SLOT", "color": 256, "start": [0, 0, 0], "end": [0, 20, 0], "length": 20,
@@ -239,7 +271,8 @@ returned as a single space),
 `textPosition`, `definitionPoints`, `layer`, `color`, `rotationDeg` (a linear dimension's measuring
 direction, absent when the file gives none, which means horizontal), `obliqueAngleDeg`, `styleName`,
 and where it is in the file: `handle`, `locator` and, for one that came out of a block expansion,
-`via` and `blocks`.
+`via` and `blocks`. `rebuilt` is `true` for a dimension a JWW kept as loose pieces and the reader
+rebuilt, and absent for one the file stores.
 
 - Each definition point carries its DXF `group` (10, 13, 14, 15 or 16) and, where SwiftDXF
   documents it, a `role`: a linear or aligned dimension has `dimensionLine`,
@@ -319,7 +352,8 @@ Distance, angle or radius between named entities or points.
 
 **Returns**: `measure`, `a` / `b` / `vertex` (what each end resolved to), `value` and `unit`
 (`drawing units`, or `degrees` for an angle), `valueMm` (absent for an angle and when the units are
-unknown), `mmPerUnit`, and `notes`.
+unknown), `mmPerUnit`, and `notes` (an approximation, and for a JWW whose layer groups are at
+different scales, the note that a distance across groups is not the sheet distance).
 
 **Example**: the slot width, measured between its two named walls rather than read off a picture.
 
@@ -335,7 +369,7 @@ unknown), `mmPerUnit`, and `notes`.
   "value": 8, "unit": "drawing units", "valueMm": 8, "mmPerUnit": 1,
   "pointOnA": [0, 0, 0], "pointOnB": [8, 0, 0],
   "notes": [],
-  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.4",
+  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.5",
              "options": { "expandBlocks": true, "skipPaperSpace": false } }
 }
 ```
