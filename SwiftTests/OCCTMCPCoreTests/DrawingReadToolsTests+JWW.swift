@@ -108,6 +108,28 @@ extension DrawingReadToolsTests {
         let r = try json(await call("read_drawing", ["inputPath": .string(Self.dimensionedJWW)]))
         let warnings = try #require(r["warnings"] as? [String])
         #expect(warnings.contains { $0.contains("R5") }, "\(warnings)")
+
+        // The value is not dropped: it stays in the drawing as a loose text at full size.
+        let texts = try await entities(["types": ["text"]], Self.dimensionedJWW).all
+        let loose = texts.first { $0["text"] as? String == "R5" }
+        #expect(loose != nil, "the R5 text is not in the entity list: \(texts)")
+    }
+
+    @Test("TEXT is decoded by the reader: a diameter code comes back as the diameter sign")
+    func textIsDecoded() async throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dxf =
+            [
+                "0", "SECTION", "2", "ENTITIES", "0", "TEXT", "8", "0", "10", "0", "20", "0", "30",
+                "0",
+                "40", "2.5", "1", "%%c10", "0", "ENDSEC", "0", "EOF",
+            ].joined(separator: "\n") + "\n"
+        let url = dir.appendingPathComponent("diameter.dxf")
+        try dxf.write(to: url, atomically: true, encoding: .utf8)
+        let all = try await entities(["types": ["text"]], url.path).all
+        #expect(all.count == 1, "\(all)")
+        #expect(all.first?["text"] as? String == "\u{2300}10", "\(all)")
     }
 
     @Test("groups drawn at different scales are each stated, with the loader's warning")

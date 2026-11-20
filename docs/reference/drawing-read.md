@@ -40,7 +40,7 @@ result.
 - **DXF** (ASCII), **DWG** and **JWW** are read, into one entity model: `LINE`, `CIRCLE`, `ARC`,
   `ELLIPSE`, `POINT`, `TEXT` / `MTEXT`, `LWPOLYLINE` / `POLYLINE`, `SPLINE`, `HATCH`, `LEADER` and
   `DIMENSION`. Binary DXF is refused with a message. A DWG is read in process by SwiftDWG
-  (releases R2000 to R2018, and R14 for simple entities; R12 and earlier are refused with the
+  (releases R2000 to R2018, and R14 for simple entities, lightweight polylines and hatches; R12 and earlier are refused with the
   release named), a JWW through SwiftJWW's DXF writer. `source.format` says which it was.
 - **A JWW is read at full size.** Jw_cad draws at a scale (1:80, say), and the reader multiplies
   each layer group's lengths by its own scale, so an entity is its real size and not the drawn

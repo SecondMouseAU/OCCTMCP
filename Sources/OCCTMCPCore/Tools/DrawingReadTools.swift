@@ -156,7 +156,7 @@ public enum DrawingReadTools {
 
     static func dimensionRecord(
         _ d: DXF.Dimension, id: String, mmPerUnit: Double?, identity: DXF.Identity,
-        rebuilt: Bool = false
+        rebuilt: Bool
     ) -> DimensionRecord {
         let kind: String
         switch d.kind {
@@ -216,7 +216,7 @@ public enum DrawingReadTools {
 
     static func entityRecord(
         _ entity: DXF.Entity, index: Int, mmPerUnit: Double?, identity: DXF.Identity,
-        rebuilt: Bool = false
+        rebuilt: Bool
     ) -> EntityRecord {
         let id = DrawingEntities.id(index)
         var record = EntityRecord(
