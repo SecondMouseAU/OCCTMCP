@@ -82,6 +82,12 @@ public enum DrawingReadTools {
         let via: [String]?
         /// The names of those blocks.
         let blocks: [String]?
+        /// True for a dimension the reader rebuilt from loose pieces; absent for one the file
+        /// stored as a dimension.
+        ///
+        /// Only a JWW has any: Jw_cad can keep a dimension as separate lines and text, and a JWW
+        /// can also store a dimension record, which is not marked.
+        var rebuilt: Bool?
     }
 
     struct EntityRecord: Encodable {
@@ -149,7 +155,8 @@ public enum DrawingReadTools {
     }
 
     static func dimensionRecord(
-        _ d: DXF.Dimension, id: String, mmPerUnit: Double?, identity: DXF.Identity
+        _ d: DXF.Dimension, id: String, mmPerUnit: Double?, identity: DXF.Identity,
+        rebuilt: Bool = false
     ) -> DimensionRecord {
         let kind: String
         switch d.kind {
@@ -201,14 +208,15 @@ public enum DrawingReadTools {
             definitionPoints: points, layer: d.layer, color: d.color, rotationDeg: d.rotation,
             obliqueAngleDeg: d.obliqueAngle, styleName: d.styleName, handle: identity.handle,
             locator: identity.locator, via: identity.via.isEmpty ? nil : identity.via,
-            blocks: identity.blocks.isEmpty ? nil : identity.blocks)
+            blocks: identity.blocks.isEmpty ? nil : identity.blocks, rebuilt: rebuilt ? true : nil)
     }
 
     /// `values`, or nil when it is empty, so a record leaves out what the file does not have.
     static func nonEmpty<T>(_ values: [T]) -> [T]? { values.isEmpty ? nil : values }
 
     static func entityRecord(
-        _ entity: DXF.Entity, index: Int, mmPerUnit: Double?, identity: DXF.Identity
+        _ entity: DXF.Entity, index: Int, mmPerUnit: Double?, identity: DXF.Identity,
+        rebuilt: Bool = false
     ) -> EntityRecord {
         let id = DrawingEntities.id(index)
         var record = EntityRecord(
@@ -279,7 +287,8 @@ public enum DrawingReadTools {
             record.annotationHandle = leader.annotationHandle
             record.styleName = leader.styleName
         case .dimension(let d):
-            record.dimension = dimensionRecord(d, id: id, mmPerUnit: mmPerUnit, identity: identity)
+            record.dimension = dimensionRecord(
+                d, id: id, mmPerUnit: mmPerUnit, identity: identity, rebuilt: rebuilt)
         @unknown default:
             break
         }
@@ -483,6 +492,12 @@ public enum DrawingReadTools {
         /// Entities in the file that the reader does not model, by type and layer.
         let skipped: LoadedDrawing.Skipped
         let warnings: [String]
+        /// The scale each JWW layer group was drawn at, already multiplied out; absent for a DXF or
+        /// a DWG.
+        let layerGroupScales: [LoadedDrawing.LayerGroupScale]?
+        /// How many dimensions were rebuilt from loose pieces (`rebuilt: true` in the dimension
+        /// records); absent when none were.
+        let rebuiltDimensions: Int?
     }
 
     public static func readDrawing(
@@ -564,7 +579,10 @@ public enum DrawingReadTools {
                     mmPerUnit: loaded.mmPerUnit),
                 extents: ExtentsRecord(declared: declared, computed: union.map(Box.init)),
                 entityCount: drawing.entities.count, byType: byType, layers: layers,
-                skipped: loaded.skipped, warnings: warnings))
+                skipped: loaded.skipped, warnings: warnings,
+                layerGroupScales: nonEmpty(loaded.layerGroupScales),
+                rebuiltDimensions: loaded.rebuiltDimensions.isEmpty
+                    ? nil : loaded.rebuiltDimensions.count))
     }
 
     // ── list_drawing_entities ───────────────────────────────────────────
@@ -637,9 +655,10 @@ public enum DrawingReadTools {
         let paging = page(offset: offset, limit: limit, maxLimit: 5000, defaultLimit: 200)
         let slice = matching.dropFirst(paging.offset).prefix(paging.limit)
         let records = slice.map {
-            entityRecord(
+            let identity = loaded.drawing.identity(ofEntityAt: $0)
+            return entityRecord(
                 loaded.drawing.entities[$0], index: $0, mmPerUnit: loaded.mmPerUnit,
-                identity: loaded.drawing.identity(ofEntityAt: $0))
+                identity: identity, rebuilt: loaded.rebuiltDimensions.contains(identity))
         }
         return encode(
             EntityListing(
@@ -683,9 +702,10 @@ public enum DrawingReadTools {
         var all: [DimensionRecord] = []
         for (index, entity) in loaded.drawing.entities.enumerated() {
             guard case .dimension(let d) = entity else { continue }
+            let identity = loaded.drawing.identity(ofEntityAt: index)
             let record = dimensionRecord(
-                d, id: DrawingEntities.id(index), mmPerUnit: loaded.mmPerUnit,
-                identity: loaded.drawing.identity(ofEntityAt: index))
+                d, id: DrawingEntities.id(index), mmPerUnit: loaded.mmPerUnit, identity: identity,
+                rebuilt: loaded.rebuiltDimensions.contains(identity))
             if let layerSet, !layerSet.contains(record.layer) { continue }
             if let kindSet, !kindSet.contains(record.kind) { continue }
             all.append(record)

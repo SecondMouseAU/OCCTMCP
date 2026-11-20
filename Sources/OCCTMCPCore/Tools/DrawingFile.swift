@@ -65,6 +65,26 @@ struct LoadedDrawing: Sendable {
     let warnings: [DrawingWarning]
     /// The options the drawing was read with: the entity ids depend on them.
     let settings: DrawingReadTools.ReadSettings
+    /// The scale each JWW layer group was drawn at.
+    ///
+    /// The reader has already multiplied each one out, so a JWW's geometry is at full size. Empty
+    /// for a DXF or a DWG.
+    let layerGroupScales: [LayerGroupScale]
+    /// The `.dimension` entities the reader rebuilt from loose pieces, not read as stored.
+    ///
+    /// Only a JWW has any. A dimension whose identity is not here was stored in the file.
+    let rebuiltDimensions: Set<DXF.Identity>
+
+    /// A JWW layer group and the scale its lengths were multiplied by.
+    struct LayerGroupScale: Encodable, Sendable {
+        /// The group number, 0 to 15.
+        let group: Int
+        /// The start of the names of the group's layers, such as `0-`.
+        let layerNamePrefix: String
+        /// The scale denominator applied: 80 for a group drawn at 1:80, 1 for a group that states no
+        /// usable scale (which also has a warning).
+        let scale: Double
+    }
 
     /// Millimetres in one drawing unit, nil when the file declares no units.
     var mmPerUnit: Double? { DrawingUnits.mmPerUnit(insUnits: drawing.insUnits) }
@@ -121,7 +141,7 @@ enum DrawingFile {
     /// holds it equal to the `swiftdxf` pin in `Package.resolved`: a bump that forgets it fails.
     /// The SwiftDXF release line (major and minor) this build was written for; a test holds it to
     /// the `swiftdxf` pin in `Package.resolved`.
-    static let readerVersion = "0.4"
+    static let readerVersion = "0.5"
 
     /// Read `path` as a drawing, answering from a small cache when the file has not changed.
     ///
@@ -183,7 +203,11 @@ enum DrawingFile {
                     + "SwiftJWW for JWW)",
                 readerVersion: readerVersion, options: settings),
             skipped: skipped(from: result.warnings), warnings: result.warnings,
-            settings: settings)
+            settings: settings,
+            layerGroupScales: result.layerGroupScales.map {
+                .init(group: $0.group, layerNamePrefix: $0.layerNamePrefix, scale: $0.scale)
+            },
+            rebuiltDimensions: Set(result.rebuiltDimensions.map(\.identity)))
     }
 
     /// Why a read failed, in words.
