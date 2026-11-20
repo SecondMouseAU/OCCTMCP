@@ -25,6 +25,12 @@ extension DrawingReadToolsTests {
         plateDirectory.appendingPathComponent("stored.jww").path
     }
 
+    /// A 10 x 6 outline at 1:10 with its width `100` kept as loose pieces (rebuilt) and its height
+    /// `60` stored as a dimension record.
+    static var bothDimensionsJWW: String {
+        plateDirectory.appendingPathComponent("both-dimensions.jww").path
+    }
+
     /// A line in a layer group that states a scale of 0.
     static var unstatedScaleJWW: String {
         plateDirectory.appendingPathComponent("unstated.jww").path
@@ -151,5 +157,35 @@ extension DrawingReadToolsTests {
         let all = try await entities(["types": ["dimension"]], stored).all
         let dimension = try #require(all.first?["dimension"] as? [String: Any])
         #expect(dimension["rebuilt"] == nil, "the entity listing marked a stored dimension rebuilt")
+    }
+
+    @Test(
+        "the rebuilt flag follows each dimension, in a file that has a rebuilt one and a stored one"
+    )
+    func jwwRebuiltFlagFollowsTheDimension() async throws {
+        let path = Self.bothDimensionsJWW
+        let listing = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
+        let rows = try #require(listing["dimensions"] as? [[String: Any]])
+        let flags = Dictionary(
+            uniqueKeysWithValues: rows.compactMap { row -> (String, Bool?)? in
+                guard let text = row["text"] as? String else { return nil }
+                return (text, row["rebuilt"] as? Bool)
+            })
+        #expect(rows.count == 2, "\(rows)")
+        #expect(flags["100"] == .some(true), "the loose-piece dimension: \(flags)")
+        #expect(flags["60"] == .some(nil), "the stored dimension was marked: \(flags)")
+
+        // Both paths, and the count in read_drawing, agree.
+        let all = try await entities(["types": ["dimension"]], path).all
+        let byText = Dictionary(
+            uniqueKeysWithValues: all.compactMap { entity -> (String, Bool?)? in
+                guard let record = entity["dimension"] as? [String: Any],
+                    let text = record["text"] as? String
+                else { return nil }
+                return (text, record["rebuilt"] as? Bool)
+            })
+        #expect(byText["100"] == .some(true) && byText["60"] == .some(nil), "\(byText)")
+        let read = try json(await call("read_drawing", ["inputPath": .string(path)]))
+        #expect(read["rebuiltDimensions"] as? Int == 1, "one of two dimensions was rebuilt")
     }
 }

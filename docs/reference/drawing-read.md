@@ -91,7 +91,8 @@ depend on them.
   are modelled) and the options, so a caller can tell when ids no longer mean what they did. A
   host that embeds `OCCTMCPCore` and resolves a newer SwiftDXF minor than this line reports `0.5`
   with ids that differ; the test that holds the line to the pin reads this repository's
-  `Package.resolved` only. Turning
+  `Package.resolved` only. SwiftDXF 0.5.0 also decodes TEXT and MTEXT, so a `text` string can differ
+  from the raw string in the file (`%%c` comes back as `⌀`). Turning
   block expansion on or off, or a newer SwiftDXF that models more types, shifts the ids after them.
   Skipped records take no index.
 - **Handles.** An id is a position, so it does not survive an edit that moves entities. Every entity

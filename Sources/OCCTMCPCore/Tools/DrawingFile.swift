@@ -38,7 +38,7 @@ struct LoadedDrawing: Sendable {
         let formatVersion: String
         /// What turned the bytes into entities.
         let reader: String
-        /// The SwiftDXF release line that did it, such as `0.4`.
+        /// The SwiftDXF release line that did it, such as `0.5`.
         ///
         /// Entity ids (`e<index>`) shift when a newer reader models more types, so it is recorded
         /// beside the SHA-256 that names the bytes.
