@@ -40,20 +40,21 @@ result.
 - **DXF** (ASCII), **DWG** and **JWW** are read, into one entity model: `LINE`, `CIRCLE`, `ARC`,
   `ELLIPSE`, `POINT`, `TEXT` / `MTEXT`, `LWPOLYLINE` / `POLYLINE`, `SPLINE`, `HATCH`, `LEADER` and
   `DIMENSION`. Binary DXF is refused with a message. A DWG is read in process by SwiftDWG
-  (releases R2000 to R2018, and R14 for simple entities, lightweight polylines and hatches; R12 and earlier are refused with the
-  release named), a JWW through SwiftJWW's DXF writer. `source.format` says which it was.
+  (releases R2000 to R2018, and R14 for simple entities, lightweight polylines and hatches; R12 and
+  earlier are refused with the release named), a JWW through SwiftJWW's DXF writer.
+  `source.format` says which it was.
 - **A JWW is read at full size.** Jw_cad draws at a scale (1:80, say), and the reader multiplies
   each layer group's lengths by its own scale, so an entity is its real size and not the drawn
-  one. `layerGroupScales` in `read_drawing` says what was applied to each group that holds a top-level
-  element (a group used only inside blocks is not listed; a block's members take the scale of the
-  group of the reference that places them). A group that states
-  no usable scale is read at drawn size (scale 1) and the loader warns, and groups at different
-  scales get a warning that names them. JWW layers are named `<group>-<layer>` in hexadecimal,
-  such as `0-E`. A dimension Jw_cad keeps as loose lines and text is rebuilt as a `DIMENSION` and
+  one. `layerGroupScales` in `read_drawing` says what was applied to each group that holds a
+  top-level element (a group used only inside blocks is not listed). A group that states no usable
+  scale is read at drawn size (scale 1) and the loader warns. Groups at different scales get a
+  warning that names them, and each is at full size on its own, so a `measure_drawing` distance
+  between entities of two groups is not the distance on the sheet and says so in `notes`. JWW
+  layers are named `<group>-<layer>` in hexadecimal, such as `0-E`. A dimension Jw_cad keeps as loose lines and text is rebuilt as a `DIMENSION` and
   marked `rebuilt: true`; a dimension value that nothing explains stays in the drawing as a loose
   text and has a warning that names it.
-- **A DWG's insert attributes are not read** (SwiftDWG does not decode `ATTRIB` and `ATTDEF`,
-  SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
+- **A DWG's insert attributes are not read** (as of SwiftDWG 0.2.0 it does not decode `ATTRIB` and
+  `ATTDEF`, SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
 - **A file that is damaged says so.** A DWG that is truncated or whose structure does not add up
   fails with SwiftDWG's reason. A DWG whose entities or table records it cannot read is read without
   them, and the loader's warning says how many (`warnings`).

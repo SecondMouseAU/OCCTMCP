@@ -111,8 +111,11 @@ extension DrawingReadToolsTests {
 
         // The value is not dropped: it stays in the drawing as a loose text at full size.
         let texts = try await entities(["types": ["text"]], Self.dimensionedJWW).all
-        let loose = texts.first { $0["text"] as? String == "R5" }
-        #expect(loose != nil, "the R5 text is not in the entity list: \(texts)")
+        let loose = try #require(
+            texts.first { $0["text"] as? String == "R5" },
+            "the R5 text is not in the entity list: \(texts)")
+        // Drawn at (3, 3) at 1:10, so (30, 30) at full size.
+        #expect(near(numbers(loose["at"]), [30, 30, 0]), "\(loose["at"] ?? "?")")
     }
 
     @Test("groups drawn at different scales are each stated, with the loader's warning")
@@ -183,26 +186,48 @@ extension DrawingReadToolsTests {
         let path = Self.bothDimensionsJWW
         let listing = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
         let rows = try #require(listing["dimensions"] as? [[String: Any]])
+        #expect(rows.count == 2, "\(rows)")
         let flags = Dictionary(
-            uniqueKeysWithValues: rows.compactMap { row -> (String, Bool?)? in
+            rows.compactMap { row -> (String, Bool?)? in
                 guard let text = row["text"] as? String else { return nil }
                 return (text, row["rebuilt"] as? Bool)
-            })
-        #expect(rows.count == 2, "\(rows)")
+            }, uniquingKeysWith: { first, _ in first })
         #expect(flags["100"] == .some(true), "the loose-piece dimension: \(flags)")
         #expect(flags["60"] == .some(nil), "the stored dimension was marked: \(flags)")
 
         // Both paths, and the count in read_drawing, agree.
         let all = try await entities(["types": ["dimension"]], path).all
+        #expect(all.count == 2, "\(all.count) dimension entities")
         let byText = Dictionary(
-            uniqueKeysWithValues: all.compactMap { entity -> (String, Bool?)? in
+            all.compactMap { entity -> (String, Bool?)? in
                 guard let record = entity["dimension"] as? [String: Any],
                     let text = record["text"] as? String
                 else { return nil }
                 return (text, record["rebuilt"] as? Bool)
-            })
+            }, uniquingKeysWith: { first, _ in first })
         #expect(byText["100"] == .some(true) && byText["60"] == .some(nil), "\(byText)")
         let read = try json(await call("read_drawing", ["inputPath": .string(path)]))
         #expect(read["rebuiltDimensions"] as? Int == 1, "one of two dimensions was rebuilt")
+    }
+
+    @Test("a distance across layer groups at different scales says it is not the sheet distance")
+    func jwwMeasureAcrossScales() async throws {
+        let measured = try json(
+            await measure(
+                Self.mixedScalesJWW, "distance", a: .string("e0"), b: .string("e1")))
+        let notes = try #require(measured["notes"] as? [String])
+        #expect(
+            notes.contains {
+                $0.contains("not the sheet distance") && $0.contains("different scales")
+            },
+            "\(notes)")
+
+        // The control: a JWW with one scale has no such note, so the note is not always there.
+        let single = try json(
+            await measure(
+                Self.dimensionedJWW, "distance", a: .string("e0"), b: .string("e2")))
+        let singleNotes = try #require(single["notes"] as? [String])
+        #expect(
+            !singleNotes.contains { $0.contains("different scales") }, "\(singleNotes)")
     }
 }

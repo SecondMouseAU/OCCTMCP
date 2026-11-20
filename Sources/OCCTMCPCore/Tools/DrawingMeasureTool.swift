@@ -340,6 +340,13 @@ extension DrawingReadTools {
                 // One note per kind of approximation, even when both ends are the same kind.
                 let approximations = Set([approximationA, approximationB].compactMap { $0 })
                 notes.append(contentsOf: approximations.sorted())
+                // A JWW whose layer groups are at different scales is at full size group by group,
+                // so a distance between entities of two groups is not the distance on the sheet.
+                if let mixed = loaded.warnings.first(where: { $0.kind == .mixedScales }) {
+                    notes.append(
+                        "A distance across layer groups is not the sheet distance: " + mixed.message
+                    )
+                }
                 return encode(
                     MeasureResult(
                         source: sourceRef(loaded), measure: measure, a: endRecord(endA),

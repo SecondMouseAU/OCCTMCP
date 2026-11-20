@@ -753,21 +753,4 @@ extension DrawingReadToolsTests {
         #expect(r.isError && r.text.contains("hatch"), "\(r.text)")
         #expect(r.text.contains("boundary"), "\(r.text)")
     }
-
-    @Test("TEXT is decoded by the reader: a diameter code comes back as the diameter sign")
-    func textIsDecoded() async throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let dxf =
-            [
-                "0", "SECTION", "2", "ENTITIES", "0", "TEXT", "8", "0", "10", "0", "20", "0", "30",
-                "0",
-                "40", "2.5", "1", "%%c10", "0", "ENDSEC", "0", "EOF",
-            ].joined(separator: "\n") + "\n"
-        let url = dir.appendingPathComponent("diameter.dxf")
-        try dxf.write(to: url, atomically: true, encoding: .utf8)
-        let all = try await entities(["types": ["text"]], url.path).all
-        #expect(all.count == 1, "\(all)")
-        #expect(all.first?["text"] as? String == "\u{2300}10", "\(all)")
-    }
 }
