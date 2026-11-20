@@ -58,9 +58,10 @@ result.
   stays in the drawing as a loose text and has a warning that names it. Only the top level of a JWW
   is scanned for dimensions: loose dimension pieces inside a block are not rebuilt, and an older
   dimension record inside a block is not listed (OCCTSwiftIO 2.0.0-beta.10, known limits), so a JWW
-  whose dimensions sit in blocks can show none in `rebuiltDimensions` or `list_drawing_dimensions`.
-  An older record is one from a file before Jw_cad 4.20, which keeps no measured points: at the top
-  level it is not a dimension either, it stays as a line and text, and a warning names its value.
+  whose dimensions are loose pieces in blocks can show none in `rebuiltDimensions` or
+  `list_drawing_dimensions`. A stored dimension record in a block is listed. An older record is one
+  from a file before Jw_cad 4.20, which keeps no measured points: at the top level it is not a
+  dimension either, it stays as a line and text, and a warning names its value.
 - **A DWG's insert attributes are not read** (as of SwiftDWG 0.2.0 it does not decode `ATTRIB` and
   `ATTDEF`, SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
 - **A file that is damaged says so.** A DWG that is truncated or whose structure does not add up

@@ -32,6 +32,9 @@ committed as bytes the same way:
 - `dimension-in-block.jww`: the width at 1:10 with its dimension kept as loose pieces inside a
   block, placed once. Composed from the builder's `block` and `insert` items and the pieces of
   `dimensionedPlate()`.
+- `stored-dimension-in-block.jww`: the width at 1:10 with a stored dimension record (value `100`)
+  inside a block, placed once. It is the control for `dimension-in-block.jww`: a stored record in a
+  block is listed, loose pieces in a block are not rebuilt.
 - `old-dimension.jww`: the stored dimension record of `stored.jww` in a version 3.51 file, which
   keeps no measured points (`storedDimension(version: 351)`).
 

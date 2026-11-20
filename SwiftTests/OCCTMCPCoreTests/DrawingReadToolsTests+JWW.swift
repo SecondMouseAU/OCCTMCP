@@ -46,6 +46,11 @@ extension DrawingReadToolsTests {
         plateDirectory.appendingPathComponent("dimension-in-block.jww").path
     }
 
+    /// The width at 1:10 with a stored dimension record inside a block.
+    static var storedDimensionInBlockJWW: String {
+        plateDirectory.appendingPathComponent("stored-dimension-in-block.jww").path
+    }
+
     /// A stored dimension record in a version 3.51 file, which keeps no measured points.
     static var oldDimensionJWW: String {
         plateDirectory.appendingPathComponent("old-dimension.jww").path
@@ -325,6 +330,24 @@ extension DrawingReadToolsTests {
         #expect(byType["line"] == 4 && byType["text"] == 1, "\(byType)")
         let texts = try await entities(["types": ["text"]], path).all
         #expect(texts.contains { $0["text"] as? String == "100" }, "\(texts)")
+    }
+
+    @Test("a stored dimension record inside a block is listed, and is not marked as rebuilt")
+    func jwwStoredDimensionInBlockIsListed() async throws {
+        let path = Self.storedDimensionInBlockJWW
+        let listing = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
+        let rows = try #require(listing["dimensions"] as? [[String: Any]])
+        #expect(rows.count == 1, "\(rows)")
+        let row = try #require(rows.first)
+        #expect(row["text"] as? String == "100")
+        #expect(row["rebuilt"] == nil, "a stored dimension was marked rebuilt")
+        // It came out of one block (SwiftJWW names the block itself), which is what the test is for.
+        #expect((row["blocks"] as? [String])?.count == 1, "\(row["blocks"] ?? "none")")
+        // The control for the loose-pieces case above: the same dimension, loose in a block, is not
+        // listed at all.
+        let loose = try json(
+            await call("list_drawing_dimensions", ["inputPath": .string(Self.dimensionInBlockJWW)]))
+        #expect(loose["total"] as? Int == 0, "\(loose["total"] ?? "?")")
     }
 
     @Test(
