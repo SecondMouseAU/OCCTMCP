@@ -1,5 +1,9 @@
 # Knowledge Log
 
+## 2026-11-21
+
+* **Update**: SecondMouseAU/OCCTMCP#274. The OCCTSwiftIO floor moves from 2.0.0-beta.6 to 2.0.0-beta.10, so a JWW is read at full size with its dimensions (OCCTSwiftIO#67) and DXF, DWG and JWW all read through `DrawingLoader`. The issue asked for beta.8; beta.10 is where the JWW limit it listed is gone, so the tools do not say "drawn size" for a JWW. SwiftDXF moves to 0.5.0 (`DrawingFile.readerVersion` 0.4 to 0.5, so entity ids may differ from a beta.6 read), SwiftDWG to 0.2.0, SwiftJWW to 1.5.0. `read_drawing` reports `layerGroupScales` (the scale each JWW layer group was drawn at, already applied) and `rebuiltDimensions` (a count); a dimension record carries `rebuilt: true` when the reader rebuilt it from loose pieces. A JWW's layers are named `<group>-<layer>` in hexadecimal (`0-E`). The tool descriptions say a DWG's insert attributes are not read (SecondMouseAU/SwiftDWG#9). Two JWW fixtures, `dimensioned.jww` and `mixed.jww`, join the drawing fixtures.
+
 ## 2026-11-18
 
 * **Update**: Release v1.37.1-beta.9. `serverVersion` is bumped to match the tag and the pins page says "as of v1.37.1-beta.9". Ships SecondMouseAU/OCCTMCP#277 (`get_selection` passes a drawing-entity pick through), merged as SecondMouseAU/OCCTMCP#278. The pins are unchanged from beta.8.

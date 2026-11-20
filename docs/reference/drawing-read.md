@@ -42,6 +42,16 @@ result.
   `DIMENSION`. Binary DXF is refused with a message. A DWG is read in process by SwiftDWG
   (releases R2000 to R2018, and R14 for simple entities; R12 and earlier are refused with the
   release named), a JWW through SwiftJWW's DXF writer. `source.format` says which it was.
+- **A JWW is read at full size.** Jw_cad draws at a scale (1:80, say), and the reader multiplies
+  each layer group's lengths by its own scale, so an entity is its real size and not the drawn
+  one. `layerGroupScales` in `read_drawing` says what was applied to each group. A group that states
+  no usable scale is read at drawn size (scale 1) and the loader warns, and groups at different
+  scales get a warning that names them. JWW layers are named `<group>-<layer>` in hexadecimal,
+  such as `0-E`. A dimension Jw_cad keeps as loose lines and text is rebuilt as a `DIMENSION` and
+  marked `rebuilt: true`; a dimension value that nothing explains stays in the drawing as a loose
+  text and has a warning that names it.
+- **A DWG's insert attributes are not read** (SwiftDWG does not decode `ATTRIB` and `ATTDEF`,
+  SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
 - **A file that is damaged says so.** A DWG that is truncated or whose structure does not add up
   fails with SwiftDWG's reason. A DWG whose entities or table records it cannot read is read without
   them, and the loader's warning says how many (`warnings`).
@@ -77,9 +87,9 @@ depend on them.
 - **Entity ids.** An entity's id is `e` and its position in the drawing's entity list (`e0`,
   `e1`, ...). It is stable for the same file bytes, the same read options and the same reader:
   `read_drawing` returns the file's SHA-256, and every result carries the file name, hash, the
-  SwiftDXF release line (`source.readerVersion`, `0.4`: the part that decides which entity types
+  SwiftDXF release line (`source.readerVersion`, `0.5`: the part that decides which entity types
   are modelled) and the options, so a caller can tell when ids no longer mean what they did. A
-  host that embeds `OCCTMCPCore` and resolves a newer SwiftDXF minor than this line reports `0.4`
+  host that embeds `OCCTMCPCore` and resolves a newer SwiftDXF minor than this line reports `0.5`
   with ids that differ; the test that holds the line to the pin reads this repository's
   `Package.resolved` only. Turning
   block expansion on or off, or a newer SwiftDXF that models more types, shifts the ids after them.
@@ -116,8 +126,10 @@ here.
 DXF's `$ACADVER`), `formatVersion` (the format's own version: `$ACADVER`, the DWG version code,
 the JWW file version), `reader`, `readerVersion`, `options`), `skipped` (`total`, `byType`,
 `byLayer`) and `warnings`. `warnings` carries the loader's own messages (missing or cyclic blocks,
-paper space, entities that a non-uniform scale could not carry, a DWG's unreadable entities) as well
-as the tool's (an empty drawing, no usable units).
+paper space, entities that a non-uniform scale could not carry, a DWG's unreadable entities, a JWW's
+unexplained dimension values and mixed or unstated scales) as well as the tool's (an empty drawing,
+no usable units). A JWW also gets `layerGroupScales` (each with `group`, `layerNamePrefix` and
+`scale`) and, when any were rebuilt, `rebuiltDimensions` (a count); a DXF or a DWG has neither.
 
 **Example**
 
@@ -142,7 +154,7 @@ as the tool's (an empty drawing, no usable units).
   "skipped": { "total": 1, "byType": { "SOLID": 1 }, "byLayer": { "FILL": { "SOLID": 1 } } },
   "source": {
     "fileName": "slot.dxf", "bytes": 410, "format": "dxf", "dxfVersion": "AC1027",
-    "formatVersion": "AC1027", "readerVersion": "0.4",
+    "formatVersion": "AC1027", "readerVersion": "0.5",
     "options": { "expandBlocks": true, "skipPaperSpace": false },
     "sha256": "5c9c59756de36f6cddd4c027d7eb956005d7d19ca3935f0737cf51b6e2f6f9a2"
   },
@@ -203,7 +215,7 @@ elliptical arc takes the bounds of its whole ellipse, and text is its insertion 
 ```json
 {
   "total": 2, "offset": 0, "returned": 2, "truncated": false, "unit": "drawing units",
-  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.4",
+  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.5",
              "options": { "expandBlocks": true, "skipPaperSpace": false } },
   "entities": [
     { "id": "e0", "type": "line", "layer": "SLOT", "color": 256, "start": [0, 0, 0], "end": [0, 20, 0], "length": 20,
@@ -239,7 +251,8 @@ returned as a single space),
 `textPosition`, `definitionPoints`, `layer`, `color`, `rotationDeg` (a linear dimension's measuring
 direction, absent when the file gives none, which means horizontal), `obliqueAngleDeg`, `styleName`,
 and where it is in the file: `handle`, `locator` and, for one that came out of a block expansion,
-`via` and `blocks`.
+`via` and `blocks`. `rebuilt` is `true` for a dimension a JWW kept as loose pieces and the reader
+rebuilt, and absent for one the file stores.
 
 - Each definition point carries its DXF `group` (10, 13, 14, 15 or 16) and, where SwiftDXF
   documents it, a `role`: a linear or aligned dimension has `dimensionLine`,
@@ -335,7 +348,7 @@ unknown), `mmPerUnit`, and `notes`.
   "value": 8, "unit": "drawing units", "valueMm": 8, "mmPerUnit": 1,
   "pointOnA": [0, 0, 0], "pointOnB": [8, 0, 0],
   "notes": [],
-  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.4",
+  "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.5",
              "options": { "expandBlocks": true, "skipPaperSpace": false } }
 }
 ```
