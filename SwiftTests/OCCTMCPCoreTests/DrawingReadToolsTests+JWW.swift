@@ -133,6 +133,35 @@ extension DrawingReadToolsTests {
         }
     }
 
+    @Test("a JWW declares no units, so no millimetre figure appears until mmPerUnit supplies one")
+    func jwwDeclaresNoUnits() async throws {
+        let read = try json(await call("read_drawing", ["inputPath": .string(Self.dimensionedJWW)]))
+        let units = try #require(read["units"] as? [String: Any])
+        #expect(units["mmPerUnit"] == nil, "\(units)")
+        let warnings = try #require(read["warnings"] as? [String])
+        #expect(warnings.contains { $0.contains("no usable units") }, "\(warnings)")
+
+        // The dimension has its value in drawing units and no millimetre figure.
+        let listing = try json(
+            await call("list_drawing_dimensions", ["inputPath": .string(Self.dimensionedJWW)]))
+        let row = try #require((listing["dimensions"] as? [[String: Any]])?.first)
+        #expect(abs((row["valueFromPoints"] as? Double ?? 0) - 100) < 1e-9, "\(row)")
+        #expect(row["valueFromPointsMm"] == nil, "\(row)")
+
+        // A distance says so, and `mmPerUnit: 1` (Jw_cad draws in millimetres) gives the figure.
+        let bare = try json(
+            await measure(Self.dimensionedJWW, "distance", a: .string("e0"), b: .string("e2")))
+        #expect(bare["valueMm"] == nil, "\(bare)")
+        let notes = try #require(bare["notes"] as? [String])
+        #expect(notes.contains { $0.contains("no usable units") }, "\(notes)")
+        let given = try json(
+            await measure(
+                Self.dimensionedJWW, "distance", a: .string("e0"), b: .string("e2"),
+                mmPerUnit: 1))
+        let value = try #require(given["value"] as? Double)
+        #expect(abs((given["valueMm"] as? Double ?? -1) - value) < 1e-9, "\(given)")
+    }
+
     @Test("a value no dimension explains is a warning that names it, not a silent loss")
     func jwwUnexplainedValue() async throws {
         let r = try json(await call("read_drawing", ["inputPath": .string(Self.dimensionedJWW)]))

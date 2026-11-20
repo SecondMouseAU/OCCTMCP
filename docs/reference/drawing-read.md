@@ -45,6 +45,7 @@ result.
   `source.format` says which it was.
 - **A JWW is read at full size.** Jw_cad draws at a scale (1:80, say), and the reader multiplies
   each layer group's lengths by its own scale, so an entity is its real size and not the drawn one.
+  A JWW declares no units; see **Units** below for the millimetre figure.
   `layerGroupScales` in `read_drawing` says what was applied to each group that holds a top-level
   element (a group used only inside blocks is not listed). A block's members keep their own layer
   names but take the scale of the group of the reference that places them, so a layer `1-3` next to
@@ -121,7 +122,11 @@ depend on them.
 - **Units.** Coordinates and values are in **drawing units**. The drawing's units are the DXF
   `$INSUNITS` code, returned with its name and millimetres per unit (codes 0 to 24 as ezdxf lists
   them). A unitless or undeclared drawing has no millimetre figure and the tools say so; pass
-  `mmPerUnit` to `measure_drawing` to supply one.
+  `mmPerUnit` to `measure_drawing` to supply one. A JWW declares no units, so it has no `valueMm`
+  on a dimension or a distance, and `read_drawing` warns of it. Jw_cad draws in millimetres
+  (SwiftJWW's own note on its coordinates), so `mmPerUnit: 1` on `measure_drawing` gives the
+  millimetre figure; `list_drawing_dimensions` takes no such argument, and its values are the
+  drawing units, which for a JWW at full size are those millimetres.
 
 ---
 
