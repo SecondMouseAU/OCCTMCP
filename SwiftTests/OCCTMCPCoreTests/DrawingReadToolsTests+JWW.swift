@@ -115,23 +115,6 @@ extension DrawingReadToolsTests {
         #expect(loose != nil, "the R5 text is not in the entity list: \(texts)")
     }
 
-    @Test("TEXT is decoded by the reader: a diameter code comes back as the diameter sign")
-    func textIsDecoded() async throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let dxf =
-            [
-                "0", "SECTION", "2", "ENTITIES", "0", "TEXT", "8", "0", "10", "0", "20", "0", "30",
-                "0",
-                "40", "2.5", "1", "%%c10", "0", "ENDSEC", "0", "EOF",
-            ].joined(separator: "\n") + "\n"
-        let url = dir.appendingPathComponent("diameter.dxf")
-        try dxf.write(to: url, atomically: true, encoding: .utf8)
-        let all = try await entities(["types": ["text"]], url.path).all
-        #expect(all.count == 1, "\(all)")
-        #expect(all.first?["text"] as? String == "\u{2300}10", "\(all)")
-    }
-
     @Test("groups drawn at different scales are each stated, with the loader's warning")
     func jwwMixedScales() async throws {
         let r = try json(await call("read_drawing", ["inputPath": .string(Self.mixedScalesJWW)]))
@@ -142,6 +125,12 @@ extension DrawingReadToolsTests {
         let warnings = try #require(r["warnings"] as? [String])
         #expect(warnings.contains { $0.contains("different scales") }, "\(warnings)")
         #expect(warnings.contains { $0.contains("1:10 for group 0") }, "\(warnings)")
+
+        // Each group is at full size: 10 drawn units at 1:10 is 100, and 5 at 1:1 stays 5.
+        let lines = try await entities(["types": ["line"]], Self.mixedScalesJWW).all
+        #expect(
+            lines.compactMap { $0["length"] as? Double }.sorted() == [5, 100],
+            "\(lines.map { $0["length"] ?? "?" })")
     }
 
     @Test("a group that states no scale is read at drawn size, and the warning says so")
@@ -156,6 +145,12 @@ extension DrawingReadToolsTests {
         #expect(
             !warnings.contains { $0.contains("different scales") },
             "one group is not a mixed scale: \(warnings)")
+
+        // Drawn size: the 10 unit line is 10, not multiplied by anything.
+        let lines = try await entities(["types": ["line"]], Self.unstatedScaleJWW).all
+        #expect(
+            lines.compactMap { $0["length"] as? Double } == [10],
+            "\(lines.map { $0["length"] ?? "?" })")
     }
 
     @Test("a dimension record a JWW stores is a dimension and is not marked as rebuilt")

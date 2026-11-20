@@ -44,7 +44,9 @@ result.
   release named), a JWW through SwiftJWW's DXF writer. `source.format` says which it was.
 - **A JWW is read at full size.** Jw_cad draws at a scale (1:80, say), and the reader multiplies
   each layer group's lengths by its own scale, so an entity is its real size and not the drawn
-  one. `layerGroupScales` in `read_drawing` says what was applied to each group. A group that states
+  one. `layerGroupScales` in `read_drawing` says what was applied to each group that holds a top-level
+  element (a group used only inside blocks is not listed; a block's members take the scale of the
+  group of the reference that places them). A group that states
   no usable scale is read at drawn size (scale 1) and the loader warns, and groups at different
   scales get a warning that names them. JWW layers are named `<group>-<layer>` in hexadecimal,
   such as `0-E`. A dimension Jw_cad keeps as loose lines and text is rebuilt as a `DIMENSION` and

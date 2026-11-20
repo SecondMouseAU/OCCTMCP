@@ -492,8 +492,8 @@ public enum DrawingReadTools {
         /// Entities in the file that the reader does not model, by type and layer.
         let skipped: LoadedDrawing.Skipped
         let warnings: [String]
-        /// The scale each JWW layer group was drawn at, already multiplied out; absent for a DXF or
-        /// a DWG.
+        /// The scale each JWW layer group that holds a top-level element was drawn at, already
+        /// multiplied out (a group used only inside blocks is not listed); absent for a DXF or a DWG.
         let layerGroupScales: [LoadedDrawing.LayerGroupScale]?
         /// How many dimensions were rebuilt from loose pieces (`rebuilt: true` in the dimension
         /// records); absent when none were.

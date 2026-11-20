@@ -179,7 +179,7 @@ The mesh-domain check-list / measurement surface (Phase 2 of the mesh-analysis e
 |------|---------|
 | `read_drawing` | Read an ASCII DXF, a DWG or a JWW as a drawing: entity counts by type and layer, units, extents, the source record (file, SHA-256, format and its version, reader version) and what the reader skipped or warned about (for a JWW, the scale each layer group was drawn at and the dimensions rebuilt from loose pieces; a JWW is read at full size). Blocks are expanded unless `expandBlocks` is false. Returns numbers, not an image |
 | `list_drawing_entities` | Entities (splines with their NURBS data, hatches with their boundaries, leaders) with an id, DXF handle, geometry and layer, filtered by type, layer or a rectangle on the sheet; paged |
-| `list_drawing_dimensions` | Every DIMENSION: kind, stored value (absent when the file stores none) and the value its geometry gives, rotation, style, text override, definition points, layer, handle |
+| `list_drawing_dimensions` | Every DIMENSION: kind, stored value (absent when the file stores none) and the value its geometry gives, rotation, style, text override, definition points, layer, handle, and `rebuilt` for a JWW dimension the reader rebuilt from loose pieces |
 | `measure_drawing` | Distance, angle or radius between named entities or points, in drawing units and mm; exact OCCT extrema (a spline is an exact NURBS edge), so a slot width is the true gap between its walls |
 
 ### Topology graph (low-level)

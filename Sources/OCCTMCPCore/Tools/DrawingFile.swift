@@ -65,7 +65,9 @@ struct LoadedDrawing: Sendable {
     let warnings: [DrawingWarning]
     /// The options the drawing was read with: the entity ids depend on them.
     let settings: DrawingReadTools.ReadSettings
-    /// The scale each JWW layer group was drawn at.
+    /// The scale each JWW layer group that holds a top-level element was drawn at.
+    ///
+    /// A group used only inside blocks is not listed.
     ///
     /// The reader has already multiplied each one out, so a JWW's geometry is at full size. Empty
     /// for a DXF or a DWG.
