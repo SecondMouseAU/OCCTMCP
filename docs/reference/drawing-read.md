@@ -46,17 +46,20 @@ result.
 - **A JWW is read at full size.** Jw_cad draws at a scale (1:80, say), and the reader multiplies
   each layer group's lengths by its own scale, so an entity is its real size and not the drawn one.
   `layerGroupScales` in `read_drawing` says what was applied to each group that holds a top-level
-  element (a group used only inside blocks is not listed). A group that states no usable scale is
-  read at drawn size (scale 1) and the loader warns. Groups at different scales get a warning that
-  names them, and each is at full size on its own, so a `measure_drawing` distance between entities
-  of two groups is not the distance on the sheet. Every distance in such a drawing carries a note
-  that says so, whichever entities it measures. JWW layers are named `<group>-<layer>` in
-  hexadecimal, such as `0-E`. A dimension Jw_cad keeps as loose lines and text is rebuilt as a
-  `DIMENSION` and marked `rebuilt: true`; a dimension value that nothing explains stays in the
-  drawing as a loose text and has a warning that names it. Only the top level of a JWW is scanned
-  for dimensions: loose dimension pieces inside a block are not rebuilt, and an older stored
-  dimension record inside a block is not listed (OCCTSwiftIO 2.0.0-beta.10, known limits), so a JWW
-  whose dimensions sit in blocks can show none in `rebuiltDimensions` or `list_drawing_dimensions`.
+  element (a group used only inside blocks is not listed). A block's members keep their own layer
+  names but take the scale of the group of the reference that places them, so a layer `1-3` next to
+  a listed group 1 can be at group 0's scale. A group that states no usable scale is read at drawn
+  size (`scale` 1 in `layerGroupScales`) and the loader warns. Groups at different scales get a
+  warning that names them, and each is at full size on its own, so a `measure_drawing` distance
+  between entities of two groups is not the distance on the sheet. Every distance in such a drawing
+  carries a note that says so, whichever entities it measures. JWW layers are named
+  `<group>-<layer>` in hexadecimal, such as `0-E`. A dimension Jw_cad keeps as loose lines and text
+  is rebuilt as a `DIMENSION` and marked `rebuilt: true`; a dimension value that nothing explains
+  stays in the drawing as a loose text and has a warning that names it. Only the top level of a JWW
+  is scanned for dimensions: loose dimension pieces inside a block are not rebuilt, and an older
+  stored dimension record inside a block is not listed (OCCTSwiftIO 2.0.0-beta.10, known limits), so
+  a JWW whose dimensions sit in blocks can show none in `rebuiltDimensions` or
+  `list_drawing_dimensions`.
 - **A DWG's insert attributes are not read** (as of SwiftDWG 0.2.0 it does not decode `ATTRIB` and
   `ATTDEF`, SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
 - **A file that is damaged says so.** A DWG that is truncated or whose structure does not add up
@@ -76,6 +79,7 @@ result.
   in `skipped` was not expanded (`expandBlocks` is false, the file does not define its block, or the
   expansion limit stopped short), and a warning says which. SwiftDXF counts an `INSERT`'s `ATTRIB`
   records as skipped entities of their own, so a block insert with attributes shows the attributes.
+  A JWW solid fill inside a block is dropped without being counted (SecondMouseAU/SwiftJWW#24).
 - **A hatch is not measurable**, and a spline leader is measured along its straight segments; see
   [`measure_drawing`](#measure_drawing).
 

@@ -63,7 +63,7 @@ extension DrawingReadToolsTests {
         let xs =
             outline.flatMap { numbers($0["start"]) ?? [] }
             + outline.flatMap { numbers($0["end"]) ?? [] }
-        #expect(xs.max() == 100, "the outline is at drawn size: \(xs)")
+        #expect(xs.max() == 100, "the outline is not at full size: \(xs)")
 
         let scales = try #require(r["layerGroupScales"] as? [[String: Any]])
         #expect(scales.count == 1, "\(scales)")
@@ -236,6 +236,13 @@ extension DrawingReadToolsTests {
                 $0.contains("not the sheet distance") && $0.contains("different scales")
             },
             "\(notes)")
+
+        // An angle is the same at any scale, so the note is for a distance only.
+        let angle = try json(
+            await measure(Self.mixedScalesJWW, "angle", a: .string("e0"), b: .string("e1")))
+        let angleNotes = try #require(angle["notes"] as? [String])
+        #expect(
+            !angleNotes.contains { $0.contains("not the sheet distance") }, "\(angleNotes)")
 
         // The note is the drawing's, as the reference says: a distance from one entity to a point
         // carries it too, whichever groups are involved.
