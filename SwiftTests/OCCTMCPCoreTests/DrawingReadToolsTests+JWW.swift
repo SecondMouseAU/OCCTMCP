@@ -41,6 +41,16 @@ extension DrawingReadToolsTests {
         plateDirectory.appendingPathComponent("block-group.jww").path
     }
 
+    /// The width at 1:10 with its dimension kept as loose pieces inside a block.
+    static var dimensionInBlockJWW: String {
+        plateDirectory.appendingPathComponent("dimension-in-block.jww").path
+    }
+
+    /// A stored dimension record in a version 3.51 file, which keeps no measured points.
+    static var oldDimensionJWW: String {
+        plateDirectory.appendingPathComponent("old-dimension.jww").path
+    }
+
     /// A 100 unit line and a solid fill.
     static var solidFillJWW: String {
         plateDirectory.appendingPathComponent("solid.jww").path
@@ -298,5 +308,38 @@ extension DrawingReadToolsTests {
         #expect(skipped["byType"] as? [String: Int] == ["SOLID": 1], "\(skipped)")
         let byLayer = try #require(skipped["byLayer"] as? [String: Any])
         #expect(byLayer.isEmpty, "a JWW solid fill carries no layer: \(byLayer)")
+    }
+
+    @Test("loose dimension pieces inside a block are not rebuilt, and nothing is lost")
+    func jwwDimensionInBlockIsNotRebuilt() async throws {
+        let path = Self.dimensionInBlockJWW
+        let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
+        let byType = try #require(r["byType"] as? [String: Int])
+        #expect(byType["dimension"] == nil, "a dimension was rebuilt inside a block: \(byType)")
+        #expect(r["rebuiltDimensions"] == nil)
+        let listing = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
+        #expect(listing["total"] as? Int == 0, "\(listing["total"] ?? "?")")
+
+        // The pieces are still in the entity list: the dimension line, the two extension lines
+        // and the value text, so an agent can read the value even without a dimension.
+        #expect(byType["line"] == 4 && byType["text"] == 1, "\(byType)")
+        let texts = try await entities(["types": ["text"]], path).all
+        #expect(texts.contains { $0["text"] as? String == "100" }, "\(texts)")
+    }
+
+    @Test(
+        "a dimension record from a file older than Jw_cad 4.20 stays a line and text, with a warning"
+    )
+    func jwwOldDimensionRecord() async throws {
+        let path = Self.oldDimensionJWW
+        let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
+        let source = try #require(r["source"] as? [String: Any])
+        #expect(source["formatVersion"] as? String == "351", "\(source["formatVersion"] ?? "?")")
+        let byType = try #require(r["byType"] as? [String: Int])
+        #expect(byType["dimension"] == nil, "\(byType)")
+        let warnings = try #require(r["warnings"] as? [String])
+        #expect(warnings.contains { $0.contains("older than version 4.20") }, "\(warnings)")
+        let texts = try await entities(["types": ["text"]], path).all
+        #expect(texts.contains { $0["text"] as? String == "100" }, "\(texts)")
     }
 }

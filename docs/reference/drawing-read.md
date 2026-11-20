@@ -57,9 +57,10 @@ result.
   is rebuilt as a `DIMENSION` and marked `rebuilt: true`; a dimension value that nothing explains
   stays in the drawing as a loose text and has a warning that names it. Only the top level of a JWW
   is scanned for dimensions: loose dimension pieces inside a block are not rebuilt, and an older
-  stored dimension record inside a block is not listed (OCCTSwiftIO 2.0.0-beta.10, known limits), so
-  a JWW whose dimensions sit in blocks can show none in `rebuiltDimensions` or
-  `list_drawing_dimensions`.
+  dimension record inside a block is not listed (OCCTSwiftIO 2.0.0-beta.10, known limits), so a JWW
+  whose dimensions sit in blocks can show none in `rebuiltDimensions` or `list_drawing_dimensions`.
+  An older record is one from a file before Jw_cad 4.20, which keeps no measured points: at the top
+  level it is not a dimension either, it stays as a line and text, and a warning names its value.
 - **A DWG's insert attributes are not read** (as of SwiftDWG 0.2.0 it does not decode `ATTRIB` and
   `ATTDEF`, SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
 - **A file that is damaged says so.** A DWG that is truncated or whose structure does not add up
@@ -79,7 +80,8 @@ result.
   in `skipped` was not expanded (`expandBlocks` is false, the file does not define its block, or the
   expansion limit stopped short), and a warning says which. SwiftDXF counts an `INSERT`'s `ATTRIB`
   records as skipped entities of their own, so a block insert with attributes shows the attributes.
-  A JWW solid fill inside a block is dropped without being counted (SecondMouseAU/SwiftJWW#24).
+  A JWW solid fill inside a block is not counted: OCCTSwiftIO 2.0.0-beta.10 reports only top-level
+  fills (SecondMouseAU/OCCTSwiftIO#81 fixes it after that release).
 - **A hatch is not measurable**, and a spline leader is measured along its straight segments; see
   [`measure_drawing`](#measure_drawing).
 

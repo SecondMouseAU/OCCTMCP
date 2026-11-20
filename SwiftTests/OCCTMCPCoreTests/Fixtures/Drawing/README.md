@@ -29,6 +29,11 @@ committed as bytes the same way:
   group 0 (at 1:10), so group 1 holds no top-level element. Composed from the builder's `block`
   and `insert` items, like `both-dimensions.jww`.
 - `solid.jww`: a 100 unit line and a solid fill (`solidFill()`).
+- `dimension-in-block.jww`: the width at 1:10 with its dimension kept as loose pieces inside a
+  block, placed once. Composed from the builder's `block` and `insert` items and the pieces of
+  `dimensionedPlate()`.
+- `old-dimension.jww`: the stored dimension record of `stored.jww` in a version 3.51 file, which
+  keeps no measured points (`storedDimension(version: 351)`).
 
 They are here so the drawing tools are tested on a DWG and a JWW read through `DrawingLoader`, not
 only on DXF text built in the tests. The AutoCAD-written DWG samples in OCCTSwiftIO's tests are not
