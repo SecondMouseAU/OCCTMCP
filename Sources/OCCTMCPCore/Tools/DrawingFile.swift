@@ -70,16 +70,10 @@ struct LoadedDrawing: Sendable {
     let warnings: [DrawingWarning]
     /// The options the drawing was read with: the entity ids depend on them.
     let settings: DrawingReadTools.ReadSettings
-    /// The scale each JWW layer group that holds a top-level element was drawn at.
-    ///
-    /// A group used only inside blocks is not listed.
-    ///
-    /// The reader has already multiplied each one out, so a JWW's geometry is at full size. Empty
-    /// for a DXF or a DWG.
+    /// The scale already applied to each JWW layer group that holds a top-level element (none for a
+    /// DXF or a DWG).
     let layerGroupScales: [LayerGroupScale]
-    /// The `.dimension` entities the reader rebuilt from loose pieces, not read as stored.
-    ///
-    /// Only a JWW has any. A dimension whose identity is not here was stored in the file.
+    /// The `.dimension` entities a JWW reader rebuilt from loose pieces rather than read as stored.
     let rebuiltDimensions: Set<DXF.Identity>
 
     /// A JWW layer group and the scale its lengths were multiplied by.
@@ -141,13 +135,8 @@ enum DrawingUnits {
 }
 
 enum DrawingFile {
-    /// The SwiftDXF release line this build reads with: major and minor, the part that decides which
-    /// entity types are modelled and so which ids an entity gets.
-    ///
-    /// SwiftPM has no runtime query for a dependency's version, so it is written here, and a test
-    /// holds it equal to the `swiftdxf` pin in `Package.resolved`: a bump that forgets it fails.
-    /// The SwiftDXF release line (major and minor) this build was written for; a test holds it to
-    /// the `swiftdxf` pin in `Package.resolved`.
+    /// The SwiftDXF release line (major and minor) this build was written for, held to the `swiftdxf`
+    /// pin in `Package.resolved` by a test.
     static let readerVersion = "0.5"
 
     /// The SwiftDWG release line (major and minor) this build was written for, held to the
@@ -247,12 +236,8 @@ enum DrawingFile {
         (error as NSError).domain == NSCocoaErrorDomain ? error.localizedDescription : "\(error)"
     }
 
-    /// What the reader left out, in the shape the tools report: the loader's `skippedEntities`
-    /// warnings, by type and, where the format says, by layer.
-    ///
-    /// What the reader skipped, by type and layer, from the loader's warnings.
-    ///
-    /// An `INSERT` is among them only when it was not expanded.
+    /// What the reader left out, by type and where the format says by layer, from the loader's
+    /// `skippedEntities` warnings.
     static func skipped(from warnings: [DrawingWarning]) -> LoadedDrawing.Skipped {
         var skipped = LoadedDrawing.Skipped()
         for warning in warnings where warning.kind == .skippedEntities {

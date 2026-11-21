@@ -121,10 +121,12 @@ depend on them.
   A reader the file did not go through is not listed, so a DXF is unaffected by a new SwiftJWW.
   `source.readerVersion` is the SwiftDXF line alone and equals `readerVersions.SwiftDXF`; it is
   kept for clients that already read it, and it does not move when only SwiftDWG or SwiftJWW does,
-  so compare `readerVersions`. A line is major and minor: a patch release does not change it. A host
-  that embeds `OCCTMCPCore` and resolves a newer minor of a reader than the line recorded reports
-  the recorded line with ids that differ; the tests that hold each line to its pin read this
-  repository's `Package.resolved` only.
+  so compare `readerVersions`. A line is major and minor, the part of a version that decides which
+  entity types are modelled and so which ids an entity gets; a patch release does not change it.
+  SwiftPM has no runtime query for a dependency's version, so each line is written in the code and
+  one test per reader holds it to that reader's pin in `Package.resolved`. A host that embeds
+  `OCCTMCPCore` and resolves a newer minor of a reader than the line recorded reports the recorded
+  line with ids that differ; those tests read this repository's `Package.resolved` only.
 - **Handles.** An id is a position, so it does not survive an edit that moves entities. Every entity
   and every dimension also carries `handle` (the DXF handle, group 5, absent when the file has none;
   a DWG keeps its own) and `locator` (the section and position, `ENTITIES:12`, present even without
