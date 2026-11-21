@@ -1,5 +1,5 @@
 {
-  "originHash" : "986f06d8a99a4059342b6b070553bb72dd25b8cf1c98b7098f8fc90dfbd34795",
+  "originHash" : "f7ff8cacb31f0fad39aaccf86baad28a51ed6be7296f8e35e0e040cf2543ae12",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftIO.git",
       "state" : {
-        "revision" : "876b9bb1072cd7fc9e8c24377f495b0fe9bc44da",
-        "version" : "2.0.0-beta.6"
+        "revision" : "d1b7274f1a9ccda0f2d9c086563d41b4f80451be",
+        "version" : "2.0.0-beta.10"
       }
     },
     {
@@ -132,8 +132,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/SwiftDWG.git",
       "state" : {
-        "revision" : "999c936c16ed9d0475c21753614e430167927278",
-        "version" : "0.1.0"
+        "revision" : "f62c11a5b78667c9bd53e9b1e578e529d0310840",
+        "version" : "0.2.0"
       }
     },
     {
@@ -141,8 +141,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/SwiftDXF.git",
       "state" : {
-        "revision" : "babcfeb0a831b4cc3fc41db9ad3f5f24cb57b698",
-        "version" : "0.4.0"
+        "revision" : "42f5338d49d80d94b232279ae59430b2953fcc58",
+        "version" : "0.5.0"
       }
     },
     {
@@ -159,8 +159,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/SwiftJWW.git",
       "state" : {
-        "revision" : "f41e6be050545f43184a6708b03cb1e9e7be9e63",
-        "version" : "1.2.2"
+        "revision" : "86d06280f63a616daf9b2ec375f6066bb247614d",
+        "version" : "1.5.0"
       }
     },
     {
