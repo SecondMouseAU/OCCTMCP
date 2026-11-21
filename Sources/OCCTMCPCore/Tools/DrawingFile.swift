@@ -43,6 +43,11 @@ struct LoadedDrawing: Sendable {
         /// Entity ids (`e<index>`) shift when a newer reader models more types, so it is recorded
         /// beside the SHA-256 that names the bytes.
         let readerVersion: String
+        /// The release line of each reader the file went through, keyed by name (`SwiftDXF`, and
+        /// `SwiftDWG` for a DWG or `SwiftJWW` for a JWW).
+        ///
+        /// A bump of any one can shift the ids, so it is recorded beside the SHA-256 too.
+        let readerVersions: [String: String]
         /// The options the file was read with: the ids depend on them.
         let options: DrawingReadTools.ReadSettings
     }
@@ -145,6 +150,26 @@ enum DrawingFile {
     /// the `swiftdxf` pin in `Package.resolved`.
     static let readerVersion = "0.5"
 
+    /// The SwiftDWG release line (major and minor) this build was written for, held to the
+    /// `swiftdwg` pin in `Package.resolved` by a test.
+    static let dwgReaderVersion = "0.2"
+
+    /// The SwiftJWW release line (major and minor) this build was written for, held to the
+    /// `swiftjww` pin in `Package.resolved` by a test.
+    static let jwwReaderVersion = "1.5"
+
+    /// The release line of each reader that produced the entities of a file of `format`, by name.
+    static func readerVersions(for format: DrawingFormat) -> [String: String] {
+        // A DWG and a JWW are each turned into DXF text and then read by SwiftDXF, so SwiftDXF is in
+        // every record.
+        switch format {
+        case .dxf: return ["SwiftDXF": readerVersion]
+        case .dwg: return ["SwiftDXF": readerVersion, "SwiftDWG": dwgReaderVersion]
+        case .jww: return ["SwiftDXF": readerVersion, "SwiftJWW": jwwReaderVersion]
+        @unknown default: return ["SwiftDXF": readerVersion]
+        }
+    }
+
     /// Read `path` as a drawing, answering from a small cache when the file has not changed.
     ///
     /// The cache is keyed on the options too: the ids depend on whether blocks were expanded.
@@ -203,7 +228,8 @@ enum DrawingFile {
                 formatVersion: result.source.version,
                 reader: "OCCTSwiftIO DrawingLoader (SwiftDXF for DXF, SwiftDWG for DWG, "
                     + "SwiftJWW for JWW)",
-                readerVersion: readerVersion, options: settings),
+                readerVersion: readerVersion,
+                readerVersions: readerVersions(for: result.source.format), options: settings),
             skipped: skipped(from: result.warnings), warnings: result.warnings,
             settings: settings,
             layerGroupScales: result.layerGroupScales.map {

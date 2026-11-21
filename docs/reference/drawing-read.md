@@ -100,16 +100,31 @@ depend on them.
 ## Identity and units
 
 - **Entity ids.** An entity's id is `e` and its position in the drawing's entity list (`e0`,
-  `e1`, ...). It is stable for the same file bytes, the same read options and the same reader:
+  `e1`, ...). It is stable for the same file bytes, the same read options and the same readers:
   `read_drawing` returns the file's SHA-256, and every result carries the file name, hash, the
-  SwiftDXF release line (`source.readerVersion`, `0.5`: the part that decides which entity types
-  are modelled) and the options, so a caller can tell when ids no longer mean what they did. A
-  host that embeds `OCCTMCPCore` and resolves a newer SwiftDXF minor than this line reports `0.5`
-  with ids that differ; the test that holds the line to the pin reads this repository's
-  `Package.resolved` only. SwiftDXF 0.5.0 also decodes TEXT and MTEXT, so a `text` string can differ
-  from the raw string in the file (`%%c` comes back as `⌀`). Turning
-  block expansion on or off, or a newer SwiftDXF that models more types, shifts the ids after them.
-  Skipped records take no index.
+  release line of each reader that read the file (`source.readerVersions`, see **Readers** below)
+  and the options, so a caller can tell when ids no longer mean what they did. SwiftDXF 0.5.0
+  decodes TEXT and MTEXT, so a `text` string can differ from the raw string in the file (`%%c`
+  comes back as `⌀`). Turning block expansion on or off, or a newer SwiftDXF that models more
+  types, shifts the ids after them. Skipped records take no index.
+- **Readers.** A file goes through one reader or two, and a new release of either can shift its
+  ids. `source.readerVersions` is an object with one entry for each reader that produced that
+  file's entities, keyed by the reader's name, whose value is its release line (major and minor,
+  such as `0.5`):
+
+  | `source.format` | `source.readerVersions` | What read it |
+  |-----------------|-------------------------|--------------|
+  | `dxf` | `{ "SwiftDXF": "0.5" }` | SwiftDXF |
+  | `dwg` | `{ "SwiftDXF": "0.5", "SwiftDWG": "0.2" }` | SwiftDWG turns the DWG into DXF text, which SwiftDXF reads |
+  | `jww` | `{ "SwiftDXF": "0.5", "SwiftJWW": "1.5" }` | SwiftJWW's DXF writer turns the JWW into DXF text, which SwiftDXF reads |
+
+  A reader the file did not go through is not listed, so a DXF is unaffected by a new SwiftJWW.
+  `source.readerVersion` is the SwiftDXF line alone and equals `readerVersions.SwiftDXF`; it is
+  kept for clients that already read it, and it does not move when only SwiftDWG or SwiftJWW does,
+  so compare `readerVersions`. A line is major and minor: a patch release does not change it. A host
+  that embeds `OCCTMCPCore` and resolves a newer minor of a reader than the line recorded reports
+  the recorded line with ids that differ; the tests that hold each line to its pin read this
+  repository's `Package.resolved` only.
 - **Handles.** An id is a position, so it does not survive an edit that moves entities. Every entity
   and every dimension also carries `handle` (the DXF handle, group 5, absent when the file has none;
   a DWG keeps its own) and `locator` (the section and position, `ENTITIES:12`, present even without
@@ -144,8 +159,9 @@ here.
 `$EXTMAX`, `computed` from the entities, which can differ when an editor left the header stale),
 `source` (`path`, `fileName`, `bytes`, `sha256`, `format` (`dxf`, `dwg` or `jww`), `dxfVersion` (a
 DXF's `$ACADVER`), `formatVersion` (the format's own version: `$ACADVER`, the DWG version code,
-the JWW file version), `reader`, `readerVersion`, `options`), `skipped` (`total`, `byType`,
-`byLayer`) and `warnings`. `warnings` carries the loader's own messages (missing or cyclic blocks,
+the JWW file version), `reader`, `readerVersion` (the SwiftDXF release line), `readerVersions` (the
+release line of every reader that read the file, see **Readers**), `options`), `skipped` (`total`,
+`byType`, `byLayer`) and `warnings`. `warnings` carries the loader's own messages (missing or cyclic blocks,
 paper space, entities that a non-uniform scale could not carry, a DWG's unreadable entities, a JWW's
 unexplained dimension values and mixed or unstated scales) as well as the tool's (an empty drawing,
 no usable units). A JWW also gets `layerGroupScales` (each with `group`, `layerNamePrefix` and
@@ -174,7 +190,7 @@ no usable units). A JWW also gets `layerGroupScales` (each with `group`, `layerN
   "skipped": { "total": 1, "byType": { "SOLID": 1 }, "byLayer": { "FILL": { "SOLID": 1 } } },
   "source": {
     "fileName": "slot.dxf", "bytes": 410, "format": "dxf", "dxfVersion": "AC1027",
-    "formatVersion": "AC1027", "readerVersion": "0.5",
+    "formatVersion": "AC1027", "readerVersion": "0.5", "readerVersions": { "SwiftDXF": "0.5" },
     "options": { "expandBlocks": true, "skipPaperSpace": false },
     "sha256": "5c9c59756de36f6cddd4c027d7eb956005d7d19ca3935f0737cf51b6e2f6f9a2"
   },
@@ -236,6 +252,7 @@ elliptical arc takes the bounds of its whole ellipse, and text is its insertion 
 {
   "total": 2, "offset": 0, "returned": 2, "truncated": false, "unit": "drawing units",
   "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.5",
+             "readerVersions": { "SwiftDXF": "0.5" },
              "options": { "expandBlocks": true, "skipPaperSpace": false } },
   "entities": [
     { "id": "e0", "type": "line", "layer": "SLOT", "color": 256, "start": [0, 0, 0], "end": [0, 20, 0], "length": 20,
@@ -370,6 +387,7 @@ different scales, the note that a distance across groups is not the sheet distan
   "pointOnA": [0, 0, 0], "pointOnB": [8, 0, 0],
   "notes": [],
   "source": { "fileName": "slot.dxf", "sha256": "5c9c59756de36f6c...", "readerVersion": "0.5",
+             "readerVersions": { "SwiftDXF": "0.5" },
              "options": { "expandBlocks": true, "skipPaperSpace": false } }
 }
 ```
