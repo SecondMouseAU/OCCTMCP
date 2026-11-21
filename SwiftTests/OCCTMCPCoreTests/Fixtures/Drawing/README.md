@@ -38,6 +38,12 @@ committed as bytes the same way:
   below).
 - `old-dimension.jww`: the stored dimension record of `stored.jww` in a version 3.51 file, which
   keeps no measured points (`storedDimension(version: 351)`).
+- `old-dimension-in-block.jww`: the record of `stored-dimension-in-block.jww` in a version 3.51
+  file, so an older record inside a block, placed once. The loader does not list it (OCCTSwiftIO's
+  known limit) and, unlike the same record at the top level, does not warn: its line and text stay
+  entities from the block. Its controls are `old-dimension.jww` (the same record at the top level,
+  which has the warning) and `stored-dimension-in-block.jww` (the same block in a version 7.00
+  file, which lists the record). The recipe is `storedDimensionInBlock(version: 351)` below.
 
 They are here so the drawing tools are tested on a DWG and a JWW read through `DrawingLoader`, not
 only on DXF text built in the tests. The AutoCAD-written DWG samples in OCCTSwiftIO's tests are not
@@ -45,7 +51,7 @@ copied: they are under MPL-2.0 and are only used in a real run of the server.
 
 ## Rebuilding the JWW fixtures
 
-The JWW files are committed as bytes, so this repository does not carry a copy of the builder. Four
+The JWW files are committed as bytes, so this repository does not carry a copy of the builder. Five
 of them are not one call of it: the builder has no one-call form for them, so each is a composition
 of its `Item`s, and the program below holds those compositions with every coordinate, layer, flag
 and scale. It also calls the builder's own one-call functions for the rest, so one run rebuilds all
@@ -126,14 +132,14 @@ extension JWWFixture {
     }
 
     /// The width line, then block 1 "DIM" holding the stored record, then a reference at the
-    /// origin. Group 0 is at 1:10.
-    static func storedDimensionInBlock() -> Data {
+    /// origin. Group 0 is at 1:10. In a version 351 file the record keeps no measured points.
+    static func storedDimensionInBlock(version: Int = 700) -> Data {
         drawing(
             [
                 Item(shape: .line(0, 0, 10, 0)),
                 Item(shape: .block(number: 1, name: "DIM", members: [widthRecord])),
                 Item(shape: .insert(number: 1, at: (0, 0))),
-            ], scales: [0: 10])
+            ], version: version, scales: [0: 10])
     }
 }
 
@@ -150,6 +156,7 @@ let fixtures: [(String, Data)] = [
     ("block-group.jww", JWWFixture.blockGroup()),
     ("dimension-in-block.jww", JWWFixture.dimensionInBlock()),
     ("stored-dimension-in-block.jww", JWWFixture.storedDimensionInBlock()),
+    ("old-dimension-in-block.jww", JWWFixture.storedDimensionInBlock(version: 351)),
 ]
 for (name, data) in fixtures {
     try data.write(to: directory.appendingPathComponent(name))
@@ -165,7 +172,7 @@ for f in out/*.jww; do cmp "$f" "$FIXTURES/$(basename "$f")" && echo "same: $(ba
 ```
 
 The writer stamps nothing (no time, no random field), so the same builder gives the same bytes
-every time. Rebuilt this way against v2.0.0-beta.10 (commit `d1b7274`), all eleven files are
+every time. Rebuilt this way against v2.0.0-beta.10 (commit `d1b7274`), all twelve files are
 byte-identical to the committed ones. If a later builder gives different bytes, the files are not
 wrong for that reason alone: read each pair through `read_drawing`, `list_drawing_dimensions` and
 `list_drawing_entities` and compare the entities, which is what the tests assert.

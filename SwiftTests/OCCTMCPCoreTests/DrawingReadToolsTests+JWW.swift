@@ -56,6 +56,11 @@ extension DrawingReadToolsTests {
         plateDirectory.appendingPathComponent("old-dimension.jww").path
     }
 
+    /// The width at 1:10 with a stored dimension record in a version 3.51 file, inside a block.
+    static var oldDimensionInBlockJWW: String {
+        plateDirectory.appendingPathComponent("old-dimension-in-block.jww").path
+    }
+
     /// A 100 unit line and a solid fill.
     static var solidFillJWW: String {
         plateDirectory.appendingPathComponent("solid.jww").path
@@ -393,5 +398,41 @@ extension DrawingReadToolsTests {
         #expect(warnings.contains { $0.contains("older than version 4.20") }, "\(warnings)")
         let texts = try await entities(["types": ["text"]], path).all
         #expect(texts.contains { $0["text"] as? String == "100" }, "\(texts)")
+    }
+
+    @Test("an older dimension record inside a block is not listed, and stays a line and text")
+    func jwwOldDimensionRecordInBlock() async throws {
+        let path = Self.oldDimensionInBlockJWW
+        let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
+        let source = try #require(r["source"] as? [String: Any])
+        #expect(source["formatVersion"] as? String == "351", "\(source["formatVersion"] ?? "?")")
+        // The width line, and the record's own line and text: not a dimension, and nothing lost.
+        let byType = try #require(r["byType"] as? [String: Int])
+        #expect(byType == ["line": 2, "text": 1], "\(byType)")
+        let listing = try json(await call("list_drawing_dimensions", ["inputPath": .string(path)]))
+        #expect(listing["total"] as? Int == 0, "\(listing["total"] ?? "?")")
+
+        // Both pieces came out of the one block, at full size: 10 drawn units at 1:10.
+        let all = try await entities([:], path).all
+        let fromBlock = all.filter { ($0["blocks"] as? [String])?.count == 1 }
+        #expect(fromBlock.compactMap { $0["type"] as? String } == ["line", "text"], "\(fromBlock)")
+        #expect(fromBlock.first?["length"] as? Double == 100, "\(fromBlock)")
+        #expect(fromBlock.last?["text"] as? String == "100", "\(fromBlock)")
+
+        // Unlike the same record at the top level, nothing warns that it was kept as a line and
+        // text. The first control: the top-level record has that warning, so its absence here is
+        // not a warning the tool never gives.
+        let warnings = try #require(r["warnings"] as? [String])
+        #expect(!warnings.contains { $0.contains("older than version 4.20") }, "\(warnings)")
+        let top = try json(await call("read_drawing", ["inputPath": .string(Self.oldDimensionJWW)]))
+        let topWarnings = try #require(top["warnings"] as? [String])
+        #expect(topWarnings.contains { $0.contains("older than version 4.20") }, "\(topWarnings)")
+
+        // The second control: the same block in a version 7.00 file lists its record, so the
+        // empty listing above is the file's version and not the block.
+        let storedPath = Self.storedDimensionInBlockJWW
+        let stored = try json(
+            await call("list_drawing_dimensions", ["inputPath": .string(storedPath)]))
+        #expect(stored["total"] as? Int == 1, "\(stored["total"] ?? "?")")
     }
 }
