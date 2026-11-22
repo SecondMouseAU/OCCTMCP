@@ -489,6 +489,32 @@ extension DrawingReadToolsTests {
         #expect(properties["expandBlocks"] == nil, "a tool that reads no drawing")
     }
 
+    @Test("read_drawing's description keeps its JWW fields and is no longer than the entity list's")
+    func readDrawingDescriptionIsShort() throws {
+        // The description is loaded into every session's tool list; the limits it used to carry
+        // are in docs/reference/drawing-read.md (SecondMouseAU/OCCTMCP#284).
+        let tools = catalogTools()
+        func description(_ name: String) throws -> String {
+            let tool = try #require(tools.first { $0.name == name }, "\(name)")
+            return try #require(tool.description, "\(name) has no description")
+        }
+        let read = try description("read_drawing")
+        let entities = try description("list_drawing_entities")
+        #expect(
+            read.count <= entities.count,
+            "read_drawing is \(read.count) characters, list_drawing_entities \(entities.count)")
+        for name in ["layerGroupScales", "rebuiltDimensions", "`rebuilt`", "declares no units"] {
+            #expect(read.contains(name), "read_drawing's description lost \(name)")
+        }
+        let reference = "docs/reference/drawing-read.md"
+        #expect(read.contains(reference), "no pointer to \(reference)")
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        #expect(
+            FileManager.default.fileExists(atPath: root.appendingPathComponent(reference).path),
+            "the pointer names a file that is not there")
+    }
+
     @Test("the catalog's entity types cover every type a drawing produces")
     func catalogTypesCoverEveryEntity() async throws {
         // A client that checks arguments against the advertised schema must be able to ask for each.
