@@ -420,12 +420,13 @@ public enum DrawingReadTools {
 
     /// The file reference every drawing tool carries, so a result says which file it read.
     ///
-    /// It carries the SwiftDXF release line beside the hash: the ids a result names are positions in
-    /// what that reader modelled, and they shift when a newer one models more entity types.
+    /// It carries the release line of each reader beside the hash: the ids a result names are
+    /// positions in what the readers modelled, and they shift when a newer one models more.
     struct SourceRef: Encodable {
         let fileName: String
         let sha256: String
         let readerVersion: String
+        let readerVersions: [String: String]
         /// The options the ids were made under: they change which entities there are.
         let options: ReadSettings
     }
@@ -433,7 +434,8 @@ public enum DrawingReadTools {
     static func sourceRef(_ loaded: LoadedDrawing) -> SourceRef {
         SourceRef(
             fileName: loaded.source.fileName, sha256: loaded.source.sha256,
-            readerVersion: loaded.source.readerVersion, options: loaded.settings)
+            readerVersion: loaded.source.readerVersion,
+            readerVersions: loaded.source.readerVersions, options: loaded.settings)
     }
 
     /// A drawing read, or the error result that says why it was not.

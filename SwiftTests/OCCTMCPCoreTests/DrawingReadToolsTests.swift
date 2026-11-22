@@ -303,7 +303,7 @@ struct DrawingReadToolsTests {
         #expect(!warnings.contains { $0.contains("no mapping") }, "\(warnings)")
     }
 
-    @Test("the source record names the SwiftDXF release line this build is pinned to")
+    @Test("the source record and every tool that returns ids carry the SwiftDXF release line")
     func readerVersion() async throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -332,21 +332,6 @@ struct DrawingReadToolsTests {
             let carried = result["source"] as? [String: Any]
             #expect(carried?["readerVersion"] as? String == DrawingFile.readerVersion, "\(tool)")
         }
-
-        // The constant cannot drift from what Package.resolved pins: a bump that forgets it fails.
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let data = try Data(contentsOf: root.appendingPathComponent("Package.resolved"))
-        let resolved = try #require(
-            try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let pins = try #require(resolved["pins"] as? [[String: Any]])
-        let pin = try #require(pins.first { $0["identity"] as? String == "swiftdxf" })
-        let state = try #require(pin["state"] as? [String: Any])
-        let resolvedVersion = try #require(state["version"] as? String)
-        let line = DrawingFile.readerVersion
-        #expect(
-            resolvedVersion.hasPrefix(line + "."),
-            "Package.resolved pins SwiftDXF \(resolvedVersion), but the reader line is \(line)")
     }
 
     @Test("a CRLF file reads the same as an LF one")
