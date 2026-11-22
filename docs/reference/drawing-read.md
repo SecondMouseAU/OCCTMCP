@@ -62,7 +62,8 @@ result.
   whose dimensions are loose pieces in blocks can show none in `rebuiltDimensions` or
   `list_drawing_dimensions`. A stored dimension record in a block is listed. An older record is one
   from a file before Jw_cad 4.20, which keeps no measured points: at the top level it is not a
-  dimension either, it stays as a line and text, and a warning names its value.
+  dimension either, it stays as a line and text, and a warning names its value. Inside a block it
+  stays as a line and text too, as entities of that block, but with no warning.
 - **A DWG's insert attributes are not read** (as of SwiftDWG 0.2.0 it does not decode `ATTRIB` and
   `ATTDEF`, SecondMouseAU/SwiftDWG#9), so the values in a DWG title block are missing.
 - **A file that is damaged says so.** A DWG that is truncated or whose structure does not add up
