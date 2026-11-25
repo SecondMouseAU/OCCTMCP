@@ -131,6 +131,8 @@ public enum SelectionBridgeTools {
         /// Short free-text name for an attention highlight, absent when not supplied.
         ///
         /// Only written under `target: "attention"` and when no `question` is supplied.
+        ///
+        /// An empty or blank `question` counts as none.
         public let label: String?
     }
 
@@ -468,6 +470,10 @@ public enum SelectionBridgeTools {
     /// own closed enums before writing anything, since those aren't a scene
     /// fact to defer, they're the request's own shape.
     ///
+    /// A nil, empty or blank `question` (`isBlank(_:)`) is no question: it is not written,
+    /// and the request is then checked and written as one without it. A `question` with a
+    /// visible character is written exactly as sent.
+    ///
     /// The id is generated
     /// here (never supplied by the caller), so a caller never needs to
     /// invent or coordinate its own id across concurrent highlight calls;
@@ -507,6 +513,12 @@ public enum SelectionBridgeTools {
                 isError: true
             )
         }
+        // The host reads a nil, empty or blank question as no question
+        // (SecondMouseAU/OCCTSwiftInteraction#62), so the two checks below and
+        // the written request must too: a blank question is dropped here, and
+        // a question with a visible character is kept exactly as sent.
+        let question = nilIfBlank(question)
+
         // The attention marker is a single sub-shape slot with no whole-body
         // form, so a body request can only land in the selection. A request
         // with a `question` always lands in the selection regardless of
@@ -526,7 +538,7 @@ public enum SelectionBridgeTools {
         // selection, and the host ignores a label on it, so the same applies.
         var writtenLabel: String? = nil
         if target == "attention", question == nil, let label {
-            guard !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard !isBlank(label) else {
                 return ToolText(
                     "highlight_selection: label must not be empty or whitespace-only. "
                         + "Omit it to send no label.",
