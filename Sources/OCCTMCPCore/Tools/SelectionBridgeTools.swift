@@ -540,7 +540,7 @@ public enum SelectionBridgeTools {
         if target == "attention", question == nil, let label {
             guard !isBlank(label) else {
                 return ToolText(
-                    "highlight_selection: label must not be empty or whitespace-only. "
+                    "highlight_selection: label must not be empty or blank (it needs a visible character). "
                         + "Omit it to send no label.",
                     isError: true
                 )

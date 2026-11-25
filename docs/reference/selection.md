@@ -443,7 +443,7 @@ every Unicode scalar is `White_Space`, a control character (general category Cc)
 `Default_Ignorable_Code_Point` (such as U+3164 HANGUL FILLER or U+200D ZERO WIDTH JOINER), or one
 of U+2800 BRAILLE PATTERN BLANK, U+FFF9 to U+FFFB, U+FFFC, U+16FE4 and U+1D159. One scalar with a
 visible character makes the text visible, wherever it sits. A blank `question` is dropped (nil,
-the empty string and a blank one all mean no question); a blank `label` is refused with the
-existing error. A `question` with a visible character is written exactly as sent. If the host still
+the empty string and a blank one all mean no question); a blank `label` is refused with an error
+saying it must not be empty or blank. A `question` with a visible character is written exactly as sent. If the host still
 drops a question it reads as blank, an `applied` answer carries `reason: "question dropped: it has
 no visible character"`, and the result passes `reason` through.

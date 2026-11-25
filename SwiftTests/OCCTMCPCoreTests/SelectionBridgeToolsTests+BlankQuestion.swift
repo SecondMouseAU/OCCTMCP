@@ -257,14 +257,14 @@ extension SelectionBridgeToolsTests {
     // MARK: - a label blank by the host's rule
 
     @Test(
-        "highlight_selection (SecondMouseAU/OCCTMCP#293): a label that draws nothing is refused with the existing error",
+        "highlight_selection (SecondMouseAU/OCCTMCP#293): a label that draws nothing is refused with the label error",
         arguments: SelectionBridgeToolsTests.blankSamples)
     func blankLabelIsRefused(_ sample: BlankSample) async throws {
         let call = try await callHighlight(question: nil, label: sample.text)
         #expect(call.result.isError, "blank label \(sample.name) was accepted")
         #expect(
             call.result.text
-                == "highlight_selection: label must not be empty or whitespace-only. "
+                == "highlight_selection: label must not be empty or blank (it needs a visible character). "
                 + "Omit it to send no label.")
         #expect(call.request == nil, "a refused label must write nothing")
     }
