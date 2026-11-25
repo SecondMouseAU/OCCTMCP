@@ -8,6 +8,10 @@ import Foundation
 extension SelectionBridgeTools {
 
     /// The scalars that draw nothing and fall outside whitespace, control and default-ignorable.
+    ///
+    /// This is the named list in the host's `AgentAttentionLabel.isBlank`
+    /// (SecondMouseAU/OCCTSwiftInteraction#62), which is internal there. When the host's list
+    /// changes, change this one with it.
     static let blankScalars: Set<Unicode.Scalar> = [
         "\u{2800}",  // BRAILLE PATTERN BLANK
         "\u{FFF9}", "\u{FFFA}", "\u{FFFB}",  // INTERLINEAR ANNOTATION ANCHOR, SEPARATOR, TERMINATOR
