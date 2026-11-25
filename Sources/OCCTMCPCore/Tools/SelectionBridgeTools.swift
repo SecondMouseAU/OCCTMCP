@@ -521,8 +521,8 @@ public enum SelectionBridgeTools {
 
         // The attention marker is a single sub-shape slot with no whole-body
         // form, so a body request can only land in the selection. A request
-        // with a `question` always lands in the selection regardless of
-        // `target` (the host's escalation card reads it), so it is exempt.
+        // with a non-blank `question` always lands in the selection regardless
+        // of `target` (the host's escalation card reads it), so it is exempt.
         if kind == "body" && target == "attention" && question == nil {
             return ToolText(
                 "highlight_selection: kind \"body\" cannot be marked under target \"attention\" "
@@ -534,8 +534,8 @@ public enum SelectionBridgeTools {
 
         // A label names the agent's attention marker; under target "selection"
         // it has nothing to attach to, so it is ignored there (not validated,
-        // not written). A request with a `question` always lands in the
-        // selection, and the host ignores a label on it, so the same applies.
+        // not written). A request with a non-blank `question` always lands in
+        // the selection, and the host ignores a label on it, so the same applies.
         var writtenLabel: String? = nil
         if target == "attention", question == nil, let label {
             guard !isBlank(label) else {
