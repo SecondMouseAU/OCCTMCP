@@ -138,27 +138,34 @@ extension DrawingReadToolsTests {
         }
     }
 
-    @Test("a JWW declares no units, so no millimetre figure appears until mmPerUnit supplies one")
-    func jwwDeclaresNoUnits() async throws {
+    // SwiftJWW 2.0 (through OCCTSwiftIO 2.0.0) declares a JWW's length unit: the DXF text carries
+    // `$INSUNITS` 4. Up to SwiftJWW 1.5 it declared none, so this test pinned "no usable units" and
+    // a millimetre figure only once `mmPerUnit: 1` was passed (#300). The unitless path is still
+    // covered by the DXF cases with no `$INSUNITS` above.
+    @Test("a JWW declares millimetres, so its figures have a millimetre value without mmPerUnit")
+    func jwwDeclaresMillimetres() async throws {
         let read = try json(await call("read_drawing", ["inputPath": .string(Self.dimensionedJWW)]))
         let units = try #require(read["units"] as? [String: Any])
-        #expect(units["mmPerUnit"] == nil, "\(units)")
+        #expect(units["insUnits"] as? Int == 4 && units["name"] as? String == "millimetres")
+        #expect(units["mmPerUnit"] as? Double == 1, "\(units)")
         let warnings = try #require(read["warnings"] as? [String])
-        #expect(warnings.contains { $0.contains("no usable units") }, "\(warnings)")
+        #expect(!warnings.contains { $0.contains("no usable units") }, "\(warnings)")
 
-        // The dimension has its value in drawing units and no millimetre figure.
+        // The dimension has its value in drawing units and the same figure in millimetres.
         let listing = try json(
             await call("list_drawing_dimensions", ["inputPath": .string(Self.dimensionedJWW)]))
         let row = try #require((listing["dimensions"] as? [[String: Any]])?.first)
         #expect(abs((row["valueFromPoints"] as? Double ?? 0) - 100) < 1e-9, "\(row)")
-        #expect(row["valueFromPointsMm"] == nil, "\(row)")
+        #expect(abs((row["valueFromPointsMm"] as? Double ?? 0) - 100) < 1e-9, "\(row)")
 
-        // A distance says so, and `mmPerUnit: 1` (Jw_cad draws in millimetres) gives the figure.
+        // A distance has its millimetre figure too, with no note about missing units.
         let bare = try json(
             await measure(Self.dimensionedJWW, "distance", a: .string("e0"), b: .string("e2")))
-        #expect(bare["valueMm"] == nil, "\(bare)")
-        let notes = try #require(bare["notes"] as? [String])
-        #expect(notes.contains { $0.contains("no usable units") }, "\(notes)")
+        let bareValue = try #require(bare["value"] as? Double)
+        #expect(abs((bare["valueMm"] as? Double ?? -1) - bareValue) < 1e-9, "\(bare)")
+        let notes = (bare["notes"] as? [String]) ?? []
+        #expect(!notes.contains { $0.contains("no usable units") }, "\(notes)")
+        // An explicit `mmPerUnit` still wins over the declared unit.
         let given = try json(
             await measure(
                 Self.dimensionedJWW, "distance", a: .string("e0"), b: .string("e2"),

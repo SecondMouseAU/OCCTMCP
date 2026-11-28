@@ -20,7 +20,7 @@ struct DrawingFixture {
     mutating func add(_ name: String?, _ type: String, layer: String, _ groups: [(Int, String)]) {
         let modelled = [
             "LINE", "CIRCLE", "ARC", "ELLIPSE", "POINT", "TEXT", "MTEXT", "LWPOLYLINE", "POLYLINE",
-            "DIMENSION", "SPLINE", "HATCH", "LEADER",
+            "DIMENSION", "SPLINE", "HATCH", "LEADER", "SOLID", "3DFACE", "WIPEOUT", "TOLERANCE",
         ].contains(type)
         records.append((name, modelled, [(0, type), (8, layer)] + groups))
     }
@@ -175,7 +175,9 @@ struct DrawingFixture {
             splineGroups(
                 degree: 2, knots: [0, 0, 0, 1, 1, 1], control: [(10, 35), (20, 45), (30, 35)],
                 color: 5))
-        // Entity types SwiftDXF does not model: reported as skipped, by type and layer.
+        // A SOLID and a 3DFACE, which SwiftDXF skipped up to 0.5 and reads from 0.6 (#300), and
+        // a block insert it does not expand here because the block is not defined: reported as
+        // skipped, by type and layer.
         f.add(nil, "SOLID", layer: "FILL", [(10, "0"), (20, "0")])
         f.add(nil, "3DFACE", layer: "MESH", [(10, "0"), (20, "0")])
         f.add(nil, "INSERT", layer: "BLOCKS", [(2, "FASTENER"), (10, "70"), (20, "10")])
@@ -226,18 +228,20 @@ struct DrawingReadToolsTests {
         let path = try fixture.write(to: dir)
 
         let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
-        #expect(r["entityCount"] as? Int == 23)
+        // 23 under SwiftDXF 0.5, which skipped the SOLID and the 3DFACE; 0.6 reads both (#300).
+        #expect(r["entityCount"] as? Int == 25)
         let byType = try #require(r["byType"] as? [String: Int])
         #expect(
             byType == [
                 "line": 6, "circle": 1, "arc": 2, "polyline": 1, "text": 1, "point": 1,
                 "ellipse": 1, "dimension": 7, "spline": 1, "hatch": 1, "leader": 1,
+                "solid": 1, "face3d": 1,
             ])
 
         let layers = try #require(r["layers"] as? [[String: Any]])
         #expect(
             layers.compactMap { $0["name"] as? String } == [
-                "CURVES", "DIMS", "HATCH", "HOLES", "NOTES", "OUTLINE", "SLOT",
+                "CURVES", "DIMS", "FILL", "HATCH", "HOLES", "MESH", "NOTES", "OUTLINE", "SLOT",
             ])
         let dims = try #require(layers.first { $0["name"] as? String == "DIMS" })
         #expect(dims["total"] as? Int == 7)
@@ -261,13 +265,13 @@ struct DrawingReadToolsTests {
 
         let skipped = try #require(r["skipped"] as? [String: Any])
         // The two INSERTs name a block the file does not define, so nothing was expanded and they
-        // are still skipped; the loader's warning comes through beside them.
-        #expect(skipped["total"] as? Int == 4)
-        #expect(
-            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
+        // are still skipped; the loader's warning comes through beside them. The SOLID and the
+        // 3DFACE are entities now (SwiftDXF 0.6), on their own layers, so they are no longer here.
+        #expect(skipped["total"] as? Int == 2)
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 2])
         let skippedByLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
-        #expect(skippedByLayer["FILL"] == ["SOLID": 1])
-        #expect(skippedByLayer["MESH"] == ["3DFACE": 1])
+        #expect(skippedByLayer["FILL"] == nil)
+        #expect(skippedByLayer["MESH"] == nil)
         #expect(skippedByLayer["BLOCKS"] == ["INSERT": 2])
         let warnings = try #require(r["warnings"] as? [String])
         #expect(warnings.contains { $0.contains("FASTENER") }, "\(warnings)")
@@ -295,7 +299,7 @@ struct DrawingReadToolsTests {
                 "read_drawing", ["inputPath": .string(try DrawingFixture.tSlot().write(to: dir))]))
         let skipped = try #require(r["skipped"] as? [String: Any])
         let byType = try #require(skipped["byType"] as? [String: Int])
-        #expect(byType == ["SOLID": 1, "3DFACE": 1, "INSERT": 2], "\(byType)")
+        #expect(byType == ["INSERT": 2], "\(byType)")
         #expect(byType["SPLINE"] == nil, "a modelled SPLINE was counted as skipped too: \(byType)")
         let byLayer = try #require(skipped["byLayer"] as? [String: [String: Int]])
         #expect(byLayer["CURVES"] == nil, "\(byLayer)")
@@ -342,10 +346,10 @@ struct DrawingReadToolsTests {
         fixture.lineEnding = "\r\n"
         let r = try json(
             await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
-        #expect(r["entityCount"] as? Int == 23)
+        #expect(r["entityCount"] as? Int == 25)
         let skipped = try #require(r["skipped"] as? [String: Any])
         #expect(
-            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
+            skipped["byType"] as? [String: Int] == ["INSERT": 2])
         let layers = try #require(r["layers"] as? [[String: Any]])
         #expect(
             layers.compactMap { $0["name"] as? String }.contains("OUTLINE"), "layer names kept a CR"
@@ -432,7 +436,7 @@ struct DrawingReadToolsTests {
         await DrawingCache.shared.clear()
         let path = try DrawingFixture.tSlot().write(to: dir, name: "changing.dxf")
         let before = try json(await call("read_drawing", ["inputPath": .string(path)]))
-        #expect(before["entityCount"] as? Int == 23)
+        #expect(before["entityCount"] as? Int == 25)
 
         var smaller = DrawingFixture()
         smaller.add(
@@ -490,12 +494,12 @@ struct DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = try DrawingFixture.tSlot().write(to: dir)
         let page = try await entities(["limit": 3, "offset": 2], path)
-        #expect(page.total == 23 && page.ids == ["e2", "e3", "e4"])
+        #expect(page.total == 25 && page.ids == ["e2", "e3", "e4"])
         #expect(page.raw["returned"] as? Int == 3 && page.raw["truncated"] as? Bool == true)
-        let last = try await entities(["limit": 3, "offset": 20], path)
-        #expect(last.ids == ["e20", "e21", "e22"] && last.raw["truncated"] as? Bool == false)
+        let last = try await entities(["limit": 3, "offset": 22], path)
+        #expect(last.ids == ["e22", "e23", "e24"] && last.raw["truncated"] as? Bool == false)
         let beyond = try await entities(["offset": 100], path)
-        #expect(beyond.ids.isEmpty && beyond.total == 23)
+        #expect(beyond.ids.isEmpty && beyond.total == 25)
     }
 
     @Test("each entity carries its geometry as numbers, in drawing units")
@@ -588,7 +592,7 @@ struct DrawingReadToolsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = Value.string(try DrawingFixture.tSlot().write(to: dir))
         let cases: [([String: Value], String)] = [
-            (["types": ["wipeout"]], "Unknown entity type"),
+            (["types": ["mline"]], "Unknown entity type"),   // a DXF type SwiftDXF does not read; WIPEOUT is one it does, from 0.6
             (["rect": [1, 2, 3]], "`rect` must be"),
             (["rect": [5, 0, 1, 10]], "`rect` must be"),
             (["rect": "nope"], "`rect` must be"),
@@ -626,10 +630,12 @@ struct DrawingReadToolsTests {
             list.compactMap { $0["valueMm"] as? Double } == [100, 50, 8, 5, 12, 12.5],
             "angular has no mm")
         #expect(list.allSatisfy { $0["layer"] as? String == "DIMS" })
-        // Every kind but the angular and ordinate ones also reports what its own geometry gives: a
-        // linear dimension measures along its rotation (the height one is rotated to vertical).
-        #expect(list.compactMap { $0["valueFromPoints"] as? Double } == [100, 50, 8, 5, 12])
-        #expect(list.compactMap { $0["valueFromPointsMm"] as? Double } == [100, 50, 8, 5, 12])
+        // Every kind whose points give a value also reports what its own geometry gives: a linear
+        // dimension measures along its rotation (the height one is rotated to vertical).
+        // The ordinate's own geometry gives 50 from SwiftDXF 0.6 (its feature is 50 above its origin),
+        // where the file stores 12.5. The angular one here has two coincident lines, so no angle.
+        #expect(list.compactMap { $0["valueFromPoints"] as? Double } == [100, 50, 8, 5, 12, 50])
+        #expect(list.compactMap { $0["valueFromPointsMm"] as? Double } == [100, 50, 8, 5, 12, 50])
         let height = try #require(list.first { $0["id"] as? String == fixture.id("dimHeight") })
         #expect(height["rotationDeg"] as? Double == 90)
         let width = try #require(list.first { $0["id"] as? String == fixture.id("dimWidth") })
@@ -1038,7 +1044,7 @@ struct DrawingReadToolsTests {
     }
 
     @Test(
-        "an old-style POLYLINE is one entity, and an INSERT's ATTRIB records are counted as SwiftDXF counts them"
+        "an old-style POLYLINE is one entity, and an INSERT's ATTRIB records are read with it, not skipped"
     )
     func childRecordsAreNotEntities() async throws {
         let dir = try makeDirectory()
@@ -1056,12 +1062,13 @@ struct DrawingReadToolsTests {
         let path = try f.write(to: dir)
         let r = try json(await call("read_drawing", ["inputPath": .string(path)]))
         #expect(r["entityCount"] as? Int == 1)
-        // SwiftDXF reports `Drawing.skipped` itself, and counts an INSERT's ATTRIB records as skipped
-        // entities of their own. The INSERT stays too: its block TITLE is not defined here, so
-        // nothing was expanded (the loader also reports a missing block).
+        // SwiftDXF reports `Drawing.skipped` itself. Up to 0.5 it counted an INSERT's ATTRIB records
+        // as skipped entities of their own; 0.6 reads them with the INSERT (#300), so only the INSERT
+        // is here: its block TITLE is not defined here, so nothing was expanded (the loader also
+        // reports a missing block).
         let skipped = try #require(r["skipped"] as? [String: Any])
-        #expect(skipped["total"] as? Int == 3, "\(skipped)")
-        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 1, "ATTRIB": 2], "\(skipped)")
+        #expect(skipped["total"] as? Int == 1, "\(skipped)")
+        #expect(skipped["byType"] as? [String: Int] == ["INSERT": 1], "\(skipped)")
         let entity = try #require(
             try await entities([:], path).all.first)
         #expect((entity["vertices"] as? [Any])?.count == 3 && entity["closed"] as? Bool == true)
@@ -1075,10 +1082,10 @@ struct DrawingReadToolsTests {
         fixture.lineEnding = "\r"
         let r = try json(
             await call("read_drawing", ["inputPath": .string(try fixture.write(to: dir))]))
-        #expect(r["entityCount"] as? Int == 23)
+        #expect(r["entityCount"] as? Int == 25)
         let skipped = try #require(r["skipped"] as? [String: Any])
         #expect(
-            skipped["byType"] as? [String: Int] == ["SOLID": 1, "3DFACE": 1, "INSERT": 2])
+            skipped["byType"] as? [String: Int] == ["INSERT": 2])
     }
 
     @Test("filter arguments that are the wrong shape are refused, not ignored")
@@ -1107,7 +1114,7 @@ struct DrawingReadToolsTests {
                     "inputPath": path, "types": .null, "layers": .null, "rect": .null,
                     "rectMode": .null,
                 ]))
-        #expect(nulls["total"] as? Int == 23)
+        #expect(nulls["total"] as? Int == 25)
         let kinds = try json(
             await call("list_drawing_dimensions", ["inputPath": path, "kinds": .null]))
         #expect(kinds["total"] as? Int == 7)

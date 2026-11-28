@@ -137,7 +137,7 @@ enum DrawingUnits {
 enum DrawingFile {
     /// The SwiftDXF release line (major and minor) this build was written for, held to the `swiftdxf`
     /// pin in `Package.resolved` by a test.
-    static let readerVersion = "0.5"
+    static let readerVersion = "0.6"
 
     /// The SwiftDWG release line (major and minor) this build was written for, held to the
     /// `swiftdwg` pin in `Package.resolved` by a test.
@@ -145,7 +145,7 @@ enum DrawingFile {
 
     /// The SwiftJWW release line (major and minor) this build was written for, held to the
     /// `swiftjww` pin in `Package.resolved` by a test.
-    static let jwwReaderVersion = "1.5"
+    static let jwwReaderVersion = "2.0"
 
     /// The release line of each reader that produced the entities of a file of `format`, by name.
     static func readerVersions(for format: DrawingFormat) -> [String: String] {

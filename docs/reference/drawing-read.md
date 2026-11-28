@@ -45,7 +45,7 @@ result.
   `source.format` says which it was.
 - **A JWW is read at full size.** Jw_cad draws at a scale (1:80, say), and the reader multiplies
   each layer group's lengths by its own scale, so an entity is its real size and not the drawn one.
-  A JWW declares no units; see **Units** below for the millimetre figure.
+  A JWW declares millimetres (SwiftJWW 2.0); see **Units** below.
   `layerGroupScales` in `read_drawing` says what was applied to each group that holds a top-level
   element (a group used only inside blocks is not listed). A block's members keep their own layer
   names but take the scale of the group of the reference that places them, so a layer `1-3` next to
@@ -75,14 +75,14 @@ result.
 - **A newer SwiftDXF may add entity types.** An entity the tools have no mapping for is listed with
   type `other` and no layer, colour, bounds or geometry (nothing is made up), a layer filter never
   matches it, `read_drawing` warns about it and `measure_drawing` refuses it.
-- **What the reader skips is reported, not hidden.** An entity type SwiftDXF does not model
-  (`SOLID`, `3DFACE` and so on) is counted in `skipped`, by type and, where the format says, by
+- **What the reader skips is reported, not hidden.** An entity type SwiftDXF does not read (an
+  `MLINE`, say) is counted in `skipped`, by type and, where the format says, by
   layer. A DWG counts its skipped entities, and a JWW its solid fills, without their layer, so they
   are in `byType` and `total` but not in `byLayer`. An `INSERT` is not an entity, so SwiftDXF counts
   it as skipped until its block is expanded and then takes it out itself: an `INSERT` that is still
   in `skipped` was not expanded (`expandBlocks` is false, the file does not define its block, or the
-  expansion limit stopped short), and a warning says which. SwiftDXF counts an `INSERT`'s `ATTRIB`
-  records as skipped entities of their own, so a block insert with attributes shows the attributes.
+  expansion limit stopped short), and a warning says which. SwiftDXF 0.6 reads an `INSERT`'s
+  `ATTRIB` records with it, so they are no longer counted as skipped (up to 0.5 they were).
   A JWW solid fill inside a block is not counted: OCCTSwiftIO 2.0.0-beta.10 reports only top-level
   fills (SecondMouseAU/OCCTSwiftIO#81 fixes it after that release).
 - **A hatch is not measurable**, and a spline leader is measured along its straight segments; see
@@ -105,7 +105,7 @@ depend on them.
   `read_drawing` returns the file's SHA-256, and every result carries the file name, hash, the
   release line of each reader that read the file (`source.readerVersions`, see **Readers** below)
   and the options, so a caller can tell when ids no longer mean what they did. SwiftDXF 0.5.0
-  decodes TEXT and MTEXT, so a `text` string can differ from the raw string in the file (`%%c`
+  and later decode TEXT and MTEXT, so a `text` string can differ from the raw string in the file (`%%c`
   comes back as `⌀`). Turning block expansion on or off, or a newer SwiftDXF that models more
   types, shifts the ids after them. Skipped records take no index.
 - **Readers.** A file goes through one reader or two, and a new release of either can shift its
@@ -140,11 +140,11 @@ depend on them.
 - **Units.** Coordinates and values are in **drawing units**. The drawing's units are the DXF
   `$INSUNITS` code, returned with its name and millimetres per unit (codes 0 to 24 as ezdxf lists
   them). A unitless or undeclared drawing has no millimetre figure and the tools say so; pass
-  `mmPerUnit` to `measure_drawing` to supply one. A JWW declares no units, so it has no `valueMm`
-  on a dimension or a distance, and `read_drawing` warns of it. Jw_cad draws in millimetres
-  (SwiftJWW's own note on its coordinates), so `mmPerUnit: 1` on `measure_drawing` gives the
-  millimetre figure; `list_drawing_dimensions` takes no such argument, and its values are the
-  drawing units, which for a JWW at full size are those millimetres.
+  `mmPerUnit` to `measure_drawing` to supply one. A JWW declares millimetres (SwiftJWW 2.0 writes
+  `$INSUNITS` 4), so it has a `valueMm` like any drawing with a declared unit, and a JWW at full
+  size is in those millimetres; up to SwiftJWW 1.5 it declared none, `read_drawing` warned of it
+  and `mmPerUnit: 1` supplied the figure. An angle is in degrees and never has a millimetre figure,
+  including the angle an angular dimension's own points give (`valueFromPoints`).
 
 ---
 
@@ -190,10 +190,10 @@ no usable units). A JWW also gets `layerGroupScales` (each with `group`, `layerN
     "declared": { "min": [0, 0, 0], "max": [60, 40, 0] },
     "computed": { "min": [0, -4, 0], "max": [33, 23, 0] }
   },
-  "skipped": { "total": 1, "byType": { "SOLID": 1 }, "byLayer": { "FILL": { "SOLID": 1 } } },
+  "skipped": { "total": 1, "byType": { "INSERT": 1 }, "byLayer": { "BLOCKS": { "INSERT": 1 } } },
   "source": {
     "fileName": "slot.dxf", "bytes": 410, "format": "dxf", "dxfVersion": "AC1027",
-    "formatVersion": "AC1027", "readerVersion": "0.5", "readerVersions": { "SwiftDXF": "0.5" },
+    "formatVersion": "AC1027", "readerVersion": "0.6", "readerVersions": { "SwiftDXF": "0.6" },
     "options": { "expandBlocks": true, "skipPaperSpace": false },
     "sha256": "5c9c59756de36f6cddd4c027d7eb956005d7d19ca3935f0737cf51b6e2f6f9a2"
   },
@@ -213,7 +213,7 @@ sheet.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `inputPath` | string | yes | Absolute path of the DXF, DWG or JWW file. |
-| `types` | string[] | no | Any of `line`, `circle`, `arc`, `ellipse`, `point`, `text`, `polyline`, `spline`, `hatch`, `leader`, `dimension`. |
+| `types` | string[] | no | Any of `line`, `circle`, `arc`, `ellipse`, `point`, `text`, `polyline`, `spline`, `hatch`, `leader`, `dimension`, `solid`, `wipeout`, `face3d`, `tolerance`. |
 | `layers` | string[] | no | Layer names to keep. |
 | `rect` | number[4] | no | `[xmin, ymin, xmax, ymax]` on the sheet, in drawing units. |
 | `rectMode` | string | no | `intersects` (default) keeps entities whose bounds overlap `rect`; `within` keeps those wholly inside it. |
@@ -234,6 +234,10 @@ Index; 256 is by-layer), `bounds` and its geometry:
 | `spline` | `degree`, `closed`, `periodic`, `rational`, and as stored in the file: `controlPoints`, `knots` (the flat knot vector), `weights` (rational splines) and `fitPoints` (each left out when the file has none) |
 | `hatch` | `patternName`, `solid`, `boundaryPaths`: each path has `external` (an outer boundary, otherwise an island or a hole) and `kind`, `polyline` (`vertices`, `bulges`, `closed`) or `edges` (a chain of `line`, `arc`, `ellipse` and `spline` edges, each as numbers in the drawing plane; an arc's or ellipse's angles always run counter-clockwise from start to end, and `counterClockwise` says which way the path travels it). Only the boundary and the fill kind are read, not the hatch lines. |
 | `leader` | `vertices` (from the arrowhead end), `arrowhead`, `splinePath` (it curves through the vertices), `annotationHandle` (the text or block it is attached to), `styleName` |
+| `solid` | `vertices` (the outline of the filled triangle or quadrilateral, in the order that walks it), `closed` |
+| `wipeout` | `vertices` (the masking polygon in the world, without a closing vertex), `closed` |
+| `face3d` | `vertices` (four corners in outline order, with z; a triangle repeats its third corner as its fourth), `closed` |
+| `tolerance` | `at` (where the frame is placed), `rotationDeg`, `text` (the frame string as the file writes it), `styleName`; its box is its insertion point, since the frame's size comes from a dimension style the reader does not carry |
 | `text` | `at`, `height`, `rotationDeg`, `text` |
 | `point` | `at` |
 | `dimension` | `dimension`, the record `list_drawing_dimensions` returns |
@@ -362,8 +366,9 @@ Distance, angle or radius between named entities or points.
   says so in `notes` too. A `leader` is measured along the straight segments between its
   vertices (a spline leader curves through them, so the result says it is not exact). A `hatch`
   has no single edge to measure: measure the entities that bound it, or pass its boundary points
-  from `list_drawing_entities` as points. A `text` entity has no geometry to measure: pass its
-  `at` point. A `dimension` has none either: measure the entities it dimensions, or pass its
+  from `list_drawing_entities` as points; so do a `solid`, a `wipeout` and a `face3d`, which have
+  `vertices` and no single edge. A `text` or a `tolerance` entity has no geometry to measure: pass
+  its `at` point. A `dimension` has none either: measure the entities it dimensions, or pass its
   definition points from `list_drawing_dimensions` as points.
 - **`angle`**: two `line` entities, or `vertex` with two points `a` and `b`. `value` is in degrees
   between 0 and 180 and runs between the lines' drawn directions (start to end); `acuteAngleDeg` is

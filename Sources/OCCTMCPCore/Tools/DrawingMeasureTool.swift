@@ -210,6 +210,15 @@ extension DrawingReadTools {
             throw MeasureError(
                 "A hatch has no single edge to measure; measure the entities that bound it, or "
                     + "pass its boundary points from list_drawing_entities as points.")
+        case .solid, .wipeout, .face3D:
+            throw MeasureError(
+                "A solid fill, a wipeout or a 3D face has no single edge to measure; pass its "
+                    + "`vertices` from list_drawing_entities as points, or measure the entities that "
+                    + "bound it.")
+        case .tolerance:
+            throw MeasureError(
+                "A tolerance frame has no measurable geometry; pass its `at` point as a point instead."
+            )
         case .point(let p, _, _):
             add(Shape.vertex(at: simd(p)))
         case .text:

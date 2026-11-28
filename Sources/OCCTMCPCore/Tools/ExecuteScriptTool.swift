@@ -48,9 +48,11 @@ public enum ExecuteScriptTool {
     /// different kernel than the server's own tools. A `from:` floor that is a stable version never
     /// selects a prerelease, so this floor was 1.4.2 and resolved to v1.7.0, which empties its
     /// output directory, ignores `OCCTSWIFT_OUTPUT_DIR` and leaves no failure marker (#257).
-    /// 1.7.1-beta.4 is the first release with the stage directory and the marker
-    /// (OCCTSwiftScripts#143, #145). The prerelease floor admits later 1.x releases.
-    static let scriptsPin = "1.7.1-beta.4"
+    /// 1.7.1-beta.4 was the first release with the stage directory and the marker
+    /// (OCCTSwiftScripts#143, #145), the floor until the stable 1.7.1 shipped; 1.7.1 is that
+    /// release and requires OCCTSwift 4.0.0 or later, so the floor is stable again and admits
+    /// later 1.x releases.
+    static let scriptsPin = "1.7.1"
 
     /// Runs the script in a stage directory and promotes a clean run's output into the scene.
     ///
