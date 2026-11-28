@@ -42,14 +42,18 @@ extension DrawingReadToolsTests {
         #expect(byType == ["line": 4, "circle": 1, "dimension": 3], "\(byType)")
     }
 
-    @Test("a JWW is read, and its missing units are said rather than assumed")
+    @Test("a JWW is read, and it declares millimetres (SwiftJWW 2.0) rather than leaving units out")
     func jwwIsRead() async throws {
         let r = try json(await call("read_drawing", ["inputPath": .string(Self.plateJWW)]))
         let source = try #require(r["source"] as? [String: Any])
         #expect(source["format"] as? String == "jww" && source["formatVersion"] as? String == "700")
         #expect(r["byType"] as? [String: Int] == ["line": 4, "circle": 1])
+        // Up to SwiftJWW 1.5 a JWW declared no unit and this said so (#300); 2.0 declares
+        // millimetres, so there is nothing to say.
+        let units = try #require(r["units"] as? [String: Any])
+        #expect(units["insUnits"] as? Int == 4 && units["mmPerUnit"] as? Double == 1, "\(units)")
         let warnings = try #require(r["warnings"] as? [String])
-        #expect(warnings.contains { $0.contains("no usable units") }, "\(warnings)")
+        #expect(!warnings.contains { $0.contains("no usable units") }, "\(warnings)")
     }
 
     @Test("the same plate from a DXF, a DWG and a JWW has the same lines and circle")

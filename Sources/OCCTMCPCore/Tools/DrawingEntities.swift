@@ -27,7 +27,8 @@ enum DrawingEntities {
         return n
     }
 
-    // `DXF.Entity` gains cases when SwiftDXF does (0.3.0 added `spline`, 0.4.0 `hatch` and `leader`),
+    // `DXF.Entity` gains cases when SwiftDXF does (0.3.0 added `spline`, 0.4.0 `hatch` and `leader`,
+    // 0.6.0 `solid`, `wipeout`, `face3D` and `tolerance`),
     // so every switch over it ends in `@unknown default`: a build that resolves a newer
     // SwiftDXF compiles, and reads an entity it has no mapping for as type `other`, with no layer,
     // colour, bounds or geometry (nothing is made up), and `read_drawing` warns about it.
@@ -45,6 +46,10 @@ enum DrawingEntities {
         case .hatch: return "hatch"
         case .leader: return "leader"
         case .dimension: return "dimension"
+        case .solid: return "solid"
+        case .wipeout: return "wipeout"
+        case .face3D: return "face3d"
+        case .tolerance: return "tolerance"
         @unknown default: return "other"
         }
     }
@@ -52,7 +57,7 @@ enum DrawingEntities {
     /// The type names in the order the tools list them.
     static let typeNames = [
         "line", "circle", "arc", "ellipse", "point", "text", "polyline", "spline", "hatch",
-        "leader", "dimension",
+        "leader", "dimension", "solid", "wipeout", "face3d", "tolerance",
     ]
 
     /// The entity's layer, nil for an entity this build has no mapping for (it is not made up).
@@ -70,6 +75,14 @@ enum DrawingEntities {
             return leader.layer
         case .dimension(let d):
             return d.layer
+        case .solid(let solid):
+            return solid.layer
+        case .wipeout(let wipeout):
+            return wipeout.layer
+        case .face3D(let face):
+            return face.layer
+        case .tolerance(let tolerance):
+            return tolerance.layer
         @unknown default:
             return nil
         }
@@ -90,6 +103,14 @@ enum DrawingEntities {
             return leader.color
         case .dimension(let d):
             return d.color
+        case .solid(let solid):
+            return solid.color
+        case .wipeout(let wipeout):
+            return wipeout.color
+        case .face3D(let face):
+            return face.color
+        case .tolerance(let tolerance):
+            return tolerance.color
         @unknown default:
             return nil
         }
@@ -368,8 +389,26 @@ enum DrawingEntities {
                 if let p { box.include(p) }
             }
             return box
+        case .solid(let solid):
+            return pointsBounds(solid.corners)
+        case .wipeout(let wipeout):
+            return pointsBounds(wipeout.boundary)
+        case .face3D(let face):
+            return pointsBounds(face.corners)
+        case .tolerance(let tolerance):
+            // The frame's size comes from a dimension style the reader does not carry, so its
+            // box is its insertion point, as a text's is.
+            return Bounds(tolerance.insertion)
         @unknown default:
             return nil
         }
+    }
+
+    /// The box of a list of points, nil for an empty list.
+    static func pointsBounds(_ points: [DXF.Point]) -> Bounds? {
+        guard let first = points.first else { return nil }
+        var box = Bounds(first)
+        for point in points { box.include(point) }
+        return box
     }
 }

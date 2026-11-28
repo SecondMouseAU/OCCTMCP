@@ -166,7 +166,7 @@ Mirror a body through a plane, or create a linear or circular pattern, producing
 |------|------|:--------:|-------------|
 | `bodyId` | string | yes | ID of the source body to mirror or copy. |
 | `kind` | string | yes | Pattern type: `"mirror"`, `"linear"`, or `"circular"`. |
-| `params` | object | yes | Kind-specific parameters. Mirror: `planeNormal` (required), `planeOrigin` (optional). Linear: `direction`, `spacing`, `count`. Circular: `axisOrigin`, `axisDirection`, `totalCount`, `totalAngle` (optional). |
+| `params` | object | yes | Kind-specific parameters. Mirror: `planeNormal` (required), `planeOrigin` (optional). Linear: `direction`, `spacing`, `count`. Circular: `axisOrigin`, `axisDirection`, `totalCount`, `totalAngle` (optional, radians; omitted is a full circle, divided equally). A partial `totalAngle` steps the copies in `totalCount - 1` equal steps, so the last copy lands at that angle; before OCCTSwift 4.0.0 it stopped one step short. |
 | `outputBodyId` | string | no | ID for the result body. |
 
 **Returns**: Updated scene manifest with the new pattern body added. For mirrors, the mirror plane is written to `provenance.json` in the output directory so [`find_correspondences`](selection.md#find_correspondences) can recover the transform automatically.

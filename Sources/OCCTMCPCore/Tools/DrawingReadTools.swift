@@ -201,7 +201,9 @@ public enum DrawingReadTools {
             valueUnit: isAngle ? "as stored, not declared by DXF" : "drawing units",
             valueMm: isAngle ? nil : d.measurement.flatMap { v in mmPerUnit.map { v * $0 } },
             valueFromPoints: fromPoints,
-            valueFromPointsMm: fromPoints.flatMap { v in mmPerUnit.map { v * $0 } },
+            // An angle is in degrees (SwiftDXF 0.6 computes one for an angular dimension), and
+            // is no length to scale into millimetres.
+            valueFromPointsMm: isAngle ? nil : fromPoints.flatMap { v in mmPerUnit.map { v * $0 } },
             // A text of exactly `<>` is DXF's "show the measured value": no override.
             text: d.textOverride == "<>" ? nil : d.textOverride,
             textPosition: DrawingEntities.xyz(d.textPosition),
@@ -289,6 +291,24 @@ public enum DrawingReadTools {
         case .dimension(let d):
             record.dimension = dimensionRecord(
                 d, id: id, mmPerUnit: mmPerUnit, identity: identity, rebuilt: rebuilt)
+        case .solid(let solid):
+            // A filled triangle or quadrilateral, often an arrowhead: its outline, in the order
+            // that walks it.
+            record.vertices = solid.corners.map(DrawingEntities.xyz)
+            record.closed = true
+        case .wipeout(let wipeout):
+            record.vertices = wipeout.boundary.map(DrawingEntities.xyz)
+            record.closed = true
+        case .face3D(let face):
+            // Four corners in outline order; a triangle repeats its third as its fourth.
+            record.vertices = face.corners.map(DrawingEntities.xyz)
+            record.closed = true
+        case .tolerance(let tolerance):
+            // The frame string as the file writes it, where it is placed and the way it runs.
+            record.at = DrawingEntities.xyz(tolerance.insertion)
+            record.rotationDeg = tolerance.rotationDeg
+            record.text = tolerance.text
+            record.styleName = tolerance.styleName
         @unknown default:
             break
         }

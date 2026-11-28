@@ -1,5 +1,5 @@
 {
-  "originHash" : "f7ff8cacb31f0fad39aaccf86baad28a51ed6be7296f8e35e0e040cf2543ae12",
+  "originHash" : "34840b3b040e75878c2ff5decbcf28eba8a3108b3f596a363e28d58ed7eca0ad",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwift.git",
       "state" : {
-        "revision" : "a947ed6a4bf981846fce390fe2a1363759d4128f",
-        "version" : "4.0.0-beta.6"
+        "revision" : "a76f1c0444e3edb73b4d21793f47d011c6cb5c31",
+        "version" : "4.0.0"
       }
     },
     {
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftInteraction.git",
       "state" : {
-        "revision" : "705a47341ffa77535394a6996fa970d32b9263d2",
-        "version" : "3.0.0-beta.6"
+        "revision" : "b5aa3b24647539399b858aaaf1a3d3ab54fd5227",
+        "version" : "3.0.0"
       }
     },
     {
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftIO.git",
       "state" : {
-        "revision" : "d1b7274f1a9ccda0f2d9c086563d41b4f80451be",
-        "version" : "2.0.0-beta.10"
+        "revision" : "a7965cbdc3bb4474caf986192e9f8830e07151eb",
+        "version" : "2.0.0"
       }
     },
     {
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftMesh.git",
       "state" : {
-        "revision" : "8ec648cf997d7d4ab39b5381ca2bb570f27895ee",
-        "version" : "1.7.6-beta.4"
+        "revision" : "ae2bf5f70f0c64e9edaf33a8e08dfcb117cdb7a6",
+        "version" : "1.7.6"
       }
     },
     {
@@ -60,8 +60,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/OCCTSwiftScripts.git",
       "state" : {
-        "revision" : "734c8915bd2f22e43678479d9e4ad630d3666881",
-        "version" : "1.7.1-beta.4"
+        "revision" : "4e73e2a199b75a67e30b09a4926debc7e911dc38",
+        "version" : "1.7.1"
       }
     },
     {
@@ -141,8 +141,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/SwiftDXF.git",
       "state" : {
-        "revision" : "42f5338d49d80d94b232279ae59430b2953fcc58",
-        "version" : "0.5.0"
+        "revision" : "c3a029fb27a27f05b6a8a00004197ae4fc1bae38",
+        "version" : "0.6.1"
       }
     },
     {
@@ -159,8 +159,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SecondMouseAU/SwiftJWW.git",
       "state" : {
-        "revision" : "86d06280f63a616daf9b2ec375f6066bb247614d",
-        "version" : "1.5.0"
+        "revision" : "37df12c298783713ed4dfef587058406d6ec64f7",
+        "version" : "2.0.0"
       }
     },
     {
